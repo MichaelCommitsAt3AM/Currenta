@@ -1,0 +1,42 @@
+// lib/main.dart
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'core/config/app_config.dart';
+import 'core/theme/app_theme.dart';
+import 'features/news/application/background_fetch_service.dart';
+import 'features/news/presentation/screens/feed_screen.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Supabase ──────────────────────────────────────────────────
+  await Supabase.initialize(
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
+  );
+
+  // ── Background Tasks ──────────────────────────────────────────
+  await registerBackgroundTasks();
+
+  runApp(
+    const ProviderScope(
+      child: CurrentaApp(),
+    ),
+  );
+}
+
+class CurrentaApp extends StatelessWidget {
+  const CurrentaApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Currenta',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.dark,
+      home: const FeedScreen(),
+    );
+  }
+}
