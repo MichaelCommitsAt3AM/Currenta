@@ -1,0 +1,14 @@
+version: 3
+
+tunnels:
+  ollama:
+    proto: http
+    addr: 11434
+    host_header: localhost:11434
+    # Strip the Origin header before forwarding to Ollama.
+    # Supabase edge functions (Deno) send an Origin header on cross-origin
+    # fetches, which Ollama's CORS middleware rejects with 403.
+    # Removing Origin here means Ollama sees it as a same-origin request.
+    request_header:
+      remove:
+        - "Origin"

@@ -1,0 +1,14 @@
+{
+    "name": "ollama-monitor",
+    "version": "1.0.0",
+    "description": "A light-weight Node.js monitoring dashboard for Ollama and system metrics.",
+    "main": "server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "express": "^4.19.0",
+        "systeminformation": "^5.22.0"
+    }
+}
