@@ -27,6 +27,10 @@ mixin _$NewsArticle {
   @JsonKey(name: 'original_url')
   String get originalUrl;
 
+  /// Cover image URL
+  @JsonKey(name: 'image_url')
+  String? get imageUrl;
+
   /// Publisher name, e.g. "BBC News"
   @JsonKey(name: 'source_name')
   String get sourceName;
@@ -70,6 +74,8 @@ mixin _$NewsArticle {
             (identical(other.summary, summary) || other.summary == summary) &&
             (identical(other.originalUrl, originalUrl) ||
                 other.originalUrl == originalUrl) &&
+            (identical(other.imageUrl, imageUrl) ||
+                other.imageUrl == imageUrl) &&
             (identical(other.sourceName, sourceName) ||
                 other.sourceName == sourceName) &&
             (identical(other.sourceFaviconUrl, sourceFaviconUrl) ||
@@ -92,6 +98,7 @@ mixin _$NewsArticle {
       title,
       summary,
       originalUrl,
+      imageUrl,
       sourceName,
       sourceFaviconUrl,
       publishedAt,
@@ -101,7 +108,7 @@ mixin _$NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
   }
 }
 
@@ -116,6 +123,7 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       String title,
       String summary,
       @JsonKey(name: 'original_url') String originalUrl,
+      @JsonKey(name: 'image_url') String? imageUrl,
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
@@ -140,6 +148,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? title = null,
     Object? summary = null,
     Object? originalUrl = null,
+    Object? imageUrl = freezed,
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
@@ -164,6 +173,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.originalUrl
           : originalUrl // ignore: cast_nullable_to_non_nullable
               as String,
+      imageUrl: freezed == imageUrl
+          ? _self.imageUrl
+          : imageUrl // ignore: cast_nullable_to_non_nullable
+              as String?,
       sourceName: null == sourceName
           ? _self.sourceName
           : sourceName // ignore: cast_nullable_to_non_nullable
@@ -290,6 +303,7 @@ extension NewsArticlePatterns on NewsArticle {
             String title,
             String summary,
             @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'image_url') String? imageUrl,
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
@@ -307,6 +321,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.title,
             _that.summary,
             _that.originalUrl,
+            _that.imageUrl,
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
@@ -338,6 +353,7 @@ extension NewsArticlePatterns on NewsArticle {
             String title,
             String summary,
             @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'image_url') String? imageUrl,
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
@@ -354,6 +370,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.title,
             _that.summary,
             _that.originalUrl,
+            _that.imageUrl,
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
@@ -384,6 +401,7 @@ extension NewsArticlePatterns on NewsArticle {
             String title,
             String summary,
             @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'image_url') String? imageUrl,
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
@@ -400,6 +418,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.title,
             _that.summary,
             _that.originalUrl,
+            _that.imageUrl,
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
@@ -420,6 +439,7 @@ class _NewsArticle implements NewsArticle {
       required this.title,
       required this.summary,
       @JsonKey(name: 'original_url') required this.originalUrl,
+      @JsonKey(name: 'image_url') this.imageUrl,
       @JsonKey(name: 'source_name') required this.sourceName,
       @JsonKey(name: 'source_favicon_url') this.sourceFaviconUrl,
       @JsonKey(name: 'published_at') required this.publishedAt,
@@ -445,6 +465,11 @@ class _NewsArticle implements NewsArticle {
   @override
   @JsonKey(name: 'original_url')
   final String originalUrl;
+
+  /// Cover image URL
+  @override
+  @JsonKey(name: 'image_url')
+  final String? imageUrl;
 
   /// Publisher name, e.g. "BBC News"
   @override
@@ -501,6 +526,8 @@ class _NewsArticle implements NewsArticle {
             (identical(other.summary, summary) || other.summary == summary) &&
             (identical(other.originalUrl, originalUrl) ||
                 other.originalUrl == originalUrl) &&
+            (identical(other.imageUrl, imageUrl) ||
+                other.imageUrl == imageUrl) &&
             (identical(other.sourceName, sourceName) ||
                 other.sourceName == sourceName) &&
             (identical(other.sourceFaviconUrl, sourceFaviconUrl) ||
@@ -523,6 +550,7 @@ class _NewsArticle implements NewsArticle {
       title,
       summary,
       originalUrl,
+      imageUrl,
       sourceName,
       sourceFaviconUrl,
       publishedAt,
@@ -532,7 +560,7 @@ class _NewsArticle implements NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
   }
 }
 
@@ -549,6 +577,7 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       String title,
       String summary,
       @JsonKey(name: 'original_url') String originalUrl,
+      @JsonKey(name: 'image_url') String? imageUrl,
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
@@ -573,6 +602,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? title = null,
     Object? summary = null,
     Object? originalUrl = null,
+    Object? imageUrl = freezed,
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
@@ -597,6 +627,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self.originalUrl
           : originalUrl // ignore: cast_nullable_to_non_nullable
               as String,
+      imageUrl: freezed == imageUrl
+          ? _self.imageUrl
+          : imageUrl // ignore: cast_nullable_to_non_nullable
+              as String?,
       sourceName: null == sourceName
           ? _self.sourceName
           : sourceName // ignore: cast_nullable_to_non_nullable

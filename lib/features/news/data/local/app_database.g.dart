@@ -31,6 +31,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<String> originalUrl = GeneratedColumn<String>(
       'original_url', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _imageUrlMeta =
+      const VerificationMeta('imageUrl');
+  @override
+  late final GeneratedColumn<String> imageUrl = GeneratedColumn<String>(
+      'image_url', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _sourceNameMeta =
       const VerificationMeta('sourceName');
   @override
@@ -79,6 +85,7 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         title,
         summary,
         originalUrl,
+        imageUrl,
         sourceName,
         sourceFaviconUrl,
         publishedAt,
@@ -121,6 +128,10 @@ class $NewsArticlesTableTable extends NewsArticlesTable
               data['original_url']!, _originalUrlMeta));
     } else if (isInserting) {
       context.missing(_originalUrlMeta);
+    }
+    if (data.containsKey('image_url')) {
+      context.handle(_imageUrlMeta,
+          imageUrl.isAcceptableOrUnknown(data['image_url']!, _imageUrlMeta));
     }
     if (data.containsKey('source_name')) {
       context.handle(
@@ -175,6 +186,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.string, data['${effectivePrefix}summary'])!,
       originalUrl: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}original_url'])!,
+      imageUrl: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}image_url']),
       sourceName: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}source_name'])!,
       sourceFaviconUrl: attachedDatabase.typeMapping.read(
@@ -202,6 +215,7 @@ class NewsArticlesTableData extends DataClass
   final String title;
   final String summary;
   final String originalUrl;
+  final String? imageUrl;
   final String sourceName;
   final String? sourceFaviconUrl;
   final DateTime publishedAt;
@@ -213,6 +227,7 @@ class NewsArticlesTableData extends DataClass
       required this.title,
       required this.summary,
       required this.originalUrl,
+      this.imageUrl,
       required this.sourceName,
       this.sourceFaviconUrl,
       required this.publishedAt,
@@ -226,6 +241,9 @@ class NewsArticlesTableData extends DataClass
     map['title'] = Variable<String>(title);
     map['summary'] = Variable<String>(summary);
     map['original_url'] = Variable<String>(originalUrl);
+    if (!nullToAbsent || imageUrl != null) {
+      map['image_url'] = Variable<String>(imageUrl);
+    }
     map['source_name'] = Variable<String>(sourceName);
     if (!nullToAbsent || sourceFaviconUrl != null) {
       map['source_favicon_url'] = Variable<String>(sourceFaviconUrl);
@@ -245,6 +263,9 @@ class NewsArticlesTableData extends DataClass
       title: Value(title),
       summary: Value(summary),
       originalUrl: Value(originalUrl),
+      imageUrl: imageUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(imageUrl),
       sourceName: Value(sourceName),
       sourceFaviconUrl: sourceFaviconUrl == null && nullToAbsent
           ? const Value.absent()
@@ -266,6 +287,7 @@ class NewsArticlesTableData extends DataClass
       title: serializer.fromJson<String>(json['title']),
       summary: serializer.fromJson<String>(json['summary']),
       originalUrl: serializer.fromJson<String>(json['originalUrl']),
+      imageUrl: serializer.fromJson<String?>(json['imageUrl']),
       sourceName: serializer.fromJson<String>(json['sourceName']),
       sourceFaviconUrl: serializer.fromJson<String?>(json['sourceFaviconUrl']),
       publishedAt: serializer.fromJson<DateTime>(json['publishedAt']),
@@ -282,6 +304,7 @@ class NewsArticlesTableData extends DataClass
       'title': serializer.toJson<String>(title),
       'summary': serializer.toJson<String>(summary),
       'originalUrl': serializer.toJson<String>(originalUrl),
+      'imageUrl': serializer.toJson<String?>(imageUrl),
       'sourceName': serializer.toJson<String>(sourceName),
       'sourceFaviconUrl': serializer.toJson<String?>(sourceFaviconUrl),
       'publishedAt': serializer.toJson<DateTime>(publishedAt),
@@ -296,6 +319,7 @@ class NewsArticlesTableData extends DataClass
           String? title,
           String? summary,
           String? originalUrl,
+          Value<String?> imageUrl = const Value.absent(),
           String? sourceName,
           Value<String?> sourceFaviconUrl = const Value.absent(),
           DateTime? publishedAt,
@@ -307,6 +331,7 @@ class NewsArticlesTableData extends DataClass
         title: title ?? this.title,
         summary: summary ?? this.summary,
         originalUrl: originalUrl ?? this.originalUrl,
+        imageUrl: imageUrl.present ? imageUrl.value : this.imageUrl,
         sourceName: sourceName ?? this.sourceName,
         sourceFaviconUrl: sourceFaviconUrl.present
             ? sourceFaviconUrl.value
@@ -323,6 +348,7 @@ class NewsArticlesTableData extends DataClass
       summary: data.summary.present ? data.summary.value : this.summary,
       originalUrl:
           data.originalUrl.present ? data.originalUrl.value : this.originalUrl,
+      imageUrl: data.imageUrl.present ? data.imageUrl.value : this.imageUrl,
       sourceName:
           data.sourceName.present ? data.sourceName.value : this.sourceName,
       sourceFaviconUrl: data.sourceFaviconUrl.present
@@ -344,6 +370,7 @@ class NewsArticlesTableData extends DataClass
           ..write('title: $title, ')
           ..write('summary: $summary, ')
           ..write('originalUrl: $originalUrl, ')
+          ..write('imageUrl: $imageUrl, ')
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
@@ -355,8 +382,18 @@ class NewsArticlesTableData extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(id, title, summary, originalUrl, sourceName,
-      sourceFaviconUrl, publishedAt, category, isPaywalled, clusterId);
+  int get hashCode => Object.hash(
+      id,
+      title,
+      summary,
+      originalUrl,
+      imageUrl,
+      sourceName,
+      sourceFaviconUrl,
+      publishedAt,
+      category,
+      isPaywalled,
+      clusterId);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -365,6 +402,7 @@ class NewsArticlesTableData extends DataClass
           other.title == this.title &&
           other.summary == this.summary &&
           other.originalUrl == this.originalUrl &&
+          other.imageUrl == this.imageUrl &&
           other.sourceName == this.sourceName &&
           other.sourceFaviconUrl == this.sourceFaviconUrl &&
           other.publishedAt == this.publishedAt &&
@@ -379,6 +417,7 @@ class NewsArticlesTableCompanion
   final Value<String> title;
   final Value<String> summary;
   final Value<String> originalUrl;
+  final Value<String?> imageUrl;
   final Value<String> sourceName;
   final Value<String?> sourceFaviconUrl;
   final Value<DateTime> publishedAt;
@@ -391,6 +430,7 @@ class NewsArticlesTableCompanion
     this.title = const Value.absent(),
     this.summary = const Value.absent(),
     this.originalUrl = const Value.absent(),
+    this.imageUrl = const Value.absent(),
     this.sourceName = const Value.absent(),
     this.sourceFaviconUrl = const Value.absent(),
     this.publishedAt = const Value.absent(),
@@ -404,6 +444,7 @@ class NewsArticlesTableCompanion
     required String title,
     required String summary,
     required String originalUrl,
+    this.imageUrl = const Value.absent(),
     required String sourceName,
     this.sourceFaviconUrl = const Value.absent(),
     required DateTime publishedAt,
@@ -422,6 +463,7 @@ class NewsArticlesTableCompanion
     Expression<String>? title,
     Expression<String>? summary,
     Expression<String>? originalUrl,
+    Expression<String>? imageUrl,
     Expression<String>? sourceName,
     Expression<String>? sourceFaviconUrl,
     Expression<DateTime>? publishedAt,
@@ -435,6 +477,7 @@ class NewsArticlesTableCompanion
       if (title != null) 'title': title,
       if (summary != null) 'summary': summary,
       if (originalUrl != null) 'original_url': originalUrl,
+      if (imageUrl != null) 'image_url': imageUrl,
       if (sourceName != null) 'source_name': sourceName,
       if (sourceFaviconUrl != null) 'source_favicon_url': sourceFaviconUrl,
       if (publishedAt != null) 'published_at': publishedAt,
@@ -450,6 +493,7 @@ class NewsArticlesTableCompanion
       Value<String>? title,
       Value<String>? summary,
       Value<String>? originalUrl,
+      Value<String?>? imageUrl,
       Value<String>? sourceName,
       Value<String?>? sourceFaviconUrl,
       Value<DateTime>? publishedAt,
@@ -462,6 +506,7 @@ class NewsArticlesTableCompanion
       title: title ?? this.title,
       summary: summary ?? this.summary,
       originalUrl: originalUrl ?? this.originalUrl,
+      imageUrl: imageUrl ?? this.imageUrl,
       sourceName: sourceName ?? this.sourceName,
       sourceFaviconUrl: sourceFaviconUrl ?? this.sourceFaviconUrl,
       publishedAt: publishedAt ?? this.publishedAt,
@@ -486,6 +531,9 @@ class NewsArticlesTableCompanion
     }
     if (originalUrl.present) {
       map['original_url'] = Variable<String>(originalUrl.value);
+    }
+    if (imageUrl.present) {
+      map['image_url'] = Variable<String>(imageUrl.value);
     }
     if (sourceName.present) {
       map['source_name'] = Variable<String>(sourceName.value);
@@ -518,6 +566,7 @@ class NewsArticlesTableCompanion
           ..write('title: $title, ')
           ..write('summary: $summary, ')
           ..write('originalUrl: $originalUrl, ')
+          ..write('imageUrl: $imageUrl, ')
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
@@ -548,6 +597,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   required String title,
   required String summary,
   required String originalUrl,
+  Value<String?> imageUrl,
   required String sourceName,
   Value<String?> sourceFaviconUrl,
   required DateTime publishedAt,
@@ -562,6 +612,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<String> title,
   Value<String> summary,
   Value<String> originalUrl,
+  Value<String?> imageUrl,
   Value<String> sourceName,
   Value<String?> sourceFaviconUrl,
   Value<DateTime> publishedAt,
@@ -591,6 +642,9 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<String> get originalUrl => $composableBuilder(
       column: $table.originalUrl, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get imageUrl => $composableBuilder(
+      column: $table.imageUrl, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<String> get sourceName => $composableBuilder(
       column: $table.sourceName, builder: (column) => ColumnFilters(column));
@@ -633,6 +687,9 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<String> get originalUrl => $composableBuilder(
       column: $table.originalUrl, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get imageUrl => $composableBuilder(
+      column: $table.imageUrl, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get sourceName => $composableBuilder(
       column: $table.sourceName, builder: (column) => ColumnOrderings(column));
 
@@ -673,6 +730,9 @@ class $$NewsArticlesTableTableAnnotationComposer
 
   GeneratedColumn<String> get originalUrl => $composableBuilder(
       column: $table.originalUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get imageUrl =>
+      $composableBuilder(column: $table.imageUrl, builder: (column) => column);
 
   GeneratedColumn<String> get sourceName => $composableBuilder(
       column: $table.sourceName, builder: (column) => column);
@@ -726,6 +786,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<String> title = const Value.absent(),
             Value<String> summary = const Value.absent(),
             Value<String> originalUrl = const Value.absent(),
+            Value<String?> imageUrl = const Value.absent(),
             Value<String> sourceName = const Value.absent(),
             Value<String?> sourceFaviconUrl = const Value.absent(),
             Value<DateTime> publishedAt = const Value.absent(),
@@ -739,6 +800,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             title: title,
             summary: summary,
             originalUrl: originalUrl,
+            imageUrl: imageUrl,
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,
@@ -752,6 +814,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             required String title,
             required String summary,
             required String originalUrl,
+            Value<String?> imageUrl = const Value.absent(),
             required String sourceName,
             Value<String?> sourceFaviconUrl = const Value.absent(),
             required DateTime publishedAt,
@@ -765,6 +828,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             title: title,
             summary: summary,
             originalUrl: originalUrl,
+            imageUrl: imageUrl,
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,

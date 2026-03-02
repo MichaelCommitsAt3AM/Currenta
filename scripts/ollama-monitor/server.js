@@ -11,8 +11,8 @@ app.use(express.json({ limit: '50mb' }));
 
 const recentRequests = [];
 
-// Wrapper Endpoint for Proxying to Ollama seamlessly
-app.all(['/v1/*', '/api/generate', '/api/chat', '/api/embeddings'], async (req, res) => {
+// Wrapper Endpoint for Proxying to Ollama seamlessly - NOW ONLY EXPOSING EMBEDDINGS
+app.all(['/v1/embeddings', '/api/embeddings'], async (req, res) => {
     const url = `${OLLAMA_URL}${req.originalUrl}`;
     const startTime = Date.now();
     let ttfb = 0;

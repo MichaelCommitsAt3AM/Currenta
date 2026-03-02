@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+import { decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 // supabase/functions/ingest-news/index.ts
 // Supabase Edge Function — ingests an RSS feed, summarizes with the configured
 // LLM, deduplicates via pgvector cosine similarity, and persists to PostgreSQL.
@@ -35,31 +37,49 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // ── Shared Summarization Prompt ───────────────────────────────────
 const SUMMARIZATION_PROMPT = `
-You are a factual news summarizer. Generate a strict, non-clickbait title, a summary, and classify the category for the following article.
+You are a factual news summarizer and classifier. Generate a strict, non-clickbait title, a 5Ws summary, and classify the article category.
 
-Follow this EXACT format:
-TITLE: <A short, factual, objective title (max 10 words)>
-SUMMARY: <A concise summary using the 5Ws framework (Who, What, Where, When, Why) in about 50-70 words. One tight paragraph, no markdown.>
-CATEGORY: <Must be EXACTLY one of: politics, tech, science, business, sports, entertainment, health, world>
+Return the result as a raw JSON object only (no preamble):
+{
+  "title": "...",
+  "summary": "...",
+  "category": "..."
+}
 
-CRITICAL: Do NOT output any conversational preamble. Start immediately with TITLE:
+"category" MUST be one of:
+- "politics" (elections, laws, government, diplomacy)
+- "tech" (consumer gadgets, software apps, companies, AI products)
+- "science" (research papers, space exploration, physics, biology, academic archeology)
+- "business" (markets, finance, corporate news, trade)
+- "sports" (games, matches, teams, athletes)
+- "entertainment" (movies, music, celebrities, arts)
+- "health" (medicine, wellness, public health, diseases)
+- "world" (general news, humanitarian, crime, transit)
 
-Article:
+NOTE: Distinguish carefully between "tech" (consumer/business software/hardware) and "science" (deep fundamental research or academic discovery).
+
+Article to summarize and classify:
 `.trim();
 
 // ── LLM: Summarize ────────────────────────────────────────────────
-async function summarize(text: string): Promise<{ title: string; summary: string; category: string }> {
+async function summarize(text: string, provider: string, geminiKey: string, categoryHint?: string): Promise<{ title: string; summary: string; category: string }> {
   let rawContent = "";
+  const categoryContext = categoryHint ? `\nThe source feed is tagged as '${categoryHint}'. Use this as a guide for classification.` : "";
+  const fullPrompt = `${SUMMARIZATION_PROMPT}${categoryContext}\n\nArticle:\n${text}`;
 
-  if (LLM_PROVIDER === "gemini") {
+  if (provider === "gemini") {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${SUMMARIZATION_PROMPT}\n${text}` }] }],
-          generationConfig: { maxOutputTokens: 500, temperature: 0.2 },
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: {
+            maxOutputTokens: 500,
+            temperature: 0.1,
+            responseMimeType: "application/json"
+          },
         }),
       }
     );
@@ -70,7 +90,7 @@ async function summarize(text: string): Promise<{ title: string; summary: string
     const json = await res.json();
     rawContent = json.candidates[0].content.parts[0].text.trim();
     console.log(`[LLM] Gemini received ${rawContent.length} chars.`);
-  } else if (LLM_PROVIDER === "groq") {
+  } else if (provider === "groq") {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -80,10 +100,11 @@ async function summarize(text: string): Promise<{ title: string; summary: string
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "user", content: `${SUMMARIZATION_PROMPT}\n${text}` },
+          { role: "user", content: fullPrompt },
         ],
+        response_format: { type: "json_object" },
         max_tokens: 500,
-        temperature: 0.2,
+        temperature: 0.1,
       }),
     });
     if (!res.ok) {
@@ -96,17 +117,18 @@ async function summarize(text: string): Promise<{ title: string; summary: string
   } else {
     // Default: local Ollama (OpenAI-compatible)
     const url = `${LOCAL_LLM_BASE_URL}/chat/completions`;
-    console.log(`[LLM] Summarizing via: ${url} (Model: ${LOCAL_LLM_MODEL})`);
+    console.log(`[LLM] Summarizing via: ${url} (Model: ${LOCAL_LLM_MODEL})At base url ${LOCAL_LLM_BASE_URL}`);
     const res = await fetch(url, {
       method: "POST",
       headers: LOCAL_LLM_HEADERS,
       body: JSON.stringify({
         model: LOCAL_LLM_MODEL,
         messages: [
-          { role: "user", content: `${SUMMARIZATION_PROMPT}\n${text}` },
+          { role: "user", content: fullPrompt },
         ],
+        format: "json",
         max_tokens: 500,
-        temperature: 0.2,
+        temperature: 0.1,
         stream: false,
       }),
     });
@@ -123,63 +145,30 @@ async function summarize(text: string): Promise<{ title: string; summary: string
 }
 
 function parseTitleAndSummary(raw: string): { title: string; summary: string; category: string } {
-  let title = "News Update";
-  let summary = raw;
-  let category = "world";
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const title = (parsed.title || "News Update").replace(/\*\*/g, "").replace(/^"|"$/g, "");
+    const summary = (parsed.summary || raw).replace(/\*\*/g, "").replace(/^"|"$/g, "");
+    let category = (parsed.category || "world").toLowerCase().replace(/[^a-z]/g, "");
 
-  const titleMatch = raw.match(/TITLE:\s*(.*)/i);
-  const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]*?)(?=CATEGORY:|\z)/i);
-  const categoryMatch = raw.match(/CATEGORY:\s*(.*)/i);
-
-  if (titleMatch) title = titleMatch[1].trim();
-
-  if (summaryMatch) {
-    summary = summaryMatch[1].trim();
-  } else if (titleMatch) {
-    // Fallback: if it has TITLE: but no SUMMARY: tag, take everything after the title line
-    const afterTitle = raw.split(/TITLE:.*?\n/i)[1] || "";
-    summary = afterTitle.trim() || raw.replace(/TITLE:.*?\n/i, "").trim();
-  }
-
-  if (categoryMatch) {
-    let extractedCategory = categoryMatch[1].trim().toLowerCase();
-    extractedCategory = extractedCategory.replace(/[^a-z]/g, ""); // remove non-alpha chars
     const validCategories = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world"];
-    if (validCategories.includes(extractedCategory)) {
-      category = extractedCategory;
-    }
+    if (!validCategories.includes(category)) category = "world";
+
+    return { title, summary, category };
+  } catch (err: any) {
+    console.error(`[Parse] Failed to parse JSON: ${err.message}. Raw: ${raw}`);
+    // Fallback: simple text cleanup
+    return {
+      title: "News Update",
+      summary: raw.slice(0, 300),
+      category: "world"
+    };
   }
-
-  // Cleanup asterisks or quotes LLMs sometimes mistakenly add
-  title = title.replace(/\*\*/g, "").replace(/^"|"$/g, "");
-  summary = summary.replace(/\*\*/g, "");
-
-  return { title, summary, category };
 }
 
 // ── LLM: Embed ────────────────────────────────────────────────────
 async function embed(text: string): Promise<number[]> {
-  if (LLM_PROVIDER === "gemini") {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "models/text-embedding-004",
-          content: { parts: [{ text }] },
-        }),
-      }
-    );
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gemini Embedding failed (${res.status}): ${errText}`);
-    }
-    const json = await res.json();
-    return json.embedding.values;
-  }
-
-  // Local Ollama: OpenAI-compatible /v1/embeddings
+  // Always use local Ollama: OpenAI-compatible /v1/embeddings
   // Uses a dedicated embedding model (nomic-embed-text = 768 dims) rather than
   // the LLM itself — avoids the 4096-dim IVFFlat index limit in pgvector.
   const url = `${LOCAL_LLM_BASE_URL}/embeddings`;
@@ -206,33 +195,60 @@ async function embed(text: string): Promise<number[]> {
   return json.data[0].embedding;
 }
 
-// ── Jina-Reader text extraction ───────────────────────────────────
-async function extractText(url: string): Promise<string> {
-  // Uses Jina Reader (free, no key) for clean article text
-  const res = await fetch(`https://r.jina.ai/${url}`, {
-    headers: { Accept: "text/plain" },
+// ── Scraper Service text extraction ─────────────────────────────────
+async function extractText(url: string): Promise<{ text: string; imageUrl?: string; imageBase64?: string }> {
+  const scraperUrl = Deno.env.get("SCRAPER_SERVICE_URL") ?? "http://localhost:8000/scrape";
+  console.log(`[Item] Calling Scraper Service at ${scraperUrl} for ${url}`);
+
+  const res = await fetch(scraperUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
   });
-  if (!res.ok) throw new Error(`Jina Reader failed: ${res.status}`);
-  const text = await res.text();
 
-  const lowerText = text.toLowerCase();
-
-  // If Jina hits Cloudflare, paywalls, or bot-protection
-  if (
-    lowerText.includes("403 forbidden") ||
-    lowerText.includes("access denied") ||
-    lowerText.includes("please enable cookies") ||
-    lowerText.includes("security check") ||
-    lowerText.includes("are you a robot") ||
-    lowerText.includes("javascript is disabled") ||
-    lowerText.includes("turn on javascript") ||
-    lowerText.includes("attention required")
-  ) {
-    throw new Error("Jina Reader hit a bot-protection/paywall blockade.");
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Scraper Service failed (${res.status}): ${errText}`);
   }
 
-  // Trim to ~3000 chars to stay within LLM context
-  return text.slice(0, 3000);
+  const json = await res.json();
+  const text = (json.text || "").slice(0, 3000);
+  return {
+    text,
+    imageUrl: json.image_url || undefined,
+    imageBase64: json.image_base64 || undefined
+  };
+}
+
+// ── Supabase Storage: Persistent Image Hosting ─────────────────────
+async function uploadImage(base64Data: string, fileName: string): Promise<string | null> {
+  try {
+    const imageBytes = decodeBase64(base64Data);
+    const bucketName = "article-images";
+    const filePath = `covers/${fileName}.jpg`;
+
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(filePath, imageBytes, {
+        contentType: "image/jpeg",
+        upsert: true,
+      });
+
+    if (error) {
+      console.error(`[Storage] Upload failed: ${error.message}`);
+      return null;
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  } catch (err) {
+    console.error(`[Storage] Unexpected error: ${err}`);
+    return null;
+  }
 }
 
 // ── RSS Parser (regex-based, no DOMParser) ────────────────────────
@@ -243,6 +259,7 @@ interface RssItem {
   link: string;
   pubDate: string;
   source: string;
+  description: string;
 }
 
 /** Extract the text content of the FIRST occurrence of <tag>…</tag> in src. */
@@ -267,6 +284,7 @@ async function parseRss(feedUrl: string): Promise<RssItem[]> {
 
   return rawItems.slice(0, 10).map((block) => {
     const title = extractTag(block, "title");
+    const description = (extractTag(block, "description") || extractTag(block, "content") || extractTag(block, "summary") || "").replace(/<[^>]+>/g, "").trim();
 
     // RSS 2.0 uses <link>, Atom uses <link href="…"/> or <id>
     let link = extractTag(block, "link");
@@ -281,7 +299,7 @@ async function parseRss(feedUrl: string): Promise<RssItem[]> {
       extractTag(block, "updated") ||
       new Date().toISOString();
 
-    return { title, link, pubDate, source: channelTitle };
+    return { title, link, pubDate, source: channelTitle, description };
   }).filter((item) => item.title && item.link);
 }
 
@@ -305,7 +323,8 @@ serve(async (req: Request) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const { feedUrl } = await req.json();
+  const body = await req.json();
+  const { feedUrl, llmProvider, geminiApiKey } = body;
   if (!feedUrl) {
     return new Response(JSON.stringify({ error: "feedUrl is required" }), {
       status: 400,
@@ -313,8 +332,11 @@ serve(async (req: Request) => {
     });
   }
 
+  const currentProvider = llmProvider || LLM_PROVIDER;
+  const currentGeminiKey = geminiApiKey || GEMINI_API_KEY;
+
   console.log(`[Ingest] Starting request for: ${feedUrl}`);
-  console.log(`[Ingest] Using LLM Provider: ${LLM_PROVIDER}`);
+  console.log(`[Ingest] Using LLM Provider: ${currentProvider}`);
   console.log(`[Ingest] Local Base URL: ${LOCAL_LLM_BASE_URL}`);
   const results = { ingested: 0, skipped: 0, errors: 0 };
 
@@ -329,35 +351,56 @@ serve(async (req: Request) => {
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      if (i > 0) {
-        console.log(`[Ingest] Throttling for 2.5s to prevent rate limits...`);
-        await new Promise((resolve) => setTimeout(resolve, 2500));
+      if (currentProvider === "gemini") {
+        console.log(`[Ingest] Throttling for 5s to respect Gemini Free Tier (15 RPM)...`);
+        await new Promise((resolve) => setTimeout(resolve, 5000));
       }
       console.log(`[Item] Processing: ${item.title.slice(0, 50)}...`);
       try {
-        // 1. Extract clean text
-        console.log(`[Item] Extracting text from: ${item.link}`);
-        const articleText = await extractText(item.link);
-        console.log(`[Item] Extracted ${articleText.length} characters.`);
+        // 1. Extract clean text & Images
+        console.log(`[Item] Extracting content from: ${item.link}`);
+        let articleText = "";
+        let articleImageUrl: string | undefined = undefined;
+        try {
+          const result = await extractText(item.link);
+          articleText = result.text;
 
-        // 2. Generate embedding for deduplication
+          if (result.imageBase64) {
+            console.log(`[Item] Image captured. Uploading to Supabase Storage...`);
+            const persistentUrl = await uploadImage(result.imageBase64, crypto.randomUUID());
+            articleImageUrl = persistentUrl || result.imageUrl; // Fallback to original if upload fails
+          } else {
+            articleImageUrl = result.imageUrl;
+          }
+        } catch (e: any) {
+          console.warn(`[Item] Scraper Service failed for ${item.link}, falling back to RSS description. Error: ${e.message}`);
+          articleText = item.description || "";
+        }
+
+        if (articleText.length < 100) {
+          // If description is also too short, combine with title
+          articleText = `${item.title}\n\n${articleText}`;
+        }
+
+        // 2. Summarize (Title + Body + Category)
+        console.log(`[Item] Summarizing...`);
+        const { title: llmTitle, summary: llmSummary, category: llmCategory } = await summarize(articleText, currentProvider, currentGeminiKey, body.categoryHint);
+
+        // 3. Generate embedding for deduplication based on SUMMARY and TITLE
         console.log(`[Item] Generating embedding...`);
-        const embedding = await embed(item.title + " " + articleText.slice(0, 200));
+        const embedding = await embed(llmTitle + " " + llmSummary);
 
-        // 3. Skip if duplicate
+        // 4. Skip if duplicate
         if (await isDuplicate(embedding)) {
           console.log(`[Item] Skip: Duplicate detected.`);
           results.skipped++;
           continue;
         }
 
-        // 4. Summarize (Title + Body + Category)
-        console.log(`[Item] Summarizing...`);
-        const { title: llmTitle, summary: llmSummary, category: llmCategory } = await summarize(articleText);
-
         console.log(`[Item] Clean Title: ${llmTitle}`);
         console.log(`[Item] Summary:     ${llmSummary.slice(0, 50)}...`);
         console.log(`[Item] Category:    ${llmCategory}`);
+        if (articleImageUrl) console.log(`[Item] Image:       ${articleImageUrl}`);
 
         // 5. Persist — upsert so re-running the same feed never throws a
         //    duplicate-key error on original_url; existing rows are left as-is.
@@ -367,6 +410,7 @@ serve(async (req: Request) => {
             title: llmTitle,
             summary: llmSummary,
             original_url: item.link,
+            image_url: articleImageUrl,
             source_name: item.source,
             published_at: new Date(item.pubDate).toISOString(),
             category: llmCategory,

@@ -20,5 +20,9 @@ abstract class NewsRepository {
   Future<void> prefetchTopArticles({int count = 20});
 
   /// Triggers the cloud/local ingestion pipeline for a specific [feedUrl].
-  Future<void> triggerIngestion({required String feedUrl});
+  Future<void> triggerIngestion(
+      {required String feedUrl, String? categoryHint});
+
+  /// Processes all configured news sources from the NewsSources registry.
+  Future<void> triggerAllIngestion({int? limit});
 }

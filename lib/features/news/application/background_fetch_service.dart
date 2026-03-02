@@ -44,6 +44,11 @@ void _backgroundCallbackDispatcher() {
     try {
       final repo = container.read(newsRepositoryProvider);
       if (taskName == _kBgFetchTaskName) {
+        // 1. Trigger fresh ingestion for a few random sources (3-5)
+        // to keep the Supabase DB alive and current.
+        await repo.triggerAllIngestion(limit: 5);
+
+        // 2. Fetch from DB to local SQLite
         await repo.prefetchTopArticles(
           count: AppConfig.backgroundPrefetchCount,
         );

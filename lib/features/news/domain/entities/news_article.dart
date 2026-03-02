@@ -22,6 +22,9 @@ abstract class NewsArticle with _$NewsArticle {
     /// Link to the original article
     @JsonKey(name: 'original_url') required String originalUrl,
 
+    /// Cover image URL
+    @JsonKey(name: 'image_url') String? imageUrl,
+
     /// Publisher name, e.g. "BBC News"
     @JsonKey(name: 'source_name') required String sourceName,
 

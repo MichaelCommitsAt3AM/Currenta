@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
 
 class NewsRemoteDataSource {
@@ -51,11 +52,19 @@ class NewsRemoteDataSource {
   }
 
   /// Triggers the Supabase Edge Function to ingest news from an RSS feed.
-  Future<void> triggerIngestion({required String feedUrl}) async {
+  Future<void> triggerIngestion({
+    required String feedUrl,
+    String? categoryHint,
+  }) async {
     try {
       await _supabase.functions.invoke(
         'ingest-news',
-        body: {'feedUrl': feedUrl},
+        body: {
+          'feedUrl': feedUrl,
+          'categoryHint': categoryHint,
+          'llmProvider': AppConfig.llmProvider,
+          'geminiApiKey': AppConfig.geminiApiKey,
+        },
       );
     } on FunctionException catch (e) {
       throw ServerException(

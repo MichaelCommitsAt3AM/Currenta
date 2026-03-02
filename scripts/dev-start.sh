@@ -56,6 +56,19 @@ command -v jq     >/dev/null 2>&1 || warn "jq not found — ngrok URL extraction
 
 [[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
 
+[[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
+
+# Ensure python service requirements are installed if the script exists
+if [[ -f "${PROJECT_ROOT}/scripts/scraper-service/run.sh" ]]; then
+  info "Checking Python Scraper dependencies..."
+  if [[ ! -d "${PROJECT_ROOT}/scripts/scraper-service/venv" ]]; then
+    warn "Virtual env not found for scraper. Running setup..."
+    bash "${PROJECT_ROOT}/scripts/scraper-service/run.sh" &
+    sleep 3
+    pkill -f "uvicorn main:app" || true
+  fi
+fi
+
 ok "All dependencies found"
 echo ""
 
@@ -104,21 +117,13 @@ if [[ "${OLLAMA_READY}" != "true" ]]; then
 fi
 
 # Verify model is available
-info "Checking for model '${OLLAMA_MODEL}'..."
-if ollama list 2>/dev/null | grep -q "^${OLLAMA_MODEL}"; then
-  ok "Model '${OLLAMA_MODEL}' is available"
-else
-  warn "Model '${OLLAMA_MODEL}' not found locally."
-  read -rp "  Pull it now? [Y/n] " pull_answer
-  if [[ "${pull_answer:-Y}" =~ ^[Yy]$ ]]; then
-    echo ""
-    info "Pulling '${OLLAMA_MODEL}' (this may take several minutes)..."
-    ollama pull "${OLLAMA_MODEL}"
-    ok "Model '${OLLAMA_MODEL}' ready"
-  else
-    warn "Skipping model pull — summarisation will fail at runtime."
-  fi
-fi
+# info "Checking for model '${OLLAMA_MODEL}'..."
+# if ollama list 2>/dev/null | grep -q "^${OLLAMA_MODEL}"; then
+#   ok "Model '${OLLAMA_MODEL}' is available"
+# else
+#   warn "Model '${OLLAMA_MODEL}' not found locally."
+#   warn "Now using cloud models for summarization. Skipping local pull."
+# fi
 
 # Verify embedding model is available
 info "Checking for embedding model '${OLLAMA_EMBED_MODEL}'..."
@@ -137,6 +142,42 @@ else
 fi
 echo ""
 
+# ── 2.5 Scraper Service ───────────────────────────────────────────────────────
+hr
+echo -e "${BOLD}  Step 1.5 · Python Scraper Service${RESET}"
+hr
+
+SCRAPER_PORT=8000
+SCRAPER_READY=false
+
+if curl -sf "http://localhost:${SCRAPER_PORT}/" >/dev/null 2>&1 || curl -sf -X POST "http://localhost:${SCRAPER_PORT}/scrape" >/dev/null 2>&1; then
+  ok "Scraper Service is already running on port ${SCRAPER_PORT}"
+  SCRAPER_READY=true
+else
+  info "Starting Python Scraper Service in background..."
+  nohup bash "${PROJECT_ROOT}/scripts/scraper-service/run.sh" \
+    >"${PROJECT_ROOT}/.scraper.log" 2>&1 &
+  echo $! >"${PROJECT_ROOT}/.scraper.pid"
+  info "Scraper PID $(cat "${PROJECT_ROOT}/.scraper.pid") — logs: .scraper.log"
+
+  info "Waiting for Scraper Service to be ready..."
+  for i in $(seq 1 10); do
+    # Expect 405 Method Not Allowed on /, since only POST /scrape is defined
+    if curl -sf http://localhost:${SCRAPER_PORT} >/dev/null 2>&1 || [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${SCRAPER_PORT}/)" -eq 404 ]; then
+      SCRAPER_READY=true
+      break
+    fi
+    sleep 1
+  done
+fi
+
+if [[ "${SCRAPER_READY}" != "true" ]]; then
+  warn "Scraper Service might not be ready. Check .scraper.log."
+else
+  ok "Scraper Service ready on port ${SCRAPER_PORT}"
+fi
+echo ""
+
 # ── 3. ngrok ─────────────────────────────────────────────────────────────────
 hr
 echo -e "${BOLD}  Step 2 · ngrok${RESET}"
@@ -149,35 +190,42 @@ if pgrep -x ngrok >/dev/null 2>&1; then
   sleep 1
 fi
 
-# Start ngrok in the background
-info "Starting ngrok with config: ${NGROK_CONFIG}"
-nohup ngrok start --config "/home/linux/.config/ngrok/ngrok.yml" --config "${NGROK_CONFIG}" ollama \
+# Start ngrok in the background with both tunnels
+info "Starting ngrok with tunnels: ollama, scraper"
+nohup ngrok start --config "/home/linux/.config/ngrok/ngrok.yml" --config "${NGROK_CONFIG}" ollama scraper \
   >"${PROJECT_ROOT}/.ngrok.log" 2>&1 &
 NGROK_PID=$!
 echo "${NGROK_PID}" >"${PROJECT_ROOT}/.ngrok.pid"
 info "ngrok PID ${NGROK_PID} — logs: .ngrok.log"
 
 # Wait for ngrok local API to become available
-info "Waiting for ngrok to establish tunnel..."
-NGROK_URL=""
+info "Waiting for ngrok to establish tunnels..."
+OLLAMA_NGROK_URL=""
+SCRAPER_NGROK_URL=""
 for i in $(seq 1 20); do
   if command -v jq >/dev/null 2>&1; then
-    NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | jq -r '.tunnels[]? | select(.proto=="https") | .public_url' 2>/dev/null | head -1 || echo "")
+    OLLAMA_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | jq -r '.tunnels[]? | select(.name=="ollama") | .public_url' 2>/dev/null | head -1 || echo "")
+    SCRAPER_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | jq -r '.tunnels[]? | select(.name=="scraper") | .public_url' 2>/dev/null | head -1 || echo "")
   else
-    # Fallback without jq
-    NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | grep -oP '"public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f4 || echo "")
+    # Fallback without jq (less precise if multiple tunnels exist, but tries)
+    OLLAMA_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | grep -oP '"name":"ollama","[^"]+","public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f5 || echo "")
+    SCRAPER_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | grep -oP '"name":"scraper","[^"]+","public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f5 || echo "")
   fi
-  [[ -n "${NGROK_URL}" ]] && break
+  [[ -n "${OLLAMA_NGROK_URL}" && -n "${SCRAPER_NGROK_URL}" ]] && break
   sleep 1
 done
 
-if [[ -z "${NGROK_URL}" ]]; then
-  die "Could not extract ngrok URL after 20 seconds. Check .ngrok.log for errors.\n    Make sure your ngrok auth token is set: ngrok config add-authtoken <TOKEN>"
+if [[ -z "${OLLAMA_NGROK_URL}" || -z "${SCRAPER_NGROK_URL}" ]]; then
+  die "Could not extract ngrok URLs after 20 seconds. Check .ngrok.log for errors."
 fi
 
-ok "ngrok tunnel active: ${NGROK_URL}"
+ok "ngrok tunnels active:"
+echo -e "    Ollama:  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
+echo -e "    Scraper: ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
 echo ""
 
 # ── 4. Update Supabase secret ─────────────────────────────────────────────────
@@ -197,18 +245,18 @@ fi
 
 if [[ "${UPDATE_SECRET}" == "true" ]]; then
   if command -v npx >/dev/null 2>&1 && [[ -f "${PROJECT_ROOT}/package.json" ]]; then
+    info "Setting Supabase secrets..."
     npx --prefix "${PROJECT_ROOT}" supabase secrets set \
       --project-ref trfqhobnkgtfccrdsexa \
-      "LOCAL_LLM_BASE_URL=${NGROK_URL}" \
-      && ok "Supabase secret updated ✓" \
-      || warn "Failed to update secret — run manually:\n    npx supabase secrets set --project-ref trfqhobnkgtfccrdsexa LOCAL_LLM_BASE_URL=${NGROK_URL}"
+      "LOCAL_LLM_BASE_URL=${OLLAMA_NGROK_URL}" \
+      "SCRAPER_SERVICE_URL=${SCRAPER_NGROK_URL}/scrape" \
+      && ok "Supabase secrets updated (Ollama + Scraper) ✓" \
+      || warn "Failed to update secrets."
   else
-    warn "npx or package.json not found. Update manually:"
-    echo -e "    ${BOLD}npx supabase secrets set LOCAL_LLM_BASE_URL=${NGROK_URL}${RESET}"
+    warn "npx or package.json not found. Update manually."
   fi
 else
-  info "Skipped. Run manually if needed:"
-  echo -e "    ${BOLD}npx supabase secrets set LOCAL_LLM_BASE_URL=${NGROK_URL}${RESET}"
+  info "Skipped secret update."
 fi
 echo ""
 
@@ -218,13 +266,16 @@ echo -e "${BOLD}  🎉  Dev environment is ready!${RESET}"
 hr
 echo ""
 echo -e "  ${BOLD}Ollama${RESET}         http://localhost:${OLLAMA_PORT}"
-echo -e "  ${BOLD}ngrok (public)${RESET} ${NGROK_URL}"
-echo -e "  ${BOLD}ngrok (UI)${RESET}     http://localhost:${NGROK_API_PORT}"
+echo -e "  ${BOLD}ngrok (Ollama)${RESET}  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
+echo -e "  ${BOLD}ngrok (Scraper)${RESET} ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
+echo -e "  ${BOLD}ngrok (UI)${RESET}      http://localhost:${NGROK_API_PORT}"
+echo ""
 echo -e "  ${BOLD}Model (LLM)${RESET}     ${OLLAMA_MODEL}"
 echo -e "  ${BOLD}Model (Embed)${RESET}   ${OLLAMA_EMBED_MODEL}  (768-dim for pgvector)"
+echo -e "  ${BOLD}Scraper Local${RESET}   http://localhost:${SCRAPER_PORT}"
 echo ""
 echo -e "  ${BOLD}Flutter${RESET}  →  lib/core/config/app_config.dart"
-echo -e "           localLlmBaseUrl = '$(echo "${NGROK_URL}")/v1'  (for direct phone access)"
+echo -e "           localLlmBaseUrl = '${OLLAMA_NGROK_URL}'  (for direct phone access)"
 echo -e "           localLlmBaseUrl = 'http://localhost:${OLLAMA_PORT}/v1'  (for emulator)"
 echo ""
 echo -e "  To stop all services:  ${BOLD}bash scripts/dev-stop.sh${RESET}"

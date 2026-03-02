@@ -15,6 +15,7 @@ class NewsArticlesTable extends Table {
   TextColumn get title => text()();
   TextColumn get summary => text()();
   TextColumn get originalUrl => text().named('original_url')();
+  TextColumn get imageUrl => text().named('image_url').nullable()();
   TextColumn get sourceName => text().named('source_name')();
   TextColumn get sourceFaviconUrl =>
       text().named('source_favicon_url').nullable()();

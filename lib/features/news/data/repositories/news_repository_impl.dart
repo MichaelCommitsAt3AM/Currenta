@@ -8,6 +8,7 @@ import '../local/app_database.dart';
 import '../local/news_dao.dart';
 import '../remote/news_remote_datasource.dart';
 import '../../../../core/config/app_config.dart';
+import '../../../../core/config/news_sources.dart';
 import '../../../../core/errors/app_exception.dart';
 
 class NewsRepositoryImpl implements NewsRepository {
@@ -77,13 +78,45 @@ class NewsRepositoryImpl implements NewsRepository {
   }
 
   @override
-  Future<void> triggerIngestion({required String feedUrl}) async {
+  Future<void> triggerIngestion({
+    required String feedUrl,
+    String? categoryHint,
+  }) async {
     try {
-      await _remote.triggerIngestion(feedUrl: feedUrl);
+      await _remote.triggerIngestion(
+        feedUrl: feedUrl,
+        categoryHint: categoryHint,
+      );
     } on AppException {
       rethrow;
     } catch (e) {
       throw ServerException('Ingestion trigger failed: $e');
+    }
+  }
+
+  @override
+  Future<void> triggerAllIngestion({int? limit}) async {
+    final List<({String url, String category})> allFeeds = [];
+    NewsSources.feeds.forEach((category, urls) {
+      for (final url in urls) {
+        allFeeds.add((url: url, category: category.name));
+      }
+    });
+
+    allFeeds.shuffle();
+    final sourcesToTrigger = limit != null ? allFeeds.take(limit) : allFeeds;
+
+    for (final source in sourcesToTrigger) {
+      try {
+        await _remote.triggerIngestion(
+          feedUrl: source.url,
+          categoryHint: source.category,
+        );
+      } catch (e) {
+        // Silently continue for background jobs
+        // ignore: avoid_print
+        print('[Repo] Failed to trigger ${source.url}: $e');
+      }
     }
   }
 }

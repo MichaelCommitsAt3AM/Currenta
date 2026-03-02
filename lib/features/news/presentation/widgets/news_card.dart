@@ -34,7 +34,7 @@ class NewsCard extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // ── Background gradient (category-tinted) ──────────────
+            // ── Background Gradient ─────────────────────
             _BackgroundGradient(catColor: catColor),
 
             // ── Decorative accent circle ───────────────────────────
@@ -48,7 +48,7 @@ class NewsCard extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      catColor.withValues(alpha: 0.18),
+                      catColor.withValues(alpha: 0.15),
                       Colors.transparent,
                     ],
                   ),
@@ -58,8 +58,6 @@ class NewsCard extends StatelessWidget {
 
             // ── Content area ───────────────────────────────────────
             Padding(
-              // Top padding: clear the floating header (logo ~80px + safe area)
-              // Bottom padding: clear the category bar (~56px)
               padding: EdgeInsets.fromLTRB(
                 24,
                 MediaQuery.paddingOf(context).top + 56,
@@ -86,119 +84,135 @@ class NewsCard extends StatelessWidget {
                     ],
                   ),
 
-                  const Spacer(),
+                  const SizedBox(height: 24),
+
+                  // ── Feature Image ──────────────────────────────────
+                  if (article.imageUrl != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          width: double.infinity,
+                          height: size.height * 0.28,
+                          color: Colors.white.withValues(alpha: 0.05),
+                          child: Image.network(
+                            article.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, _, __) => Center(
+                              child: Icon(Icons.image_not_supported_rounded,
+                                  color: Colors.white.withValues(alpha: 0.2)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
 
                   // ── Title ──────────────────────────────────────────
                   Text(
                     article.title,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 24, // Slightly smaller to ensure fit
+                      fontSize: 22,
                       fontWeight: FontWeight.w800,
-                      height: 1.25,
-                      letterSpacing: -0.5,
-                      shadows: [
-                        Shadow(blurRadius: 12, color: Colors.black54),
-                      ],
+                      height: 1.3,
+                      letterSpacing: -0.3,
                     ),
-                    maxLines: 4,
+                    maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                   ),
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  // ── Divider ────────────────────────────────────────
-                  Container(
-                    height: 1,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          catColor.withValues(alpha: 0.8),
-                          catColor.withValues(alpha: 0.0),
-                        ],
+                  // ── AI Summary ─────────────────────────────────────
+                  Expanded(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Text(
+                        article.summary,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 15,
+                          height: 1.5,
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ),
                   ),
 
                   const SizedBox(height: 16),
 
-                  // ── AI Summary ─────────────────────────────────────
-                  Text(
-                    article.summary,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 15,
-                      height:
-                          1.45, // Tighter leading to ensure 64 words fit comfortably
-                      fontWeight: FontWeight.w400,
-                    ),
-                    maxLines: 15, // Allow the full 64 words to show
-                    overflow: TextOverflow.ellipsis,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ── Read more + swipe hint ─────────────────────────
+                  // ── Source Row ─────────────────────────────────────
                   Row(
                     children: [
-                      // Read more pill
-                      GestureDetector(
-                        onTap: () =>
-                            _openOriginal(context, article.originalUrl),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 18, vertical: 10),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                catColor,
-                                catColor.withValues(alpha: 0.7),
-                              ],
+                      if (article.sourceFaviconUrl != null)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.network(
+                              article.sourceFaviconUrl!,
+                              width: 20,
+                              height: 20,
+                              errorBuilder: (context, _, __) =>
+                                  const SizedBox.shrink(),
                             ),
-                            borderRadius: BorderRadius.circular(100),
-                            boxShadow: [
-                              BoxShadow(
-                                color: catColor.withValues(alpha: 0.4),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
                           ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Read full story',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              SizedBox(width: 6),
-                              Icon(Icons.arrow_forward_rounded,
-                                  size: 14, color: Colors.white),
-                            ],
+                        )
+                      else
+                        Container(
+                          width: 20,
+                          height: 20,
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: catColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
                           ),
+                          child: Center(
+                            child: Text(
+                              article.sourceName[0],
+                              style: TextStyle(
+                                  color: catColor,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      Text(
+                        article.sourceName,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.open_in_new_rounded,
+                          size: 14, color: Colors.white.withValues(alpha: 0.3)),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Footer Actions ───────────────────────────────
+                  Row(
+                    children: [
+                      Icon(Icons.local_fire_department_rounded,
+                          color: Colors.white.withValues(alpha: 0.6), size: 22),
+                      const SizedBox(width: 6),
+                      Text('10',
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6))),
+                      const SizedBox(width: 24),
+                      Icon(Icons.bookmark_border_rounded,
+                          color: Colors.white.withValues(alpha: 0.6), size: 22),
+                      const SizedBox(width: 24),
+                      Icon(Icons.share_outlined,
+                          color: Colors.white.withValues(alpha: 0.6), size: 22),
                       const Spacer(),
-                      // Swipe hint
                       if (index < total - 1)
-                        Column(
-                          children: [
-                            Icon(Icons.keyboard_arrow_up_rounded,
-                                color: Colors.white.withValues(alpha: 0.35),
-                                size: 20),
-                            Text(
-                              'Next',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
+                        Icon(Icons.keyboard_double_arrow_up_rounded,
+                            color: catColor.withValues(alpha: 0.4), size: 20),
                     ],
                   ),
                 ],

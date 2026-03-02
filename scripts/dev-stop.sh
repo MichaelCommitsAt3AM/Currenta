@@ -48,8 +48,24 @@ else
   info "No background ollama PID file found (systemd-managed Ollama is left running)"
 fi
 
+# ── Scraper Service ─────────────────────────────────────────────────────────────
+SCRAPER_PID_FILE="${PROJECT_ROOT}/.scraper.pid"
+if [[ -f "${SCRAPER_PID_FILE}" ]]; then
+  SCRAPER_PID=$(cat "${SCRAPER_PID_FILE}")
+  if kill -9 "${SCRAPER_PID}" 2>/dev/null; then
+    ok "Stopped Scraper Service (PID ${SCRAPER_PID})"
+  else
+    warn "Scraper Service PID ${SCRAPER_PID} was not running"
+  fi
+  rm -f "${SCRAPER_PID_FILE}"
+elif pgrep -f "uvicorn main:app" >/dev/null 2>&1; then
+  pkill -f "uvicorn main:app" && ok "Stopped Scraper Service" || warn "Could not stop Scraper Service"
+else
+  info "Scraper Service was not running"
+fi
+
 # Cleanup log files
-rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log"
+rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log" "${PROJECT_ROOT}/.scraper.log"
 
 echo ""
 ok "All done. Have a good one! 👋"

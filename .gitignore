@@ -56,3 +56,8 @@ supabase/.temp/
 # Scripts/Local Dev
 .ngrok.pid
 .ollama.pid
+.scraper.pid
+venv/
+.venv/
+__pycache__/
+*.pid
