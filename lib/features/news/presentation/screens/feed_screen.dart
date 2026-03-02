@@ -1,8 +1,9 @@
 // lib/features/news/presentation/screens/feed_screen.dart
-// Main news feed — PageView with swipe-up navigation,
-// category filter bar, and AsyncNotifierProvider state handling.
+// Full-screen vertical PageView feed — one story per screen,
+// swipe down (upward gesture) advances to the next story.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
@@ -20,11 +21,24 @@ class FeedScreen extends ConsumerStatefulWidget {
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   NewsCategory? _selectedCategory;
-  final _scrollController = ScrollController();
+
+  // PageController — itemExtent not set so each page = full screen height
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    // Full-screen immersive: hide status bar tint and make it transparent
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ));
+  }
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -33,32 +47,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final feedAsync = ref.watch(newsFeedNotifierProvider);
 
     return Scaffold(
-      body: NestedScrollView(
-        controller: _scrollController,
-        headerSliverBuilder: (context, _) => [
-          _AppBar(
-            onRefresh: () =>
-                ref.read(newsFeedNotifierProvider.notifier).refresh(),
-          ),
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: _CategoryFilterDelegate(
-              selectedCategory: _selectedCategory,
-              onCategoryChanged: (cat) {
-                setState(() => _selectedCategory = cat);
-                ref
-                    .read(newsFeedNotifierProvider.notifier)
-                    .filterByCategory(cat);
-              },
-            ),
-          ),
-        ],
-        body: RefreshIndicator(
-          color: const Color(0xFF6C63FF),
-          backgroundColor: const Color(0xFF1A1E2E),
-          onRefresh: () =>
-              ref.read(newsFeedNotifierProvider.notifier).refresh(),
-          child: feedAsync.when(
+      backgroundColor: const Color(0xFF0A0C14),
+      body: Stack(
+        children: [
+          // ── Main content ─────────────────────────────────────────
+          feedAsync.when(
             loading: () => const ShimmerFeed(),
             error: (e, _) => ErrorStateScreen(
               error: e,
@@ -73,121 +66,80 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 );
               }
 
-              return CustomScrollView(
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
+              return PageView.builder(
+                controller: _pageController,
+                // Vertical scroll; scrollDirection: Axis.vertical means
+                // dragging UP shows the next item (natural TikTok-style).
+                scrollDirection: Axis.vertical,
+                // BouncingScrollPhysics gives a snappy page snap
+                physics: const BouncingScrollPhysics(),
+                itemCount: articles.length,
+                // RepaintBoundary per page prevents neighbour cards from
+                // repainting during the swipe animation — key perf fix.
+                itemBuilder: (context, i) => RepaintBoundary(
+                  child: NewsCard(
+                    article: articles[i],
+                    index: i,
+                    total: articles.length,
+                  ),
                 ),
-                slivers: [
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    sliver: SliverList.separated(
-                      itemCount: articles.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: 16),
-                      itemBuilder: (_, i) =>
-                          NewsCard(article: articles[i]),
-                    ),
-                  ),
-                  // Bottom safe area
-                  const SliverPadding(
-                    padding: EdgeInsets.only(bottom: 24),
-                  ),
-                ],
               );
             },
           ),
-        ),
+
+          // ── Category filter bar (full top area, no logo) ──────
+          SafeArea(
+            child: _CategoryBar(
+              selectedCategory: _selectedCategory,
+              onCategoryChanged: (cat) {
+                setState(() => _selectedCategory = cat);
+                ref
+                    .read(newsFeedNotifierProvider.notifier)
+                    .filterByCategory(cat);
+                _pageController.jumpToPage(0);
+              },
+              onRefresh: () =>
+                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ── App Bar ───────────────────────────────────────────────────────
+// ── Category filter bar ───────────────────────────────────────────
 
-class _AppBar extends StatelessWidget {
-  const _AppBar({required this.onRefresh});
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    return SliverAppBar(
-      expandedHeight: 80,
-      floating: true,
-      snap: true,
-      pinned: false,
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-        title: Row(
-          children: [
-            // Currenta logo mark
-            Container(
-              width: 28,
-              height: 28,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Color(0xFF6C63FF), Color(0xFF00D2FF)],
-                ),
-              ),
-              child: const Icon(Icons.bolt_rounded,
-                  color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'Currenta',
-              style: TextStyle(
-                color: Color(0xFFF0F2FF),
-                fontWeight: FontWeight.w700,
-                fontSize: 20,
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.refresh_rounded),
-          tooltip: 'Refresh',
-          onPressed: onRefresh,
-        ),
-        const SizedBox(width: 8),
-      ],
-    );
-  }
-}
-
-// ── Category Filter Bar ───────────────────────────────────────────
-
-class _CategoryFilterDelegate extends SliverPersistentHeaderDelegate {
-  const _CategoryFilterDelegate({
+class _CategoryBar extends StatelessWidget {
+  const _CategoryBar({
     required this.selectedCategory,
     required this.onCategoryChanged,
+    required this.onRefresh,
   });
 
   final NewsCategory? selectedCategory;
   final ValueChanged<NewsCategory?> onCategoryChanged;
+  final VoidCallback onRefresh;
 
   @override
-  double get minExtent => 52;
-  @override
-  double get maxExtent => 52;
-
-  @override
-  Widget build(
-    BuildContext context,
-    double shrinkOffset,
-    bool overlapsContent,
-  ) {
+  Widget build(BuildContext context) {
     return Container(
-      color: const Color(0xFF0A0C14),
+      height: 48,
+      // Subtle dark-to-transparent so cards bleed under it cleanly
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF0A0C14).withValues(alpha: 0.92),
+            Colors.transparent,
+          ],
+        ),
+      ),
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         children: [
-          // "All" chip
           _FilterChip(
             label: '🌐 All',
             isSelected: selectedCategory == null,
@@ -197,19 +149,31 @@ class _CategoryFilterDelegate extends SliverPersistentHeaderDelegate {
           ...NewsCategory.values.map((cat) => Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: _FilterChip(
-                  label: '${cat.emoji} ${cat.displayName}',
+                  label: '${cat.emoji}  ${cat.displayName}',
                   isSelected: selectedCategory == cat,
                   onTap: () => onCategoryChanged(cat),
                 ),
               )),
+          // Refresh at the very end of chip row
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onRefresh,
+            child: Container(
+              height: 38,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(100),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+              ),
+              child: const Icon(Icons.refresh_rounded,
+                  color: Colors.white, size: 18),
+            ),
+          ),
         ],
       ),
     );
   }
-
-  @override
-  bool shouldRebuild(_CategoryFilterDelegate old) =>
-      old.selectedCategory != selectedCategory;
 }
 
 class _FilterChip extends StatelessWidget {
@@ -225,32 +189,29 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeInOut,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFF6C63FF)
+              : Colors.white.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(
             color: isSelected
                 ? const Color(0xFF6C63FF)
-                : const Color(0xFF1A1E2E),
-            borderRadius: BorderRadius.circular(100),
-            border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF6C63FF)
-                  : const Color(0xFF262A3E),
-            ),
+                : Colors.white.withValues(alpha: 0.28),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? Colors.white : const Color(0xFF8890B5),
-              fontSize: 12,
-              fontWeight:
-                  isSelected ? FontWeight.w600 : FontWeight.w500,
-            ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),

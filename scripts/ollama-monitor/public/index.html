@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama | LLM Monitor</title>
+    <!-- Import beautiful Google Font and minimalistic style -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #090B10;
+            --surface: #141824;
+            --border: #2C3140;
+            --text: #F1F4FF;
+            --subtext: #8A91A6;
+            --accent: #00E4A1;
+            --danger: #FF4A6B;
+            --warning: #FFB347;
+            --font: 'Space Grotesk', system-ui, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 2rem;
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+        }
+
+        .dashboard {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        .status-dot.offline {
+            background: var(--danger);
+            box-shadow: 0 0 10px var(--danger);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--border), var(--accent), var(--border));
+            opacity: 0.2;
+        }
+
+        .card h3 {
+            margin: 0 0 1rem 0;
+            color: var(--subtext);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sub-metric {
+            font-size: 0.9rem;
+            color: var(--subtext);
+        }
+
+        .label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .bar-bg {
+            background: rgba(255, 255, 255, 0.05);
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s ease-in-out, background-color 0.3s;
+        }
+
+        .model-list {
+            margin-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .model-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .model-name {
+            font-weight: 600;
+            color: var(--accent);
+            font-size: 1.1rem;
+        }
+
+        .model-size {
+            background: var(--border);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: var(--subtext);
+            font-weight: bold;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            background: rgba(0, 228, 161, 0.1);
+            color: var(--accent);
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-left: 8px;
+        }
+
+        .badge.danger {
+            background: rgba(255, 74, 107, 0.1);
+            color: var(--danger);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard">
+        <h1>
+            <span id="ollama-dot" class="status-dot"></span>
+            Ollama AI Monitor
+        </h1>
+        <div style="color: var(--subtext)">Local System Telemetry • Auto-refresh 1s</div>
+
+        <div class="grid">
+            <!-- CPU Card -->
+            <div class="card">
+                <h3>System CPU Load</h3>
+                <div class="metric" id="cpu-load">0.00%</div>
+                <div class="bar-bg">
+                    <div class="bar-fill" id="cpu-bar" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- RAM Card -->
+            <div class="card">
+                <h3>System RAM</h3>
+                <div class="metric" id="ram-used">0.00 GB</div>
+                <div class="sub-metric" id="ram-total">of 0.00 GB Total (0.00%)</div>
+                <div style="margin-top: 1rem;" class="bar-bg">
+                    <div class="bar-fill" id="ram-bar" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- GPU Card (First detected GPU) -->
+            <div class="card">
+                <h3>GPU Diagnostics</h3>
+                <div class="metric" id="gpu-title">Scanning...</div>
+                <div class="sub-metric" id="gpu-util">Utilization: 0%</div>
+            </div>
+        </div>
+
+        <h3 style="margin-top: 3rem; color: var(--subtext); text-transform: uppercase;">Loaded LLMs in VRAM / RAM</h3>
+        <div class="model-list" id="models-container">
+            <!-- Models injected here via JS -->
+            <div style="color: var(--subtext)">No models currently loaded in memory. Generate an AI request!</div>
+        </div>
+
+        <h3 style="margin-top: 3rem; color: var(--subtext); text-transform: uppercase;">Recent LLM Tool Calls (via
+            Proxy)</h3>
+        <div class="model-list" id="requests-container">
+            <div style="color: var(--subtext)">Point requests to http://localhost:3000/proxy/v1/... to trace latency
+                here.</div>
+        </div>
+    </div>
+
+    <script>
+        function updateColor(bar, percent) {
+            if (percent > 85) bar.style.backgroundColor = 'var(--danger)';
+            else if (percent > 65) bar.style.backgroundColor = 'var(--warning)';
+            else bar.style.backgroundColor = 'var(--accent)';
+        }
+
+        async function fetchMetrics() {
+            try {
+                const res = await fetch('/api/metrics');
+                const data = await res.json();
+
+                if (data.error) return console.error(data.error);
+
+                // Update CPU
+                const cpuPercent = parseFloat(data.system.cpu.loadPercent);
+                document.getElementById('cpu-load').innerText = `${cpuPercent.toFixed(1)}%`;
+                const cpuBar = document.getElementById('cpu-bar');
+                cpuBar.style.width = `${cpuPercent}%`;
+                updateColor(cpuBar, cpuPercent);
+
+                // Update RAM
+                const ramPercent = parseFloat(data.system.memory.percent);
+                document.getElementById('ram-used').innerText = data.system.memory.used;
+                document.getElementById('ram-total').innerText = `of ${data.system.memory.total} Total (${ramPercent.toFixed(1)}%)`;
+                const ramBar = document.getElementById('ram-bar');
+                ramBar.style.width = `${ramPercent}%`;
+                updateColor(ramBar, ramPercent);
+
+                // Update GPU (Taking the first array item)
+                if (data.system.gpu && data.system.gpu.length > 0) {
+                    const gpu = data.system.gpu[0];
+                    document.getElementById('gpu-title').innerText = gpu.model;
+                    document.getElementById('gpu-util').innerText = `VRAM capacity: ${gpu.vram}  |  Temp: ${gpu.temperature}°C`;
+                }
+
+                // Update Ollama Status
+                const statusDot = document.getElementById('ollama-dot');
+                if (data.ollama.status === 'online') {
+                    statusDot.className = 'status-dot';
+                } else {
+                    statusDot.className = 'status-dot offline';
+                }
+
+                // Update Loaded Models
+                const container = document.getElementById('models-container');
+                if (data.ollama.loadedModels.length === 0) {
+                    container.innerHTML = `<div style="color: var(--subtext)">No models currently loaded in memory. Generate an AI request!</div>`;
+                } else {
+                    container.innerHTML = data.ollama.loadedModels.map(m => `
+                        <div class="model-item">
+                            <div>
+                                <span class="model-name">${m.name}</span>
+                                <span class="badge ${m.format ? '' : 'danger'}">${m.format || 'Unknown'}</span>
+                                <span class="badge">${m.quantization || 'Q'}</span>
+                            </div>
+                            <div class="model-size">${m.size}</div>
+                        </div>
+                    `).join('');
+                }
+
+                // Update Request History
+                const requestsContainer = document.getElementById('requests-container');
+                if (data.requests && data.requests.length > 0) {
+                    requestsContainer.innerHTML = data.requests.map(r => `
+                        <div class="model-item" style="display: block">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <div style="font-weight: 600; color: var(--text)">
+                                    ${r.model} <span style="font-size: 0.8rem; color: var(--subtext); margin-left: 8px">${r.path}</span>
+                                </div>
+                                <div style="font-variant-numeric: tabular-nums; color: var(--accent); font-weight: bold;">
+                                    ${r.e2eLatency}ms E2E
+                                </div>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.85rem; color: var(--subtext)">
+                                <div><strong style="color:var(--text)">TTFB:</strong> ${r.ttfb}ms</div>
+                                ${r.load_duration ? `<div><strong style="color:var(--text)">Load:</strong> ${r.load_duration}ms</div>` : ''}
+                                ${r.total_duration ? `<div><strong style="color:var(--text)">Ollama duration:</strong> ${r.total_duration}ms</div>` : ''}
+                                ${r.prompt_eval_count ? `<div><strong style="color:var(--text)">Prompt:</strong> ${r.prompt_eval_count} tokens</div>` : ''}
+                                ${r.eval_count ? `<div><strong style="color:var(--text)">Eval:</strong> ${r.eval_count} tokens</div>` : ''}
+                                ${r.tokensPerSec ? `<div style="color:var(--warning)"><strong>Speed:</strong> ${r.tokensPerSec} t/s</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    requestsContainer.innerHTML = `<div style="color: var(--subtext)">Point your LLM requests to <code>http://localhost:3000/proxy/v1/chat/completions</code> to see trace metrics.</div>`;
+                }
+
+            } catch (err) {
+                console.error("Monitor disconnected:", err);
+                document.getElementById('ollama-dot').className = 'status-dot offline';
+            }
+        }
+
+        // Poll every 1.5 seconds
+        setInterval(fetchMetrics, 1500);
+        fetchMetrics();
+    </script>
+</body>
+
+</html>

@@ -1,3 +1,4 @@
+// ignore_for_file: invalid_annotation_target
 // lib/features/news/domain/entities/news_article.dart
 
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -19,25 +20,25 @@ abstract class NewsArticle with _$NewsArticle {
     required String summary,
 
     /// Link to the original article
-    required String originalUrl,
+    @JsonKey(name: 'original_url') required String originalUrl,
 
     /// Publisher name, e.g. "BBC News"
-    required String sourceName,
+    @JsonKey(name: 'source_name') required String sourceName,
 
     /// URL to the publisher's favicon / logo
-    String? sourceFaviconUrl,
+    @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
 
     /// When the article was published
-    required DateTime publishedAt,
+    @JsonKey(name: 'published_at') required DateTime publishedAt,
 
     /// News category
     @Default(NewsCategory.world) NewsCategory category,
 
     /// Whether this article is behind a paywall
-    @Default(false) bool isPaywalled,
+    @JsonKey(name: 'is_paywalled') @Default(false) bool isPaywalled,
 
     /// Semantic cluster ID — articles with the same cluster cover the same story
-    String? clusterId,
+    @JsonKey(name: 'cluster_id') String? clusterId,
   }) = _NewsArticle;
 
   factory NewsArticle.fromJson(Map<String, dynamic> json) =>

@@ -16,15 +16,17 @@ CREATE TABLE IF NOT EXISTS articles (
   category          TEXT NOT NULL DEFAULT 'world',
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
   cluster_id        UUID,
-  -- 4096-dim for Llama 3.1
-  embedding         vector(4096)
+  -- 768-dim for nomic-embed-text (dedicated embedding model)
+  embedding         vector(768)
 );
 
 -- 3. IVFFlat index for fast cosine similarity search
+--    nomic-embed-text = 768 dims, well within the 2000-dim IVFFlat limit.
+--    lists=10 is fine for dev; bump to 100+ once you have >10k rows.
 CREATE INDEX IF NOT EXISTS articles_embedding_idx
   ON articles
   USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+  WITH (lists = 10);
 
 -- 4. Recency index for fast time-range deduplication queries
 CREATE INDEX IF NOT EXISTS articles_published_at_idx

@@ -24,24 +24,30 @@ mixin _$NewsArticle {
   String get summary;
 
   /// Link to the original article
+  @JsonKey(name: 'original_url')
   String get originalUrl;
 
   /// Publisher name, e.g. "BBC News"
+  @JsonKey(name: 'source_name')
   String get sourceName;
 
   /// URL to the publisher's favicon / logo
+  @JsonKey(name: 'source_favicon_url')
   String? get sourceFaviconUrl;
 
   /// When the article was published
+  @JsonKey(name: 'published_at')
   DateTime get publishedAt;
 
   /// News category
   NewsCategory get category;
 
   /// Whether this article is behind a paywall
+  @JsonKey(name: 'is_paywalled')
   bool get isPaywalled;
 
   /// Semantic cluster ID — articles with the same cluster cover the same story
+  @JsonKey(name: 'cluster_id')
   String? get clusterId;
 
   /// Create a copy of NewsArticle
@@ -109,13 +115,13 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       {String id,
       String title,
       String summary,
-      String originalUrl,
-      String sourceName,
-      String? sourceFaviconUrl,
-      DateTime publishedAt,
+      @JsonKey(name: 'original_url') String originalUrl,
+      @JsonKey(name: 'source_name') String sourceName,
+      @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
+      @JsonKey(name: 'published_at') DateTime publishedAt,
       NewsCategory category,
-      bool isPaywalled,
-      String? clusterId});
+      @JsonKey(name: 'is_paywalled') bool isPaywalled,
+      @JsonKey(name: 'cluster_id') String? clusterId});
 }
 
 /// @nodoc
@@ -283,13 +289,13 @@ extension NewsArticlePatterns on NewsArticle {
             String id,
             String title,
             String summary,
-            String originalUrl,
-            String sourceName,
-            String? sourceFaviconUrl,
-            DateTime publishedAt,
+            @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'source_name') String sourceName,
+            @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
+            @JsonKey(name: 'published_at') DateTime publishedAt,
             NewsCategory category,
-            bool isPaywalled,
-            String? clusterId)?
+            @JsonKey(name: 'is_paywalled') bool isPaywalled,
+            @JsonKey(name: 'cluster_id') String? clusterId)?
         $default, {
     required TResult orElse(),
   }) {
@@ -331,13 +337,13 @@ extension NewsArticlePatterns on NewsArticle {
             String id,
             String title,
             String summary,
-            String originalUrl,
-            String sourceName,
-            String? sourceFaviconUrl,
-            DateTime publishedAt,
+            @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'source_name') String sourceName,
+            @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
+            @JsonKey(name: 'published_at') DateTime publishedAt,
             NewsCategory category,
-            bool isPaywalled,
-            String? clusterId)
+            @JsonKey(name: 'is_paywalled') bool isPaywalled,
+            @JsonKey(name: 'cluster_id') String? clusterId)
         $default,
   ) {
     final _that = this;
@@ -377,13 +383,13 @@ extension NewsArticlePatterns on NewsArticle {
             String id,
             String title,
             String summary,
-            String originalUrl,
-            String sourceName,
-            String? sourceFaviconUrl,
-            DateTime publishedAt,
+            @JsonKey(name: 'original_url') String originalUrl,
+            @JsonKey(name: 'source_name') String sourceName,
+            @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
+            @JsonKey(name: 'published_at') DateTime publishedAt,
             NewsCategory category,
-            bool isPaywalled,
-            String? clusterId)?
+            @JsonKey(name: 'is_paywalled') bool isPaywalled,
+            @JsonKey(name: 'cluster_id') String? clusterId)?
         $default,
   ) {
     final _that = this;
@@ -413,13 +419,13 @@ class _NewsArticle implements NewsArticle {
       {required this.id,
       required this.title,
       required this.summary,
-      required this.originalUrl,
-      required this.sourceName,
-      this.sourceFaviconUrl,
-      required this.publishedAt,
+      @JsonKey(name: 'original_url') required this.originalUrl,
+      @JsonKey(name: 'source_name') required this.sourceName,
+      @JsonKey(name: 'source_favicon_url') this.sourceFaviconUrl,
+      @JsonKey(name: 'published_at') required this.publishedAt,
       this.category = NewsCategory.world,
-      this.isPaywalled = false,
-      this.clusterId});
+      @JsonKey(name: 'is_paywalled') this.isPaywalled = false,
+      @JsonKey(name: 'cluster_id') this.clusterId});
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
       _$NewsArticleFromJson(json);
 
@@ -437,18 +443,22 @@ class _NewsArticle implements NewsArticle {
 
   /// Link to the original article
   @override
+  @JsonKey(name: 'original_url')
   final String originalUrl;
 
   /// Publisher name, e.g. "BBC News"
   @override
+  @JsonKey(name: 'source_name')
   final String sourceName;
 
   /// URL to the publisher's favicon / logo
   @override
+  @JsonKey(name: 'source_favicon_url')
   final String? sourceFaviconUrl;
 
   /// When the article was published
   @override
+  @JsonKey(name: 'published_at')
   final DateTime publishedAt;
 
   /// News category
@@ -458,11 +468,12 @@ class _NewsArticle implements NewsArticle {
 
   /// Whether this article is behind a paywall
   @override
-  @JsonKey()
+  @JsonKey(name: 'is_paywalled')
   final bool isPaywalled;
 
   /// Semantic cluster ID — articles with the same cluster cover the same story
   @override
+  @JsonKey(name: 'cluster_id')
   final String? clusterId;
 
   /// Create a copy of NewsArticle
@@ -537,13 +548,13 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       {String id,
       String title,
       String summary,
-      String originalUrl,
-      String sourceName,
-      String? sourceFaviconUrl,
-      DateTime publishedAt,
+      @JsonKey(name: 'original_url') String originalUrl,
+      @JsonKey(name: 'source_name') String sourceName,
+      @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
+      @JsonKey(name: 'published_at') DateTime publishedAt,
       NewsCategory category,
-      bool isPaywalled,
-      String? clusterId});
+      @JsonKey(name: 'is_paywalled') bool isPaywalled,
+      @JsonKey(name: 'cluster_id') String? clusterId});
 }
 
 /// @nodoc

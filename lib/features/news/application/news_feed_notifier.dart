@@ -34,11 +34,22 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // If still empty after refresh, trigger a default ingestion (first run)
       if (articles.isEmpty) {
-        await _repo.triggerIngestion(
-          feedUrl: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',
-        );
-        // Wait a bit for the edge function to process, then check again
-        await Future.delayed(const Duration(seconds: 10));
+        final feeds = [
+          'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',
+          'https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml',
+          'https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml',
+        ];
+
+        for (final feed in feeds) {
+          try {
+            await _repo.triggerIngestion(feedUrl: feed);
+          } catch (_) {
+            // Ignore errors for individual feeds so others can proceed
+          }
+        }
+
+        // Wait a bit for the edge functions to finish, then check again
+        await Future.delayed(const Duration(seconds: 5));
         await _repo.refreshFeed();
         articles = await _repo.watchFeed().first;
       }

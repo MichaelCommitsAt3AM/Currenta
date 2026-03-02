@@ -46,3 +46,13 @@ app.*.map.json
 
 # App Secrets
 /lib/core/config/app_config.dart
+
+# Node.js
+node_modules/
+
+# Supabase
+supabase/.temp/
+
+# Scripts/Local Dev
+.ngrok.pid
+.ollama.pid
