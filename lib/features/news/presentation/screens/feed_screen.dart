@@ -76,13 +76,28 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 itemCount: articles.length,
                 // RepaintBoundary per page prevents neighbour cards from
                 // repainting during the swipe animation — key perf fix.
-                itemBuilder: (context, i) => RepaintBoundary(
-                  child: NewsCard(
-                    article: articles[i],
-                    index: i,
-                    total: articles.length,
-                  ),
-                ),
+                itemBuilder: (context, i) {
+                  // ── Preload the next 3 article images ────────────
+                  // Fire-and-forget: warms the image cache so images are
+                  // ready before the user swipes down to those cards.
+                  for (var ahead = 1; ahead <= 3; ahead++) {
+                    final nextIndex = i + ahead;
+                    if (nextIndex < articles.length) {
+                      final url = articles[nextIndex].imageUrl;
+                      if (url != null && url.isNotEmpty) {
+                        precacheImage(NetworkImage(url), context);
+                      }
+                    }
+                  }
+
+                  return RepaintBoundary(
+                    child: NewsCard(
+                      article: articles[i],
+                      index: i,
+                      total: articles.length,
+                    ),
+                  );
+                },
               );
             },
           ),

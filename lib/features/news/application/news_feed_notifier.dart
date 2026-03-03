@@ -24,23 +24,35 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Public method called by the UI RefreshIndicator / retry buttons.
   Future<void> refresh() async {
     state = const AsyncLoading();
-    await _backgroundRefresh();
+    await _backgroundRefresh(forceIngest: true);
   }
 
-  Future<void> _backgroundRefresh() async {
+  Future<void> _backgroundRefresh({bool forceIngest = false}) async {
     try {
+      if (forceIngest) {
+        // Trigger a couple of random feeds even if we have data to keep it fresh
+        await _repo.triggerAllIngestion(limit: 5);
+      }
+
       await _repo.refreshFeed();
       var articles = await _repo.watchFeed().first;
 
-      // If still empty after refresh, trigger a default ingestion (first run)
+      // If still empty after refresh, queue jobs and poll until the worker
+      // delivers the first batch (queue model: worker runs every ~60s).
       if (articles.isEmpty) {
-        // Process a balanced initial set across all categories
         await _repo.triggerAllIngestion(limit: 15);
 
-        // Wait a bit for the edge functions to finish, then check again
-        await Future.delayed(const Duration(seconds: 10));
-        await _repo.refreshFeed();
-        articles = await _repo.watchFeed().first;
+        // Poll every 15s for up to 3 minutes waiting for the worker to process
+        // the first jobs and write articles to the DB.
+        const pollInterval = Duration(seconds: 15);
+        const maxWait = Duration(minutes: 3);
+        final deadline = DateTime.now().add(maxWait);
+
+        while (articles.isEmpty && DateTime.now().isBefore(deadline)) {
+          await Future.delayed(pollInterval);
+          await _repo.refreshFeed();
+          articles = await _repo.watchFeed().first;
+        }
       }
 
       state = AsyncData(articles);

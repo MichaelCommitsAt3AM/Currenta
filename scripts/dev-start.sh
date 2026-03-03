@@ -116,14 +116,21 @@ if [[ "${OLLAMA_READY}" != "true" ]]; then
   die "Ollama did not become ready within 20 seconds. Check 'journalctl -u ollama -n 50' or .ollama.log"
 fi
 
-# Verify model is available
-# info "Checking for model '${OLLAMA_MODEL}'..."
-# if ollama list 2>/dev/null | grep -q "^${OLLAMA_MODEL}"; then
-#   ok "Model '${OLLAMA_MODEL}' is available"
-# else
-#   warn "Model '${OLLAMA_MODEL}' not found locally."
-#   warn "Now using cloud models for summarization. Skipping local pull."
-# fi
+# Verify LLM model is available
+info "Checking for LLM model '${OLLAMA_MODEL}'..."
+if ollama list 2>/dev/null | grep -q "^${OLLAMA_MODEL}"; then
+  ok "LLM model '${OLLAMA_MODEL}' is available"
+else
+  warn "LLM model '${OLLAMA_MODEL}' not found locally."
+  read -rp "  Pull it now? [Y/n] " pull_llm_answer
+  if [[ "${pull_llm_answer:-Y}" =~ ^[Yy]$ ]]; then
+    info "Pulling '${OLLAMA_MODEL}'..."
+    ollama pull "${OLLAMA_MODEL}"
+    ok "LLM model ready"
+  else
+    warn "Skipping — summarization will fail at runtime."
+  fi
+fi
 
 # Verify embedding model is available
 info "Checking for embedding model '${OLLAMA_EMBED_MODEL}'..."
@@ -237,9 +244,10 @@ UPDATE_SECRET=false
 if [[ "${AUTO_UPDATE_SECRET}" == "1" ]]; then
   UPDATE_SECRET=true
 else
-  echo -e "  New ngrok URL: ${BOLD}${NGROK_URL}${RESET}"
+  echo -e "  Ollama ngrok URL:  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
+  echo -e "  Scraper ngrok URL: ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
   echo ""
-  read -rp "  Update LOCAL_LLM_BASE_URL secret in Supabase now? [Y/n] " secret_answer
+  read -rp "  Update LLM & Scraper secrets in Supabase now? [Y/n] " secret_answer
   [[ "${secret_answer:-Y}" =~ ^[Yy]$ ]] && UPDATE_SECRET=true
 fi
 
@@ -270,8 +278,9 @@ echo -e "  ${BOLD}ngrok (Ollama)${RESET}  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
 echo -e "  ${BOLD}ngrok (Scraper)${RESET} ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
 echo -e "  ${BOLD}ngrok (UI)${RESET}      http://localhost:${NGROK_API_PORT}"
 echo ""
-echo -e "  ${BOLD}Model (LLM)${RESET}     ${OLLAMA_MODEL}"
-echo -e "  ${BOLD}Model (Embed)${RESET}   ${OLLAMA_EMBED_MODEL}  (768-dim for pgvector)"
+echo -e "  ${BOLD}Models exposed via Ollama tunnel:${RESET}"
+echo -e "    🧠  LLM        ${OLLAMA_MODEL}  →  ${OLLAMA_NGROK_URL}/v1/chat/completions"
+echo -e "    🔢  Embeddings ${OLLAMA_EMBED_MODEL}  →  ${OLLAMA_NGROK_URL}/v1/embeddings"
 echo -e "  ${BOLD}Scraper Local${RESET}   http://localhost:${SCRAPER_PORT}"
 echo ""
 echo -e "  ${BOLD}Flutter${RESET}  →  lib/core/config/app_config.dart"

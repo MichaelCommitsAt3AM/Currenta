@@ -28,9 +28,9 @@ class NewsRemoteDataSource {
       // Start with the filter builder
       var filterQuery = _supabase.from('articles').select();
 
-      // Apply category filter on the FilterBuilder (before order/limit)
+      // Apply category filter: `contains` maps to PostgREST `cs` (contains) for TEXT[] columns.
       if (category != null) {
-        filterQuery = filterQuery.eq('category', category.name);
+        filterQuery = filterQuery.contains('categories', [category.name]);
       }
 
       // Now apply transform operations
@@ -69,6 +69,18 @@ class NewsRemoteDataSource {
     } on FunctionException catch (e) {
       throw ServerException(
         'Edge function error: ${e.details}',
+        statusCode: e.status,
+      );
+    }
+  }
+
+  /// Triggers the Orchestrator to fan-out all feed ingests.
+  Future<void> triggerOrchestrator() async {
+    try {
+      await _supabase.functions.invoke('orchestrate-ingestion');
+    } on FunctionException catch (e) {
+      throw ServerException(
+        'Orchestrator error: ${e.details}',
         statusCode: e.status,
       );
     }

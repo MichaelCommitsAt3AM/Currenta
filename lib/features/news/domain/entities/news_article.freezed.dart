@@ -43,8 +43,12 @@ mixin _$NewsArticle {
   @JsonKey(name: 'published_at')
   DateTime get publishedAt;
 
-  /// News category
-  NewsCategory get category;
+  /// News categories (multi-label). First element is primary display category.
+  @JsonKey(
+      name: 'categories',
+      fromJson: _categoriesFromJson,
+      toJson: _categoriesToJson)
+  List<NewsCategory> get categories;
 
   /// Whether this article is behind a paywall
   @JsonKey(name: 'is_paywalled')
@@ -82,8 +86,8 @@ mixin _$NewsArticle {
                 other.sourceFaviconUrl == sourceFaviconUrl) &&
             (identical(other.publishedAt, publishedAt) ||
                 other.publishedAt == publishedAt) &&
-            (identical(other.category, category) ||
-                other.category == category) &&
+            const DeepCollectionEquality()
+                .equals(other.categories, categories) &&
             (identical(other.isPaywalled, isPaywalled) ||
                 other.isPaywalled == isPaywalled) &&
             (identical(other.clusterId, clusterId) ||
@@ -102,13 +106,13 @@ mixin _$NewsArticle {
       sourceName,
       sourceFaviconUrl,
       publishedAt,
-      category,
+      const DeepCollectionEquality().hash(categories),
       isPaywalled,
       clusterId);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, clusterId: $clusterId)';
   }
 }
 
@@ -127,7 +131,11 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
-      NewsCategory category,
+      @JsonKey(
+          name: 'categories',
+          fromJson: _categoriesFromJson,
+          toJson: _categoriesToJson)
+      List<NewsCategory> categories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
       @JsonKey(name: 'cluster_id') String? clusterId});
 }
@@ -152,7 +160,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
-    Object? category = null,
+    Object? categories = null,
     Object? isPaywalled = null,
     Object? clusterId = freezed,
   }) {
@@ -189,10 +197,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.publishedAt
           : publishedAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
-      category: null == category
-          ? _self.category
-          : category // ignore: cast_nullable_to_non_nullable
-              as NewsCategory,
+      categories: null == categories
+          ? _self.categories
+          : categories // ignore: cast_nullable_to_non_nullable
+              as List<NewsCategory>,
       isPaywalled: null == isPaywalled
           ? _self.isPaywalled
           : isPaywalled // ignore: cast_nullable_to_non_nullable
@@ -307,7 +315,11 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
-            NewsCategory category,
+            @JsonKey(
+                name: 'categories',
+                fromJson: _categoriesFromJson,
+                toJson: _categoriesToJson)
+            List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'cluster_id') String? clusterId)?
         $default, {
@@ -325,7 +337,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
-            _that.category,
+            _that.categories,
             _that.isPaywalled,
             _that.clusterId);
       case _:
@@ -357,7 +369,11 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
-            NewsCategory category,
+            @JsonKey(
+                name: 'categories',
+                fromJson: _categoriesFromJson,
+                toJson: _categoriesToJson)
+            List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'cluster_id') String? clusterId)
         $default,
@@ -374,7 +390,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
-            _that.category,
+            _that.categories,
             _that.isPaywalled,
             _that.clusterId);
       case _:
@@ -405,7 +421,11 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
-            NewsCategory category,
+            @JsonKey(
+                name: 'categories',
+                fromJson: _categoriesFromJson,
+                toJson: _categoriesToJson)
+            List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'cluster_id') String? clusterId)?
         $default,
@@ -422,7 +442,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
-            _that.category,
+            _that.categories,
             _that.isPaywalled,
             _that.clusterId);
       case _:
@@ -443,9 +463,14 @@ class _NewsArticle implements NewsArticle {
       @JsonKey(name: 'source_name') required this.sourceName,
       @JsonKey(name: 'source_favicon_url') this.sourceFaviconUrl,
       @JsonKey(name: 'published_at') required this.publishedAt,
-      this.category = NewsCategory.world,
+      @JsonKey(
+          name: 'categories',
+          fromJson: _categoriesFromJson,
+          toJson: _categoriesToJson)
+      final List<NewsCategory> categories = const [NewsCategory.world],
       @JsonKey(name: 'is_paywalled') this.isPaywalled = false,
-      @JsonKey(name: 'cluster_id') this.clusterId});
+      @JsonKey(name: 'cluster_id') this.clusterId})
+      : _categories = categories;
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
       _$NewsArticleFromJson(json);
 
@@ -486,10 +511,20 @@ class _NewsArticle implements NewsArticle {
   @JsonKey(name: 'published_at')
   final DateTime publishedAt;
 
-  /// News category
+  /// News categories (multi-label). First element is primary display category.
+  final List<NewsCategory> _categories;
+
+  /// News categories (multi-label). First element is primary display category.
   @override
-  @JsonKey()
-  final NewsCategory category;
+  @JsonKey(
+      name: 'categories',
+      fromJson: _categoriesFromJson,
+      toJson: _categoriesToJson)
+  List<NewsCategory> get categories {
+    if (_categories is EqualUnmodifiableListView) return _categories;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_categories);
+  }
 
   /// Whether this article is behind a paywall
   @override
@@ -534,8 +569,8 @@ class _NewsArticle implements NewsArticle {
                 other.sourceFaviconUrl == sourceFaviconUrl) &&
             (identical(other.publishedAt, publishedAt) ||
                 other.publishedAt == publishedAt) &&
-            (identical(other.category, category) ||
-                other.category == category) &&
+            const DeepCollectionEquality()
+                .equals(other._categories, _categories) &&
             (identical(other.isPaywalled, isPaywalled) ||
                 other.isPaywalled == isPaywalled) &&
             (identical(other.clusterId, clusterId) ||
@@ -554,13 +589,13 @@ class _NewsArticle implements NewsArticle {
       sourceName,
       sourceFaviconUrl,
       publishedAt,
-      category,
+      const DeepCollectionEquality().hash(_categories),
       isPaywalled,
       clusterId);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, category: $category, isPaywalled: $isPaywalled, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, clusterId: $clusterId)';
   }
 }
 
@@ -581,7 +616,11 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
-      NewsCategory category,
+      @JsonKey(
+          name: 'categories',
+          fromJson: _categoriesFromJson,
+          toJson: _categoriesToJson)
+      List<NewsCategory> categories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
       @JsonKey(name: 'cluster_id') String? clusterId});
 }
@@ -606,7 +645,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
-    Object? category = null,
+    Object? categories = null,
     Object? isPaywalled = null,
     Object? clusterId = freezed,
   }) {
@@ -643,10 +682,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self.publishedAt
           : publishedAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
-      category: null == category
-          ? _self.category
-          : category // ignore: cast_nullable_to_non_nullable
-              as NewsCategory,
+      categories: null == categories
+          ? _self._categories
+          : categories // ignore: cast_nullable_to_non_nullable
+              as List<NewsCategory>,
       isPaywalled: null == isPaywalled
           ? _self.isPaywalled
           : isPaywalled // ignore: cast_nullable_to_non_nullable

@@ -55,14 +55,14 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<DateTime> publishedAt = GeneratedColumn<DateTime>(
       'published_at', aliasedName, false,
       type: DriftSqlType.dateTime, requiredDuringInsert: true);
-  static const VerificationMeta _categoryMeta =
-      const VerificationMeta('category');
   @override
-  late final GeneratedColumn<String> category = GeneratedColumn<String>(
-      'category', aliasedName, false,
-      type: DriftSqlType.string,
-      requiredDuringInsert: false,
-      defaultValue: const Constant('world'));
+  late final GeneratedColumnWithTypeConverter<List<NewsCategory>, String>
+      categories = GeneratedColumn<String>('categories', aliasedName, false,
+              type: DriftSqlType.string,
+              requiredDuringInsert: false,
+              defaultValue: const Constant('["world"]'))
+          .withConverter<List<NewsCategory>>(
+              $NewsArticlesTableTable.$convertercategories);
   static const VerificationMeta _isPaywalledMeta =
       const VerificationMeta('isPaywalled');
   @override
@@ -89,7 +89,7 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         sourceName,
         sourceFaviconUrl,
         publishedAt,
-        category,
+        categories,
         isPaywalled,
         clusterId
       ];
@@ -155,10 +155,6 @@ class $NewsArticlesTableTable extends NewsArticlesTable
     } else if (isInserting) {
       context.missing(_publishedAtMeta);
     }
-    if (data.containsKey('category')) {
-      context.handle(_categoryMeta,
-          category.isAcceptableOrUnknown(data['category']!, _categoryMeta));
-    }
     if (data.containsKey('is_paywalled')) {
       context.handle(
           _isPaywalledMeta,
@@ -194,8 +190,9 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           DriftSqlType.string, data['${effectivePrefix}source_favicon_url']),
       publishedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}published_at'])!,
-      category: attachedDatabase.typeMapping
-          .read(DriftSqlType.string, data['${effectivePrefix}category'])!,
+      categories: $NewsArticlesTableTable.$convertercategories.fromSql(
+          attachedDatabase.typeMapping.read(
+              DriftSqlType.string, data['${effectivePrefix}categories'])!),
       isPaywalled: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_paywalled'])!,
       clusterId: attachedDatabase.typeMapping
@@ -207,6 +204,9 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   $NewsArticlesTableTable createAlias(String alias) {
     return $NewsArticlesTableTable(attachedDatabase, alias);
   }
+
+  static TypeConverter<List<NewsCategory>, String> $convertercategories =
+      const CategoryListConverter();
 }
 
 class NewsArticlesTableData extends DataClass
@@ -219,7 +219,9 @@ class NewsArticlesTableData extends DataClass
   final String sourceName;
   final String? sourceFaviconUrl;
   final DateTime publishedAt;
-  final String category;
+
+  /// Stored as a JSON-encoded list, e.g. '["tech","politics"]'
+  final List<NewsCategory> categories;
   final bool isPaywalled;
   final String? clusterId;
   const NewsArticlesTableData(
@@ -231,7 +233,7 @@ class NewsArticlesTableData extends DataClass
       required this.sourceName,
       this.sourceFaviconUrl,
       required this.publishedAt,
-      required this.category,
+      required this.categories,
       required this.isPaywalled,
       this.clusterId});
   @override
@@ -249,7 +251,10 @@ class NewsArticlesTableData extends DataClass
       map['source_favicon_url'] = Variable<String>(sourceFaviconUrl);
     }
     map['published_at'] = Variable<DateTime>(publishedAt);
-    map['category'] = Variable<String>(category);
+    {
+      map['categories'] = Variable<String>(
+          $NewsArticlesTableTable.$convertercategories.toSql(categories));
+    }
     map['is_paywalled'] = Variable<bool>(isPaywalled);
     if (!nullToAbsent || clusterId != null) {
       map['cluster_id'] = Variable<String>(clusterId);
@@ -271,7 +276,7 @@ class NewsArticlesTableData extends DataClass
           ? const Value.absent()
           : Value(sourceFaviconUrl),
       publishedAt: Value(publishedAt),
-      category: Value(category),
+      categories: Value(categories),
       isPaywalled: Value(isPaywalled),
       clusterId: clusterId == null && nullToAbsent
           ? const Value.absent()
@@ -291,7 +296,7 @@ class NewsArticlesTableData extends DataClass
       sourceName: serializer.fromJson<String>(json['sourceName']),
       sourceFaviconUrl: serializer.fromJson<String?>(json['sourceFaviconUrl']),
       publishedAt: serializer.fromJson<DateTime>(json['publishedAt']),
-      category: serializer.fromJson<String>(json['category']),
+      categories: serializer.fromJson<List<NewsCategory>>(json['categories']),
       isPaywalled: serializer.fromJson<bool>(json['isPaywalled']),
       clusterId: serializer.fromJson<String?>(json['clusterId']),
     );
@@ -308,7 +313,7 @@ class NewsArticlesTableData extends DataClass
       'sourceName': serializer.toJson<String>(sourceName),
       'sourceFaviconUrl': serializer.toJson<String?>(sourceFaviconUrl),
       'publishedAt': serializer.toJson<DateTime>(publishedAt),
-      'category': serializer.toJson<String>(category),
+      'categories': serializer.toJson<List<NewsCategory>>(categories),
       'isPaywalled': serializer.toJson<bool>(isPaywalled),
       'clusterId': serializer.toJson<String?>(clusterId),
     };
@@ -323,7 +328,7 @@ class NewsArticlesTableData extends DataClass
           String? sourceName,
           Value<String?> sourceFaviconUrl = const Value.absent(),
           DateTime? publishedAt,
-          String? category,
+          List<NewsCategory>? categories,
           bool? isPaywalled,
           Value<String?> clusterId = const Value.absent()}) =>
       NewsArticlesTableData(
@@ -337,7 +342,7 @@ class NewsArticlesTableData extends DataClass
             ? sourceFaviconUrl.value
             : this.sourceFaviconUrl,
         publishedAt: publishedAt ?? this.publishedAt,
-        category: category ?? this.category,
+        categories: categories ?? this.categories,
         isPaywalled: isPaywalled ?? this.isPaywalled,
         clusterId: clusterId.present ? clusterId.value : this.clusterId,
       );
@@ -356,7 +361,8 @@ class NewsArticlesTableData extends DataClass
           : this.sourceFaviconUrl,
       publishedAt:
           data.publishedAt.present ? data.publishedAt.value : this.publishedAt,
-      category: data.category.present ? data.category.value : this.category,
+      categories:
+          data.categories.present ? data.categories.value : this.categories,
       isPaywalled:
           data.isPaywalled.present ? data.isPaywalled.value : this.isPaywalled,
       clusterId: data.clusterId.present ? data.clusterId.value : this.clusterId,
@@ -374,7 +380,7 @@ class NewsArticlesTableData extends DataClass
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
-          ..write('category: $category, ')
+          ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('clusterId: $clusterId')
           ..write(')'))
@@ -391,7 +397,7 @@ class NewsArticlesTableData extends DataClass
       sourceName,
       sourceFaviconUrl,
       publishedAt,
-      category,
+      categories,
       isPaywalled,
       clusterId);
   @override
@@ -406,7 +412,7 @@ class NewsArticlesTableData extends DataClass
           other.sourceName == this.sourceName &&
           other.sourceFaviconUrl == this.sourceFaviconUrl &&
           other.publishedAt == this.publishedAt &&
-          other.category == this.category &&
+          other.categories == this.categories &&
           other.isPaywalled == this.isPaywalled &&
           other.clusterId == this.clusterId);
 }
@@ -421,7 +427,7 @@ class NewsArticlesTableCompanion
   final Value<String> sourceName;
   final Value<String?> sourceFaviconUrl;
   final Value<DateTime> publishedAt;
-  final Value<String> category;
+  final Value<List<NewsCategory>> categories;
   final Value<bool> isPaywalled;
   final Value<String?> clusterId;
   final Value<int> rowid;
@@ -434,7 +440,7 @@ class NewsArticlesTableCompanion
     this.sourceName = const Value.absent(),
     this.sourceFaviconUrl = const Value.absent(),
     this.publishedAt = const Value.absent(),
-    this.category = const Value.absent(),
+    this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -448,7 +454,7 @@ class NewsArticlesTableCompanion
     required String sourceName,
     this.sourceFaviconUrl = const Value.absent(),
     required DateTime publishedAt,
-    this.category = const Value.absent(),
+    this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -467,7 +473,7 @@ class NewsArticlesTableCompanion
     Expression<String>? sourceName,
     Expression<String>? sourceFaviconUrl,
     Expression<DateTime>? publishedAt,
-    Expression<String>? category,
+    Expression<String>? categories,
     Expression<bool>? isPaywalled,
     Expression<String>? clusterId,
     Expression<int>? rowid,
@@ -481,7 +487,7 @@ class NewsArticlesTableCompanion
       if (sourceName != null) 'source_name': sourceName,
       if (sourceFaviconUrl != null) 'source_favicon_url': sourceFaviconUrl,
       if (publishedAt != null) 'published_at': publishedAt,
-      if (category != null) 'category': category,
+      if (categories != null) 'categories': categories,
       if (isPaywalled != null) 'is_paywalled': isPaywalled,
       if (clusterId != null) 'cluster_id': clusterId,
       if (rowid != null) 'rowid': rowid,
@@ -497,7 +503,7 @@ class NewsArticlesTableCompanion
       Value<String>? sourceName,
       Value<String?>? sourceFaviconUrl,
       Value<DateTime>? publishedAt,
-      Value<String>? category,
+      Value<List<NewsCategory>>? categories,
       Value<bool>? isPaywalled,
       Value<String?>? clusterId,
       Value<int>? rowid}) {
@@ -510,7 +516,7 @@ class NewsArticlesTableCompanion
       sourceName: sourceName ?? this.sourceName,
       sourceFaviconUrl: sourceFaviconUrl ?? this.sourceFaviconUrl,
       publishedAt: publishedAt ?? this.publishedAt,
-      category: category ?? this.category,
+      categories: categories ?? this.categories,
       isPaywalled: isPaywalled ?? this.isPaywalled,
       clusterId: clusterId ?? this.clusterId,
       rowid: rowid ?? this.rowid,
@@ -544,8 +550,9 @@ class NewsArticlesTableCompanion
     if (publishedAt.present) {
       map['published_at'] = Variable<DateTime>(publishedAt.value);
     }
-    if (category.present) {
-      map['category'] = Variable<String>(category.value);
+    if (categories.present) {
+      map['categories'] = Variable<String>(
+          $NewsArticlesTableTable.$convertercategories.toSql(categories.value));
     }
     if (isPaywalled.present) {
       map['is_paywalled'] = Variable<bool>(isPaywalled.value);
@@ -570,7 +577,7 @@ class NewsArticlesTableCompanion
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
-          ..write('category: $category, ')
+          ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('clusterId: $clusterId, ')
           ..write('rowid: $rowid')
@@ -601,7 +608,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   required String sourceName,
   Value<String?> sourceFaviconUrl,
   required DateTime publishedAt,
-  Value<String> category,
+  Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<String?> clusterId,
   Value<int> rowid,
@@ -616,7 +623,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<String> sourceName,
   Value<String?> sourceFaviconUrl,
   Value<DateTime> publishedAt,
-  Value<String> category,
+  Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<String?> clusterId,
   Value<int> rowid,
@@ -656,8 +663,10 @@ class $$NewsArticlesTableTableFilterComposer
   ColumnFilters<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => ColumnFilters(column));
 
-  ColumnFilters<String> get category => $composableBuilder(
-      column: $table.category, builder: (column) => ColumnFilters(column));
+  ColumnWithTypeConverterFilters<List<NewsCategory>, List<NewsCategory>, String>
+      get categories => $composableBuilder(
+          column: $table.categories,
+          builder: (column) => ColumnWithTypeConverterFilters(column));
 
   ColumnFilters<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => ColumnFilters(column));
@@ -700,8 +709,8 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => ColumnOrderings(column));
 
-  ColumnOrderings<String> get category => $composableBuilder(
-      column: $table.category, builder: (column) => ColumnOrderings(column));
+  ColumnOrderings<String> get categories => $composableBuilder(
+      column: $table.categories, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => ColumnOrderings(column));
@@ -743,8 +752,9 @@ class $$NewsArticlesTableTableAnnotationComposer
   GeneratedColumn<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => column);
 
-  GeneratedColumn<String> get category =>
-      $composableBuilder(column: $table.category, builder: (column) => column);
+  GeneratedColumnWithTypeConverter<List<NewsCategory>, String> get categories =>
+      $composableBuilder(
+          column: $table.categories, builder: (column) => column);
 
   GeneratedColumn<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => column);
@@ -790,7 +800,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<String> sourceName = const Value.absent(),
             Value<String?> sourceFaviconUrl = const Value.absent(),
             Value<DateTime> publishedAt = const Value.absent(),
-            Value<String> category = const Value.absent(),
+            Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -804,7 +814,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,
-            category: category,
+            categories: categories,
             isPaywalled: isPaywalled,
             clusterId: clusterId,
             rowid: rowid,
@@ -818,7 +828,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             required String sourceName,
             Value<String?> sourceFaviconUrl = const Value.absent(),
             required DateTime publishedAt,
-            Value<String> category = const Value.absent(),
+            Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -832,7 +842,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,
-            category: category,
+            categories: categories,
             isPaywalled: isPaywalled,
             clusterId: clusterId,
             rowid: rowid,

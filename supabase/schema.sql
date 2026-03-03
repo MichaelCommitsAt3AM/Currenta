@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS articles (
   source_name       TEXT NOT NULL,
   source_favicon_url TEXT,
   published_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  category          TEXT NOT NULL DEFAULT 'world',
+  categories        TEXT[] NOT NULL DEFAULT '{world}',
+  subcategory       TEXT,
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
   cluster_id        UUID,
   -- 768-dim for nomic-embed-text (dedicated embedding model)

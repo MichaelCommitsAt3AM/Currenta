@@ -15,8 +15,9 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
       sourceName: json['source_name'] as String,
       sourceFaviconUrl: json['source_favicon_url'] as String?,
       publishedAt: DateTime.parse(json['published_at'] as String),
-      category: $enumDecodeNullable(_$NewsCategoryEnumMap, json['category']) ??
-          NewsCategory.world,
+      categories: json['categories'] == null
+          ? const [NewsCategory.world]
+          : _categoriesFromJson(json['categories']),
       isPaywalled: json['is_paywalled'] as bool? ?? false,
       clusterId: json['cluster_id'] as String?,
     );
@@ -31,18 +32,7 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'source_name': instance.sourceName,
       'source_favicon_url': instance.sourceFaviconUrl,
       'published_at': instance.publishedAt.toIso8601String(),
-      'category': _$NewsCategoryEnumMap[instance.category]!,
+      'categories': _categoriesToJson(instance.categories),
       'is_paywalled': instance.isPaywalled,
       'cluster_id': instance.clusterId,
     };
-
-const _$NewsCategoryEnumMap = {
-  NewsCategory.politics: 'politics',
-  NewsCategory.tech: 'tech',
-  NewsCategory.science: 'science',
-  NewsCategory.business: 'business',
-  NewsCategory.sports: 'sports',
-  NewsCategory.entertainment: 'entertainment',
-  NewsCategory.health: 'health',
-  NewsCategory.world: 'world',
-};

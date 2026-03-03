@@ -17,6 +17,25 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${CYAN}  🛑  Stopping Currenta Dev Services${RESET}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 echo ""
+# ── Show what's currently running ────────────────────────────────────────────
+NGROK_API_PORT="${NGROK_API_PORT:-4040}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1}"
+OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
+
+if curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" >/dev/null 2>&1; then
+  OLLAMA_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" \
+    | grep -oP '"name":"ollama".*?"public_url":"\K[^"]+' 2>/dev/null | head -1 || echo "unknown")
+  SCRAPER_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" \
+    | grep -oP '"name":"scraper".*?"public_url":"\K[^"]+' 2>/dev/null | head -1 || echo "unknown")
+  echo -e "${CYAN}  Active tunnels:${RESET}"
+  echo -e "    🧠  LLM        ${OLLAMA_MODEL}  →  ${OLLAMA_URL}/v1/chat/completions"
+  echo -e "    🔢  Embeddings ${OLLAMA_EMBED_MODEL}  →  ${OLLAMA_URL}/v1/embeddings"
+  echo -e "    🕷️   Scraper    →  ${SCRAPER_URL}/scrape"
+  echo ""
+else
+  info "ngrok was not running"
+fi
+
 
 # ── ngrok ─────────────────────────────────────────────────────────────────────
 NGROK_PID_FILE="${PROJECT_ROOT}/.ngrok.pid"

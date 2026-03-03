@@ -96,27 +96,15 @@ class NewsRepositoryImpl implements NewsRepository {
 
   @override
   Future<void> triggerAllIngestion({int? limit}) async {
-    final List<({String url, String category})> allFeeds = [];
-    NewsSources.feeds.forEach((category, urls) {
-      for (final url in urls) {
-        allFeeds.add((url: url, category: category.name));
-      }
-    });
-
-    allFeeds.shuffle();
-    final sourcesToTrigger = limit != null ? allFeeds.take(limit) : allFeeds;
-
-    for (final source in sourcesToTrigger) {
-      try {
-        await _remote.triggerIngestion(
-          feedUrl: source.url,
-          categoryHint: source.category,
-        );
-      } catch (e) {
-        // Silently continue for background jobs
-        // ignore: avoid_print
-        print('[Repo] Failed to trigger ${source.url}: $e');
-      }
+    try {
+      // We now offload the entire loop to the cloud Orchestrator.
+      // This bypasses the 60s timeout limit on a single function call
+      // and initiates parallel processing for all 30+ sources.
+      await _remote.triggerOrchestrator();
+    } on AppException {
+      rethrow;
+    } catch (e) {
+      throw ServerException('Orchestration failed: $e');
     }
   }
 }

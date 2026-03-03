@@ -1,5 +1,6 @@
 // lib/features/news/data/local/news_dao.dart
 
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
@@ -14,11 +15,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   // ── Reads ─────────────────────────────────────────────────────
 
   /// Watch all articles, ordered newest-first. Optionally filter by category.
+  /// Uses JSON substring match to check if the stored categories list contains [category].
   Stream<List<NewsArticlesTableData>> watchArticles({String? category}) {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
           ..where((t) => category != null
-              ? t.category.equals(category)
+              // JSON-encoded check: e.g. '"tech"' will match '["tech","politics"]'
+              ? t.categories.like('%"$category"%')
               : const Constant(true)))
         .watch();
   }
@@ -27,7 +30,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
           ..where((t) => category != null
-              ? t.category.equals(category)
+              ? t.categories.like('%"$category"%')
               : const Constant(true)))
         .get();
   }
@@ -63,10 +66,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         sourceName: sourceName,
         sourceFaviconUrl: sourceFaviconUrl,
         publishedAt: publishedAt,
-        category: NewsCategory.values.firstWhere(
-          (c) => c.name == category,
-          orElse: () => NewsCategory.world,
-        ),
+        categories: categories, // already decoded by CategoryListConverter
         isPaywalled: isPaywalled,
         clusterId: clusterId,
       );
@@ -82,7 +82,8 @@ extension NewsArticleDboMapper on NewsArticle {
         sourceName: Value(sourceName),
         sourceFaviconUrl: Value(sourceFaviconUrl),
         publishedAt: Value(publishedAt),
-        category: Value(category.name),
+        // Encode List<NewsCategory> → JSON string via the TypeConverter-aware Value
+        categories: Value(categories),
         isPaywalled: Value(isPaywalled),
         clusterId: Value(clusterId),
       );

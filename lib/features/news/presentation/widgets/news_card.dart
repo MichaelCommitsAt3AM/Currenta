@@ -4,7 +4,7 @@
 // Performance: NO per-card AnimationController — the PageView handles transitions.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_custom_tabs/flutter_custom_tabs.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../core/theme/app_theme.dart';
 
@@ -22,128 +22,131 @@ class NewsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final catColor = AppTheme.categoryColor(article.category.name);
+    final primaryCategory =
+        article.categories.isNotEmpty ? article.categories.first : null;
+    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
     final size = MediaQuery.sizeOf(context);
 
-    return GestureDetector(
-      onTap: () => _openOriginal(context, article.originalUrl),
-      child: Container(
-        width: size.width,
-        height: size.height,
-        color: const Color(0xFF0A0C14),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── Background Gradient ─────────────────────
-            _BackgroundGradient(catColor: catColor),
+    return Container(
+      width: size.width,
+      height: size.height,
+      color: const Color(0xFF0A0C14),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Background Gradient ─────────────────────
+          _BackgroundGradient(catColor: catColor),
 
-            // ── Decorative accent circle ───────────────────────────
-            Positioned(
-              top: -60,
-              right: -60,
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      catColor.withValues(alpha: 0.15),
-                      Colors.transparent,
-                    ],
-                  ),
+          // ── Decorative accent circle ───────────────────────────
+          Positioned(
+            top: -60,
+            right: -60,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    catColor.withValues(alpha: 0.15),
+                    Colors.transparent,
+                  ],
                 ),
               ),
             ),
+          ),
 
-            // ── Content area ───────────────────────────────────────
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                MediaQuery.paddingOf(context).top + 56,
-                24,
-                24,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Top Row (Page Indicator + Category) ─────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _PageIndicator(
-                        index: index,
-                        total: total,
-                        color: catColor,
-                      ),
-                      _CategoryChip(
-                        label:
-                            '${article.category.emoji} ${article.category.displayName}',
-                        color: catColor,
-                      ),
-                    ],
-                  ),
+          // ── Content area ───────────────────────────────────────
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              MediaQuery.paddingOf(context).top + 56,
+              24,
+              24,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Top Row (Page Indicator + Category) ─────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _PageIndicator(
+                      index: index,
+                      total: total,
+                      color: catColor,
+                    ),
+                    _CategoryChip(
+                      label: primaryCategory != null
+                          ? '${primaryCategory.emoji} ${primaryCategory.displayName}'
+                          : '🌍 World',
+                      color: catColor,
+                    ),
+                  ],
+                ),
 
-                  const SizedBox(height: 24),
+                const SizedBox(height: 24),
 
-                  // ── Feature Image ──────────────────────────────────
-                  if (article.imageUrl != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          width: double.infinity,
-                          height: size.height * 0.28,
-                          color: Colors.white.withValues(alpha: 0.05),
-                          child: Image.network(
-                            article.imageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, _, __) => Center(
-                              child: Icon(Icons.image_not_supported_rounded,
-                                  color: Colors.white.withValues(alpha: 0.2)),
-                            ),
+                // ── Feature Image ──────────────────────────────────
+                if (article.imageUrl != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        width: double.infinity,
+                        height: size.height * 0.28,
+                        color: Colors.white.withValues(alpha: 0.05),
+                        child: Image.network(
+                          article.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, _, __) => Center(
+                            child: Icon(Icons.image_not_supported_rounded,
+                                color: Colors.white.withValues(alpha: 0.2)),
                           ),
                         ),
                       ),
                     ),
-
-                  // ── Title ──────────────────────────────────────────
-                  Text(
-                    article.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      height: 1.3,
-                      letterSpacing: -0.3,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
                   ),
 
-                  const SizedBox(height: 16),
+                // ── Title ──────────────────────────────────────────
+                Text(
+                  article.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.3,
+                    letterSpacing: -0.3,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
 
-                  // ── AI Summary ─────────────────────────────────────
-                  Expanded(
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: Text(
-                        article.summary,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontSize: 15,
-                          height: 1.5,
-                          fontWeight: FontWeight.w400,
-                        ),
+                const SizedBox(height: 16),
+
+                // ── AI Summary ─────────────────────────────────────
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Text(
+                      article.summary,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 15,
+                        height: 1.5,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ),
+                ),
 
-                  const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-                  // ── Source Row ─────────────────────────────────────
-                  Row(
+                // ── Source Row (tap to open article in default browser) ──
+                GestureDetector(
+                  onTap: () => _openOriginal(context, article.originalUrl),
+                  child: Row(
                     children: [
                       if (article.sourceFaviconUrl != null)
                         Padding(
@@ -178,48 +181,52 @@ class NewsCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                      Text(
-                        article.sourceName,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
+                      Expanded(
+                        child: Text(
+                          article.sourceName,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Icon(Icons.open_in_new_rounded,
-                          size: 14, color: Colors.white.withValues(alpha: 0.3)),
+                          size: 14, color: catColor.withValues(alpha: 0.6)),
                     ],
                   ),
+                ),
 
-                  const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-                  // ── Footer Actions ───────────────────────────────
-                  Row(
-                    children: [
-                      Icon(Icons.local_fire_department_rounded,
-                          color: Colors.white.withValues(alpha: 0.6), size: 22),
-                      const SizedBox(width: 6),
-                      Text('10',
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6))),
-                      const SizedBox(width: 24),
-                      Icon(Icons.bookmark_border_rounded,
-                          color: Colors.white.withValues(alpha: 0.6), size: 22),
-                      const SizedBox(width: 24),
-                      Icon(Icons.share_outlined,
-                          color: Colors.white.withValues(alpha: 0.6), size: 22),
-                      const Spacer(),
-                      if (index < total - 1)
-                        Icon(Icons.keyboard_double_arrow_up_rounded,
-                            color: catColor.withValues(alpha: 0.4), size: 20),
-                    ],
-                  ),
-                ],
-              ),
+                // ── Footer Actions ───────────────────────────────
+                Row(
+                  children: [
+                    Icon(Icons.local_fire_department_rounded,
+                        color: Colors.white.withValues(alpha: 0.6), size: 22),
+                    const SizedBox(width: 6),
+                    Text('10',
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6))),
+                    const SizedBox(width: 24),
+                    Icon(Icons.bookmark_border_rounded,
+                        color: Colors.white.withValues(alpha: 0.6), size: 22),
+                    const SizedBox(width: 24),
+                    Icon(Icons.share_outlined,
+                        color: Colors.white.withValues(alpha: 0.6), size: 22),
+                    const Spacer(),
+                    if (index < total - 1)
+                      Icon(Icons.keyboard_double_arrow_up_rounded,
+                          color: catColor.withValues(alpha: 0.4), size: 20),
+                  ],
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -227,38 +234,12 @@ class NewsCard extends StatelessWidget {
   Future<void> _openOriginal(BuildContext context, String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
-
-    final theme = Theme.of(context);
-    final size = MediaQuery.sizeOf(context);
-
     try {
-      await launchUrl(
-        uri,
-        customTabsOptions: CustomTabsOptions.partial(
-          configuration: PartialCustomTabsConfiguration.bottomSheet(
-            // Set height to full screen to make it slide up and fill the screen
-            initialHeight: size.height,
-            activityHeightResizeBehavior:
-                CustomTabsActivityHeightResizeBehavior.defaultBehavior,
-            cornerRadius: 16,
-          ),
-          colorSchemes: CustomTabsColorSchemes.defaults(
-            toolbarColor: theme.colorScheme.surface,
-          ),
-          showTitle: true,
-          closeButton: CustomTabsCloseButton(
-            icon: CustomTabsCloseButtonIcons.back,
-          ),
-        ),
-        safariVCOptions: SafariViewControllerOptions(
-          preferredBarTintColor: theme.colorScheme.surface,
-          preferredControlTintColor: theme.colorScheme.onSurface,
-          barCollapsingEnabled: true,
-          dismissButtonStyle: SafariViewControllerDismissButtonStyle.close,
-        ),
-      );
+      // LaunchMode.externalApplication opens in the user's default browser
+      // (Chrome, Brave, Firefox, etc.) — not constrained to Custom Tabs.
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
-      // Intentionally swallowed if the device lacks any browser
+      // Swallowed if the device has no browser capable of handling the URL.
     }
   }
 }

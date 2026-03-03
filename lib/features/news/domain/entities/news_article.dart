@@ -7,6 +7,26 @@ import 'news_category.dart';
 part 'news_article.freezed.dart';
 part 'news_article.g.dart';
 
+// ── JSON helpers (top-level, as required by Freezed) ─────────────────────────
+
+List<NewsCategory> _categoriesFromJson(dynamic raw) {
+  if (raw == null) return [NewsCategory.world];
+  final List<dynamic> list = raw is List ? raw : [raw];
+  final result = list
+      .map((e) => e?.toString() ?? '')
+      .map((s) => NewsCategory.values.firstWhere(
+            (c) => c.name == s,
+            orElse: () => NewsCategory.world,
+          ))
+      .toList();
+  return result.isEmpty ? [NewsCategory.world] : result;
+}
+
+List<String> _categoriesToJson(List<NewsCategory> categories) =>
+    categories.map((c) => c.name).toList();
+
+// ── Entity ────────────────────────────────────────────────────────────────────
+
 @freezed
 abstract class NewsArticle with _$NewsArticle {
   const factory NewsArticle({
@@ -34,8 +54,14 @@ abstract class NewsArticle with _$NewsArticle {
     /// When the article was published
     @JsonKey(name: 'published_at') required DateTime publishedAt,
 
-    /// News category
-    @Default(NewsCategory.world) NewsCategory category,
+    /// News categories (multi-label). First element is primary display category.
+    @JsonKey(
+      name: 'categories',
+      fromJson: _categoriesFromJson,
+      toJson: _categoriesToJson,
+    )
+    @Default([NewsCategory.world])
+    List<NewsCategory> categories,
 
     /// Whether this article is behind a paywall
     @JsonKey(name: 'is_paywalled') @Default(false) bool isPaywalled,
