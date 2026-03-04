@@ -7,8 +7,6 @@ import '../../features/news/data/local/app_database.dart';
 import '../../features/news/data/remote/news_remote_datasource.dart';
 import '../../features/news/data/repositories/news_repository_impl.dart';
 import '../../features/news/domain/repositories/news_repository.dart';
-import '../ai/llm_provider.dart';
-import '../ai/llm_provider_factory.dart';
 import '../utils/dio_client.dart';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -28,12 +26,6 @@ final appDatabaseProvider = Provider<AppDatabase>((ref) {
 // ── Networking ────────────────────────────────────────────────────
 
 final dioClientProvider = Provider((ref) => DioClient.instance.dio);
-
-// ── AI / LLM ─────────────────────────────────────────────────────
-
-final llmProviderProvider = Provider<LlmProvider>((ref) {
-  return LlmProviderFactory.create();
-});
 
 // ── Data Sources ──────────────────────────────────────────────────
 

@@ -41,3 +41,14 @@ async def trigger_orchestrator(
         return {"status": "orchestration_started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/cancel")
+async def trigger_cancel(
+    admin_key: str = Depends(verify_admin_api_key)
+):
+    """
+    Stops any ongoing full orchestration.
+    """
+    from ..services.ingestion import cancel_ingestion
+    cancel_ingestion()
+    return {"status": "cancellation_signaled"}

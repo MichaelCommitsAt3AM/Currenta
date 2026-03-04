@@ -38,6 +38,16 @@ else:
     print("WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. Image uploads and some RPCs will fail.")
 
 # ---------------------------------------------------------------------------
+# Control signals for background tasks
+# ---------------------------------------------------------------------------
+SHOULD_STOP_INGESTION = False
+
+def cancel_ingestion():
+    global SHOULD_STOP_INGESTION
+    SHOULD_STOP_INGESTION = True
+    print("[Ingestion] Cancellation signal received. Will stop at next opportunity.")
+
+# ---------------------------------------------------------------------------
 # Feed registry — mirrors lib/core/config/news_sources.dart
 # ---------------------------------------------------------------------------
 FEEDS = [
@@ -129,7 +139,10 @@ def generate_content_hash(link: str, title: str) -> str:
     return hashlib.sha256(s.encode('utf-8')).hexdigest()
 
 def is_scraper_error_page(text: str) -> bool:
-    if not text or len(text.strip()) < 50:
+    if not text:
+        return True
+    # Relax length check; some valid summaries/titles are short.
+    if len(text.strip()) < 10:
         return True
     lower = text.lower()
     error_signals = [
@@ -298,16 +311,33 @@ async def embed_text(text: str) -> list[float]:
 
 async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
     if not supabase_client:
-        print("[Upload] Supabase client not initialized. Cannot upload.")
+        print("[Image-Storage] CRITICAL: Supabase client not initialized. Cannot upload.")
         return None
     try:
         import base64
         image_bytes = base64.b64decode(base64_data)
-        res = supabase_client.storage.from_("article-images").upload(f"covers/{file_name}.jpg", image_bytes, file_options={"content-type": "image/jpeg", "upsert": "true"})
-        public_url = supabase_client.storage.from_("article-images").get_public_url(f"covers/{file_name}.jpg")
+        file_path = f"covers/{file_name}.jpg"
+        print(f"[Image-Storage] Attempting upload of {file_path} ({len(image_bytes)/1024:.1f}KB)...")
+        
+        # Check bucket before upload? Minimal approach: just attempt
+        res = supabase_client.storage.from_("article-images").upload(
+            file_path,
+            image_bytes,
+            file_options={"content-type": "image/jpeg", "upsert": "true"}
+        )
+        
+        # Supabase Python client returns the response object or raises an exception
+        # We need to see what's inside.
+        print(f"[Image-Storage] Upload result: {res}")
+        
+        public_url = supabase_client.storage.from_("article-images").get_public_url(file_path)
+        print(f"[Image-Storage] Generated Public URL: {public_url}")
+        
         return public_url
     except Exception as e:
-        print(f"[Upload] Error: {e}")
+        print(f"[Image-Storage] ERROR during upload to Supabase: {type(e).__name__} - {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 async def parse_rss(feed_url: str) -> list[dict]:
@@ -324,8 +354,31 @@ async def parse_rss(feed_url: str) -> list[dict]:
         xml = res.text
         
     soup = BeautifulSoup(xml, 'xml')
+    # Try RSS channel title, then Atom feed title
     channel = soup.find('channel')
-    channel_title = channel.title.text if channel and channel.title else "Unknown Source"
+    feed = soup.find('feed')
+    
+    if channel and channel.title:
+        channel_title = channel.title.text
+    elif feed and feed.title:
+        channel_title = feed.title.text
+    elif soup.title:
+        channel_title = soup.title.text
+    else:
+        channel_title = "Unknown Source"
+    
+    # Clean up source names
+    source_mapping = {
+        "WSJ.com: World News": "The Wall Street Journal",
+        "WSJ.com: US Business News": "The Wall Street Journal",
+        "WSJ.com: Markets News": "The Wall Street Journal",
+        "Al Jazeera": "Al Jazeera",
+        "The Verge -  All Posts": "The Verge",
+        "BBC News - World": "BBC",
+        "BBC News": "BBC",
+        "Reuters: Top News": "Reuters",
+    }
+    channel_display_name = source_mapping.get(channel_title, channel_title)
     
     items = soup.find_all(['item', 'entry'])[:10]
     
@@ -337,8 +390,10 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "discount code", "voucher"
     ]
     
-    parsed = []
+    parsed_items = []
     for item in items:
+        # Use clean channel name
+        source_name = channel_display_name
         title = item.title.text if item.title else ""
         link = item.link.text if item.link else ""
         # Handle atom links
@@ -367,15 +422,38 @@ async def parse_rss(feed_url: str) -> list[dict]:
             print(f"[parseRss] Filtering out junk article title: {title}")
             continue
             
-        parsed.append({
+        # Extract image from RSS if available
+        image_url_rss = None
+        # 1. Enclosure tag
+        enclosure = item.find('enclosure', url=True)
+        if enclosure and enclosure.get('type', '').startswith('image/'):
+            image_url_rss = enclosure.get('url')
+        
+        # 2. Media:content or content tag
+        if not image_url_rss:
+            media_content = item.find(['media:content', 'content'], url=True)
+            if media_content:
+                image_url_rss = media_content.get('url')
+        
+        # 3. Media:thumbnail tag
+        if not image_url_rss:
+            media_thumbnail = item.find(['media:thumbnail', 'thumbnail'], url=True)
+            if media_thumbnail:
+                image_url_rss = media_thumbnail.get('url')
+
+        if image_url_rss:
+            print(f"[parseRss] Found image in RSS for '{title[:30]}...': {image_url_rss}")
+
+        parsed_items.append({
             "title": title,
             "link": link,
             "pubDate": pub_date,
             "source": channel_title,
-            "description": description
+            "description": description,
+            "imageUrl": image_url_rss
         })
         
-    return parsed
+    return parsed_items
 
 async def is_duplicate(db_pool, embedding: list[float]) -> bool:
     # Use the RPC function match_recent_articles to find similarity
@@ -431,13 +509,16 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 # Scrape internally
                 scraper_result = scrape_article_sync(item["link"])
                 if "error" in scraper_result:
+                    print(f"[processFeed] Scraper Error for {item['link']}: {scraper_result['error']}")
                     scraper_text_is_error = True
                     result_text = item.get("description", "")
                 else:
                     scraper_text_is_error = is_scraper_error_page(scraper_result.get("text", ""))
                     result_text = scraper_result.get("text", "")
+                    print(f"[processFeed] Scraper succeeded: text_len={len(result_text)}, has_image={'image_base64' in scraper_result}")
 
                 if scraper_text_is_error:
+                    print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
                     # Scraper was blocked (paywall, JS-wall, etc.) — fall back to title + RSS description.
                     # This is enough context for a good LLM summary on major outlets.
                     fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
@@ -451,12 +532,35 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 if not scraper_text_is_error and scraper_result.get("image_base64"):
                     image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
+                    print(f"[processFeed] Attempting storage upload for scraped image...")
                     persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
                     article_image_url = persistent_url or scraper_result.get("image_url")
+                    print(f"[processFeed] Final image URL from scraper path: {article_image_url}")
                 else:
                     article_image_url = scraper_result.get("image_url") if "error" not in scraper_result else None
-                    
+                    if article_image_url:
+                        print(f"[processFeed] Scraper found image URL but no base64: {article_image_url}")
+                
+                # Secondary fallback: Use RSS image if scraper found nothing or failed
+                if not article_image_url and item.get("imageUrl"):
+                    print(f"[processFeed] Falling back to RSS image: {item.get('imageUrl')}")
+                    article_image_url = item.get("imageUrl")
+                    # Try to process and upload the RSS image if we have one
+                    from .scraper import process_image
+                    print(f"[processFeed] Processing RSS image for storage...")
+                    image_base64 = process_image(article_image_url)
+                    if image_base64:
+                        image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
+                        persistent_url = await upload_image_sync(image_base64, image_file_name)
+                        if persistent_url:
+                            article_image_url = persistent_url
+                    print(f"[processFeed] Final image URL from RSS path: {article_image_url}")
+
+                if not article_image_url:
+                    print(f"[processFeed] WARNING: No image found for article: {item['link']}")
+
             except Exception as e:
+                print(f"[processFeed] Unexpected error in image/content block: {e}")
                 # Unexpected scraper exception — same fallback logic
                 fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
                 if is_scraper_error_page(fallback) or len(fallback) < 100:
@@ -500,6 +604,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             # Insert
             async with db_pool.acquire() as conn:
                 try:
+                    print(f"[processFeed] DB INSERT: title='{llm_res['title'][:30]}...', image_url='{article_image_url}'")
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
@@ -512,6 +617,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     f"[{','.join(map(str, embedding))}]", content_hash, get_model_name(LLM_PROVIDER))
                     
                     results["ingested"] += 1
+                    print(f"[processFeed] Success! Article ingested.")
                 except Exception as db_err:
                     print(f"[processFeed] DB Insert Error: {db_err}")
                     results["errors"] += 1
@@ -533,11 +639,18 @@ async def orchestrate():
 
     print(f"[Orchestrator] Starting orchestration for {len(FEEDS)} feeds")
     
+    global SHOULD_STOP_INGESTION
+    SHOULD_STOP_INGESTION = False
+    
     # Simple queue processing without the database queue table
     # Since we are running in python memory now, we can just process them directly.
     # To keep simple and not overload, we will process feeds sequentially, 
     # but process individual articles concurrently (optional) or just sequentially.
     for feed in FEEDS:
+        if SHOULD_STOP_INGESTION:
+            print("[Orchestrator] Stop signal detected. Terminating orchestration.")
+            break
+
         print(f"[Orchestrator] Processing: {feed['feedUrl']}")
         try:
             await process_feed(feed["feedUrl"], feed["defaultCategory"], feed["categoryBias"], db_pool)

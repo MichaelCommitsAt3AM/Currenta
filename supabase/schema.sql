@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS articles (
   title             TEXT NOT NULL,
   summary           TEXT NOT NULL,
   original_url      TEXT NOT NULL UNIQUE,
+  image_url         TEXT,
   source_name       TEXT NOT NULL,
   source_favicon_url TEXT,
   published_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -17,6 +18,8 @@ CREATE TABLE IF NOT EXISTS articles (
   subcategory       TEXT,
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
   cluster_id        UUID,
+  content_hash      TEXT,
+  summary_model     TEXT,
   -- 768-dim for nomic-embed-text (dedicated embedding model)
   embedding         vector(768)
 );
@@ -33,7 +36,39 @@ CREATE INDEX IF NOT EXISTS articles_embedding_idx
 CREATE INDEX IF NOT EXISTS articles_published_at_idx
   ON articles (published_at DESC);
 
--- 5. Row Level Security
+-- 5. Content hash index for fast lookup
+CREATE INDEX IF NOT EXISTS articles_content_hash_idx
+  ON articles (content_hash);
+
+-- 6. GIN index for category filtering
+CREATE INDEX IF NOT EXISTS articles_categories_idx
+  ON articles USING GIN (categories);
+
+-- 7. Database Function for vector similarity search
+CREATE OR REPLACE FUNCTION match_recent_articles(
+  query_embedding vector(768),
+  similarity_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id UUID,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    articles.id,
+    1 - (articles.embedding <=> query_embedding) AS similarity
+  FROM articles
+  WHERE 1 - (articles.embedding <=> query_embedding) > similarity_threshold
+  ORDER BY articles.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;
+
+-- 8. Row Level Security
 ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon users to SELECT (read-only public feed)

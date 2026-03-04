@@ -60,9 +60,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   @override
   Future<FeedState> build() async {
-    // Kick off a background refresh without blocking the first render.
-    Future.microtask(_backgroundRefresh);
     final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
+
+    // If cache is empty, wait for the first refresh to complete before showing data.
+    // This keeps the UI in AsyncLoading (shimmer) rather than flashing "Empty State".
+    if (firstPage.isEmpty) {
+      debugPrint('[Feed] Cache empty. Performing initial remote sync...');
+      await _repo.refreshFeed();
+      final freshPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
+      _loadedCount = freshPage.length;
+      return FeedState(
+        articles: freshPage,
+        hasMore: freshPage.length >= _kPageSize,
+      );
+    }
+
+    // If we have cache, show it immediately and refresh in background.
+    Future.microtask(_backgroundRefresh);
     _loadedCount = firstPage.length;
     return FeedState(
       articles: firstPage,

@@ -42,6 +42,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     super.dispose();
   }
 
+  int _lastTriggeredPage = -1;
+
   /// Triggers next-page load when we are within 3 pages of the end.
   void _onPageScroll() {
     if (!_pageController.hasClients) return;
@@ -52,8 +54,29 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final currentPage = _pageController.page?.round() ?? 0;
     final totalPages = feed.articles.length;
 
-    if (totalPages > 0 && currentPage >= totalPages - 3) {
+    // Deduplicate: only trigger once for each unique page threshold
+    if (currentPage != _lastTriggeredPage &&
+        totalPages > 0 &&
+        currentPage >= totalPages - 3) {
+      _lastTriggeredPage = currentPage;
       ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
+    }
+  }
+
+  /// Preload images when a user lands on a new page.
+  void _onPageChanged(int index) {
+    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    if (feed == null) return;
+
+    // Preload next 3 images only once
+    for (var ahead = 1; ahead <= 3; ahead++) {
+      final nextIndex = index + ahead;
+      if (nextIndex < feed.articles.length) {
+        final url = feed.articles[nextIndex].imageUrl;
+        if (url != null && url.isNotEmpty) {
+          precacheImage(NetworkImage(url), context);
+        }
+      }
     }
   }
 
@@ -90,21 +113,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 scrollDirection: Axis.vertical,
                 physics: const BouncingScrollPhysics(),
                 itemCount: itemCount,
+                onPageChanged: _onPageChanged,
                 itemBuilder: (context, i) {
                   // ── Loading sentinel (last slot while fetching) ──
                   if (i >= feed.articles.length) {
                     return const _LoadingMorePage();
-                  }
-
-                  // ── Preload the next 3 article images ─────────────
-                  for (var ahead = 1; ahead <= 3; ahead++) {
-                    final nextIndex = i + ahead;
-                    if (nextIndex < feed.articles.length) {
-                      final url = feed.articles[nextIndex].imageUrl;
-                      if (url != null && url.isNotEmpty) {
-                        precacheImage(NetworkImage(url), context);
-                      }
-                    }
                   }
 
                   return RepaintBoundary(
