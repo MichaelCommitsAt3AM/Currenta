@@ -6,12 +6,12 @@ part of 'news_feed_notifier.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$newsFeedNotifierHash() => r'4f9930cc233d297ce8461132da799150f4302ab4';
+String _$newsFeedNotifierHash() => r'b299a9e9327870cb68f334b2ded5e6c0cabb30aa';
 
 /// See also [NewsFeedNotifier].
 @ProviderFor(NewsFeedNotifier)
-final newsFeedNotifierProvider = AutoDisposeAsyncNotifierProvider<
-    NewsFeedNotifier, List<NewsArticle>>.internal(
+final newsFeedNotifierProvider =
+    AutoDisposeAsyncNotifierProvider<NewsFeedNotifier, FeedState>.internal(
   NewsFeedNotifier.new,
   name: r'newsFeedNotifierProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
@@ -21,6 +21,6 @@ final newsFeedNotifierProvider = AutoDisposeAsyncNotifierProvider<
   allTransitiveDependencies: null,
 );
 
-typedef _$NewsFeedNotifier = AutoDisposeAsyncNotifier<List<NewsArticle>>;
+typedef _$NewsFeedNotifier = AutoDisposeAsyncNotifier<FeedState>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

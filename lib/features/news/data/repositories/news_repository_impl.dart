@@ -8,7 +8,6 @@ import '../local/app_database.dart';
 import '../local/news_dao.dart';
 import '../remote/news_remote_datasource.dart';
 import '../../../../core/config/app_config.dart';
-import '../../../../core/config/news_sources.dart';
 import '../../../../core/errors/app_exception.dart';
 
 class NewsRepositoryImpl implements NewsRepository {
@@ -30,6 +29,38 @@ class NewsRepositoryImpl implements NewsRepository {
         .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
 
+  // ── Paginated fetch with two-tier category sort ────────────────
+
+  @override
+  Future<List<NewsArticle>> fetchPage({
+    NewsCategory? category,
+    int limit = 10,
+    int offset = 0,
+  }) async {
+    final rows = await _dao.getArticlesPage(
+      category: category?.name,
+      limit: limit,
+      offset: offset,
+    );
+    final articles = rows.map((r) => r.toDomain()).toList();
+
+    if (category == null) return articles;
+
+    // Two-tier sort:
+    //   Tier 1 — category is at index 0 (primary category)
+    //   Tier 2 — category appears elsewhere in the list
+    final primary = <NewsArticle>[];
+    final secondary = <NewsArticle>[];
+    for (final a in articles) {
+      if (a.categories.isNotEmpty && a.categories.first == category) {
+        primary.add(a);
+      } else {
+        secondary.add(a);
+      }
+    }
+    return [...primary, ...secondary];
+  }
+
   // ── Refresh (remote → local upsert) ───────────────────────────
 
   @override
@@ -42,6 +73,31 @@ class NewsRepositoryImpl implements NewsRepository {
       rethrow;
     } catch (e) {
       throw ServerException('Failed to refresh feed: $e');
+    }
+  }
+
+  /// Fetches a batch of [limit] articles from remote starting at [remoteOffset]
+  /// and upserts them into the local cache.
+  /// Returns the number of articles written (0 = no more remote data).
+  Future<int> syncMoreFromRemote({
+    NewsCategory? category,
+    int remoteOffset = 0,
+    int limit = 30,
+  }) async {
+    try {
+      final remoteArticles = await _remote.fetchArticles(
+        category: category,
+        limit: limit,
+        offset: remoteOffset,
+      );
+      if (remoteArticles.isEmpty) return 0;
+      final companions = remoteArticles.map((a) => a.toCompanion()).toList();
+      await _dao.upsertArticles(companions);
+      return remoteArticles.length;
+    } on AppException {
+      rethrow;
+    } catch (e) {
+      throw ServerException('syncMoreFromRemote failed: $e');
     }
   }
 
@@ -74,37 +130,6 @@ class NewsRepositoryImpl implements NewsRepository {
       rethrow;
     } catch (e) {
       throw ServerException('Prefetch failed: $e');
-    }
-  }
-
-  @override
-  Future<void> triggerIngestion({
-    required String feedUrl,
-    String? categoryHint,
-  }) async {
-    try {
-      await _remote.triggerIngestion(
-        feedUrl: feedUrl,
-        categoryHint: categoryHint,
-      );
-    } on AppException {
-      rethrow;
-    } catch (e) {
-      throw ServerException('Ingestion trigger failed: $e');
-    }
-  }
-
-  @override
-  Future<void> triggerAllIngestion({int? limit}) async {
-    try {
-      // We now offload the entire loop to the cloud Orchestrator.
-      // This bypasses the 60s timeout limit on a single function call
-      // and initiates parallel processing for all 30+ sources.
-      await _remote.triggerOrchestrator();
-    } on AppException {
-      rethrow;
-    } catch (e) {
-      throw ServerException('Orchestration failed: $e');
     }
   }
 }

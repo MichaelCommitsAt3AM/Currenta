@@ -9,79 +9,48 @@ import '../../../../core/errors/app_exception.dart';
 
 class NewsRemoteDataSource {
   NewsRemoteDataSource({
-    required SupabaseClient supabase,
     required Dio dio,
-  })  : _supabase = supabase,
-        _dio = dio;
+  }) : _dio = dio;
 
-  final SupabaseClient _supabase;
-  // ignore: unused_field
-  final Dio _dio; // reserved for future direct HTTP calls / interceptors
+  final Dio _dio;
 
-  /// Fetches articles from Supabase PostgREST, ordered newest-first.
-  /// Apply filters BEFORE transform operations (order/limit) — required by supabase-flutter v2.
+  /// Fetches articles from the FastAPI backend.
+  /// [offset] enables remote pagination: skip the first [offset] rows.
   Future<List<NewsArticle>> fetchArticles({
     NewsCategory? category,
     int limit = 30,
+    int offset = 0,
   }) async {
     try {
-      // Start with the filter builder
-      var filterQuery = _supabase.from('articles').select();
+      final url = '${AppConfig.apiBaseUrl}/api/feed';
+      final queryParams = <String, dynamic>{
+        'limit': limit,
+        'offset': offset,
+      };
 
-      // Apply category filter: `contains` maps to PostgREST `cs` (contains) for TEXT[] columns.
       if (category != null) {
-        filterQuery = filterQuery.contains('categories', [category.name]);
+        queryParams['category'] = category.name;
       }
 
-      // Now apply transform operations
-      final data = await filterQuery
-          .order('published_at', ascending: false)
-          .limit(limit);
-
-      return (data as List<dynamic>)
-          .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
-          .toList();
-    } on PostgrestException catch (e) {
-      throw ServerException(
-        'Supabase query failed: ${e.message}',
-        statusCode: int.tryParse(e.code ?? ''),
-      );
-    } catch (e) {
-      throw ServerException('Unexpected remote error: $e');
-    }
-  }
-
-  /// Triggers the Supabase Edge Function to ingest news from an RSS feed.
-  Future<void> triggerIngestion({
-    required String feedUrl,
-    String? categoryHint,
-  }) async {
-    try {
-      await _supabase.functions.invoke(
-        'ingest-news',
-        body: {
-          'feedUrl': feedUrl,
-          'categoryHint': categoryHint,
-          'llmProvider': AppConfig.llmProvider,
-          'geminiApiKey': AppConfig.geminiApiKey,
+      // Pass the Supabase JWT to authenticate the feed request asymmetrically
+      final session = Supabase.instance.client.auth.currentSession;
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
         },
       );
-    } on FunctionException catch (e) {
-      throw ServerException(
-        'Edge function error: ${e.details}',
-        statusCode: e.status,
-      );
-    }
-  }
 
-  /// Triggers the Orchestrator to fan-out all feed ingests.
-  Future<void> triggerOrchestrator() async {
-    try {
-      await _supabase.functions.invoke('orchestrate-ingestion');
-    } on FunctionException catch (e) {
+      final response =
+          await _dio.get(url, queryParameters: queryParams, options: options);
+
+      final data = response.data as List<dynamic>;
+      return data
+          .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
       throw ServerException(
-        'Orchestrator error: ${e.details}',
-        statusCode: e.status,
+        'API request failed: ${e.message}',
+        statusCode: e.response?.statusCode,
       );
     }
   }

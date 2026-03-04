@@ -1,6 +1,7 @@
 // lib/features/news/presentation/screens/feed_screen.dart
 // Full-screen vertical PageView feed — one story per screen,
 // swipe down (upward gesture) advances to the next story.
+// Loads the next batch of 10 articles when the user is within 3 pages of the end.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,25 +22,39 @@ class FeedScreen extends ConsumerStatefulWidget {
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   NewsCategory? _selectedCategory;
-
-  // PageController — itemExtent not set so each page = full screen height
   late final PageController _pageController;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    // Full-screen immersive: hide status bar tint and make it transparent
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
     ));
+    _pageController.addListener(_onPageScroll);
   }
 
   @override
   void dispose() {
+    _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// Triggers next-page load when we are within 3 pages of the end.
+  void _onPageScroll() {
+    if (!_pageController.hasClients) return;
+    final feedAsync = ref.read(newsFeedNotifierProvider);
+    final feed = feedAsync.valueOrNull;
+    if (feed == null || feed.isLoadingMore || !feed.hasMore) return;
+
+    final currentPage = _pageController.page?.round() ?? 0;
+    final totalPages = feed.articles.length;
+
+    if (totalPages > 0 && currentPage >= totalPages - 3) {
+      ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
+    }
   }
 
   @override
@@ -58,32 +73,34 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               onRetry: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
-            data: (articles) {
-              if (articles.isEmpty) {
+            data: (feed) {
+              if (feed.articles.isEmpty && !feed.isLoadingMore) {
                 return EmptyStateScreen(
                   onRetry: () =>
                       ref.read(newsFeedNotifierProvider.notifier).refresh(),
                 );
               }
 
+              // Total items = articles + optional loading sentinel at the end
+              final itemCount =
+                  feed.articles.length + (feed.isLoadingMore ? 1 : 0);
+
               return PageView.builder(
                 controller: _pageController,
-                // Vertical scroll; scrollDirection: Axis.vertical means
-                // dragging UP shows the next item (natural TikTok-style).
                 scrollDirection: Axis.vertical,
-                // BouncingScrollPhysics gives a snappy page snap
                 physics: const BouncingScrollPhysics(),
-                itemCount: articles.length,
-                // RepaintBoundary per page prevents neighbour cards from
-                // repainting during the swipe animation — key perf fix.
+                itemCount: itemCount,
                 itemBuilder: (context, i) {
-                  // ── Preload the next 3 article images ────────────
-                  // Fire-and-forget: warms the image cache so images are
-                  // ready before the user swipes down to those cards.
+                  // ── Loading sentinel (last slot while fetching) ──
+                  if (i >= feed.articles.length) {
+                    return const _LoadingMorePage();
+                  }
+
+                  // ── Preload the next 3 article images ─────────────
                   for (var ahead = 1; ahead <= 3; ahead++) {
                     final nextIndex = i + ahead;
-                    if (nextIndex < articles.length) {
-                      final url = articles[nextIndex].imageUrl;
+                    if (nextIndex < feed.articles.length) {
+                      final url = feed.articles[nextIndex].imageUrl;
                       if (url != null && url.isNotEmpty) {
                         precacheImage(NetworkImage(url), context);
                       }
@@ -92,9 +109,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
                   return RepaintBoundary(
                     child: NewsCard(
-                      article: articles[i],
+                      article: feed.articles[i],
                       index: i,
-                      total: articles.length,
+                      total: feed.articles.length,
                     ),
                   );
                 },
@@ -102,7 +119,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             },
           ),
 
-          // ── Category filter bar (full top area, no logo) ──────
+          // ── Category filter bar ──────────────────────────────────
           SafeArea(
             child: _CategoryBar(
               selectedCategory: _selectedCategory,
@@ -123,7 +140,41 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 }
 
-// ── Category filter bar ───────────────────────────────────────────
+// ── Loading-more sentinel page ────────────────────────────────────────────────
+
+class _LoadingMorePage extends StatelessWidget {
+  const _LoadingMorePage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
+            ),
+          ),
+          SizedBox(height: 12),
+          Text(
+            'Loading more…',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Category filter bar ───────────────────────────────────────────────────────
 
 class _CategoryBar extends StatelessWidget {
   const _CategoryBar({
@@ -140,7 +191,6 @@ class _CategoryBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       height: 48,
-      // Subtle dark-to-transparent so cards bleed under it cleanly
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -169,7 +219,7 @@ class _CategoryBar extends StatelessWidget {
                   onTap: () => onCategoryChanged(cat),
                 ),
               )),
-          // Refresh at the very end of chip row
+          // Refresh button at the very end of chip row
           const SizedBox(width: 4),
           GestureDetector(
             onTap: onRefresh,

@@ -19,18 +19,12 @@ echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 # ── Show what's currently running ────────────────────────────────────────────
 NGROK_API_PORT="${NGROK_API_PORT:-4040}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1}"
-OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
 
 if curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" >/dev/null 2>&1; then
-  OLLAMA_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" \
-    | grep -oP '"name":"ollama".*?"public_url":"\K[^"]+' 2>/dev/null | head -1 || echo "unknown")
-  SCRAPER_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" \
-    | grep -oP '"name":"scraper".*?"public_url":"\K[^"]+' 2>/dev/null | head -1 || echo "unknown")
-  echo -e "${CYAN}  Active tunnels:${RESET}"
-  echo -e "    🧠  LLM        ${OLLAMA_MODEL}  →  ${OLLAMA_URL}/v1/chat/completions"
-  echo -e "    🔢  Embeddings ${OLLAMA_EMBED_MODEL}  →  ${OLLAMA_URL}/v1/embeddings"
-  echo -e "    🕷️   Scraper    →  ${SCRAPER_URL}/scrape"
+  BACKEND_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" \
+    | grep -oP '"name":"backend".*?"public_url":"\K[^"]+' 2>/dev/null | head -1 || echo "unknown")
+  echo -e "${CYAN}  Active Tunnels:${RESET}"
+  echo -e "    🌐  Backend    →  ${BACKEND_URL}"
   echo ""
 else
   info "ngrok was not running"
@@ -67,24 +61,24 @@ else
   info "No background ollama PID file found (systemd-managed Ollama is left running)"
 fi
 
-# ── Scraper Service ─────────────────────────────────────────────────────────────
-SCRAPER_PID_FILE="${PROJECT_ROOT}/.scraper.pid"
-if [[ -f "${SCRAPER_PID_FILE}" ]]; then
-  SCRAPER_PID=$(cat "${SCRAPER_PID_FILE}")
-  if kill -9 "${SCRAPER_PID}" 2>/dev/null; then
-    ok "Stopped Scraper Service (PID ${SCRAPER_PID})"
+# ── Backend Service ─────────────────────────────────────────────────────────────
+BACKEND_PID_FILE="${PROJECT_ROOT}/.backend.pid"
+if [[ -f "${BACKEND_PID_FILE}" ]]; then
+  BACKEND_PID=$(cat "${BACKEND_PID_FILE}")
+  if kill "${BACKEND_PID}" 2>/dev/null; then
+    ok "Stopped FastAPI Backend (PID ${BACKEND_PID})"
   else
-    warn "Scraper Service PID ${SCRAPER_PID} was not running"
+    warn "Backend Service PID ${BACKEND_PID} was not running"
   fi
-  rm -f "${SCRAPER_PID_FILE}"
-elif pgrep -f "uvicorn main:app" >/dev/null 2>&1; then
-  pkill -f "uvicorn main:app" && ok "Stopped Scraper Service" || warn "Could not stop Scraper Service"
+  rm -f "${BACKEND_PID_FILE}"
+elif pgrep -f "uvicorn backend.main:app" >/dev/null 2>&1; then
+  pkill -f "uvicorn backend.main:app" && ok "Stopped Backend Service" || warn "Could not stop Backend Service"
 else
-  info "Scraper Service was not running"
+  info "Backend Service was not running"
 fi
 
 # Cleanup log files
-rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log" "${PROJECT_ROOT}/.scraper.log"
+rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log" "${PROJECT_ROOT}/.backend.log" "${PROJECT_ROOT}/.scraper.log"
 
 echo ""
 ok "All done. Have a good one! 👋"

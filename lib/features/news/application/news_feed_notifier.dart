@@ -1,6 +1,7 @@
 // lib/features/news/application/news_feed_notifier.dart
-// AsyncNotifierProvider managing the news feed state.
+// Paginated feed state — 10 articles per batch, with two-tier category sort.
 
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
 import '../domain/entities/news_category.dart';
@@ -9,64 +10,186 @@ import '../../../core/providers/providers.dart';
 
 part 'news_feed_notifier.g.dart';
 
+const _kPageSize = 10;
+
+// ── Feed State ────────────────────────────────────────────────────────────────
+
+@immutable
+class FeedState {
+  const FeedState({
+    this.articles = const [],
+    this.isLoadingMore = false,
+    this.hasMore = true,
+    this.selectedCategory,
+  });
+
+  final List<NewsArticle> articles;
+
+  /// True while a next-page fetch is in flight.
+  final bool isLoadingMore;
+
+  /// False once a fetch returns fewer articles than [_kPageSize].
+  final bool hasMore;
+
+  final NewsCategory? selectedCategory;
+
+  FeedState copyWith({
+    List<NewsArticle>? articles,
+    bool? isLoadingMore,
+    bool? hasMore,
+    NewsCategory? Function()? selectedCategory,
+  }) =>
+      FeedState(
+        articles: articles ?? this.articles,
+        isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+        hasMore: hasMore ?? this.hasMore,
+        selectedCategory: selectedCategory != null
+            ? selectedCategory()
+            : this.selectedCategory,
+      );
+}
+
+// ── Notifier ──────────────────────────────────────────────────────────────────
+
 @riverpod
 class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
 
+  // Tracks how many articles have been loaded so far (for offset calculation).
+  int _loadedCount = 0;
+
   @override
-  Future<List<NewsArticle>> build() async {
-    // Kick off a background refresh without blocking the first load
+  Future<FeedState> build() async {
+    // Kick off a background refresh without blocking the first render.
     Future.microtask(_backgroundRefresh);
-    // Serve whatever is in the local cache immediately
-    return _repo.watchFeed().first;
+    final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
+    _loadedCount = firstPage.length;
+    return FeedState(
+      articles: firstPage,
+      hasMore: firstPage.length >= _kPageSize,
+    );
   }
 
-  /// Public method called by the UI RefreshIndicator / retry buttons.
-  Future<void> refresh() async {
-    state = const AsyncLoading();
-    await _backgroundRefresh(forceIngest: true);
-  }
+  // ── Public API ──────────────────────────────────────────────────
 
-  Future<void> _backgroundRefresh({bool forceIngest = false}) async {
+  /// Appends the next batch of articles to the current list.
+  Future<void> loadNextPage() async {
+    final current = state.valueOrNull;
+    if (current == null || current.isLoadingMore || !current.hasMore) return;
+
+    state = AsyncData(current.copyWith(isLoadingMore: true));
+
     try {
-      if (forceIngest) {
-        // Trigger a couple of random feeds even if we have data to keep it fresh
-        await _repo.triggerAllIngestion(limit: 5);
-      }
+      final category = current.selectedCategory;
 
-      await _repo.refreshFeed();
-      var articles = await _repo.watchFeed().first;
+      // Try local cache first (cheap, no network)
+      var nextPage = await _repo.fetchPage(
+        category: category,
+        limit: _kPageSize,
+        offset: _loadedCount,
+      );
 
-      // If still empty after refresh, queue jobs and poll until the worker
-      // delivers the first batch (queue model: worker runs every ~60s).
-      if (articles.isEmpty) {
-        await _repo.triggerAllIngestion(limit: 15);
+      // Local cache exhausted — sync more from remote then re-query
+      if (nextPage.isEmpty) {
+        final impl = _repo as dynamic; // syncMoreFromRemote is on the impl only
+        final synced = await impl.syncMoreFromRemote(
+          category: category,
+          remoteOffset: _loadedCount,
+          limit: 30, // fetch 30 at a time from remote to keep latency low
+        ) as int;
 
-        // Poll every 15s for up to 3 minutes waiting for the worker to process
-        // the first jobs and write articles to the DB.
-        const pollInterval = Duration(seconds: 15);
-        const maxWait = Duration(minutes: 3);
-        final deadline = DateTime.now().add(maxWait);
-
-        while (articles.isEmpty && DateTime.now().isBefore(deadline)) {
-          await Future.delayed(pollInterval);
-          await _repo.refreshFeed();
-          articles = await _repo.watchFeed().first;
+        if (synced == 0) {
+          // Truly no more articles anywhere
+          state = AsyncData(current.copyWith(
+            isLoadingMore: false,
+            hasMore: false,
+          ));
+          return;
         }
+
+        // Re-query local now that new rows are cached
+        nextPage = await _repo.fetchPage(
+          category: category,
+          limit: _kPageSize,
+          offset: _loadedCount,
+        );
       }
 
-      state = AsyncData(articles);
+      _loadedCount += nextPage.length;
+
+      // De-duplicate by id before appending
+      final existingIds = current.articles.map((a) => a.id).toSet();
+      final fresh = nextPage.where((a) => !existingIds.contains(a.id)).toList();
+
+      state = AsyncData(current.copyWith(
+        articles: [...current.articles, ...fresh],
+        isLoadingMore: false,
+        hasMore: nextPage.length >= _kPageSize,
+      ));
+    } catch (e, st) {
+      final current = state.valueOrNull;
+      state = AsyncData(current!.copyWith(isLoadingMore: false));
+      debugPrint('[Feed] loadNextPage error: $e\n$st');
+    }
+  }
+
+  /// Filter by category, resetting pagination to page 0.
+  /// Auto-fetches a second page if the first returns fewer than [_kPageSize].
+  Future<void> filterByCategory(NewsCategory? category) async {
+    state = const AsyncLoading();
+    _loadedCount = 0;
+
+    try {
+      final firstPage = await _repo.fetchPage(
+        category: category,
+        limit: _kPageSize,
+        offset: 0,
+      );
+      _loadedCount = firstPage.length;
+
+      state = AsyncData(FeedState(
+        articles: firstPage,
+        hasMore: firstPage.length >= _kPageSize,
+        selectedCategory: category,
+      ));
+
+      // If the first batch is thin, immediately fetch a second page so the
+      // user isn't left staring at near-empty content.
+      if (firstPage.length < _kPageSize) {
+        await loadNextPage();
+      }
     } catch (e, st) {
       state = AsyncError(e, st);
     }
   }
 
-  /// Filter the feed by category. Pass null to show all categories.
-  Future<void> filterByCategory(NewsCategory? category) async {
+  /// Full refresh: re-syncs remote data then resets to page 1.
+  Future<void> refresh() async {
     state = const AsyncLoading();
+    await _backgroundRefresh();
+  }
+
+  // ── Private ─────────────────────────────────────────────────────
+
+  Future<void> _backgroundRefresh() async {
     try {
-      final articles = await _repo.watchFeed(category: category).first;
-      state = AsyncData(articles);
+      await _repo.refreshFeed();
+
+      // After the remote sync, start fresh from page 1.
+      _loadedCount = 0;
+      final category = state.valueOrNull?.selectedCategory;
+      final firstPage = await _repo.fetchPage(
+        category: category,
+        limit: _kPageSize,
+        offset: 0,
+      );
+
+      _loadedCount = firstPage.length;
+      state = AsyncData(FeedState(
+        articles: firstPage,
+        hasMore: firstPage.length >= _kPageSize,
+        selectedCategory: category,
+      ));
     } catch (e, st) {
       state = AsyncError(e, st);
     }

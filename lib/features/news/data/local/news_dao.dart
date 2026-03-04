@@ -1,9 +1,7 @@
 // lib/features/news/data/local/news_dao.dart
 
-import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../../domain/entities/news_article.dart';
-import '../../domain/entities/news_category.dart';
 import 'app_database.dart';
 
 part 'news_dao.g.dart';
@@ -33,6 +31,33 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
               ? t.categories.like('%"$category"%')
               : const Constant(true)))
         .get();
+  }
+
+  /// Paginated fetch: returns [limit] articles starting at [offset], newest-first.
+  /// Optionally filters by category (JSON substring match).
+  Future<List<NewsArticlesTableData>> getArticlesPage({
+    String? category,
+    int limit = 10,
+    int offset = 0,
+  }) {
+    return (select(newsArticlesTable)
+          ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
+          ..where((t) => category != null
+              ? t.categories.like('%"$category"%')
+              : const Constant(true))
+          ..limit(limit, offset: offset))
+        .get();
+  }
+
+  /// Returns the total number of locally-cached articles (optionally filtered by category).
+  Future<int> countArticles({String? category}) async {
+    final query = selectOnly(newsArticlesTable)
+      ..addColumns([newsArticlesTable.id.count()])
+      ..where(category != null
+          ? newsArticlesTable.categories.like('%"$category"%')
+          : const Constant(true));
+    final result = await query.getSingle();
+    return result.read(newsArticlesTable.id.count()) ?? 0;
   }
 
   // ── Writes ────────────────────────────────────────────────────

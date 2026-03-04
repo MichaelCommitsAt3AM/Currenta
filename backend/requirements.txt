@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+asyncpg
+beautifulsoup4
+httpx
+apscheduler
+trafilatura
+pillow
+python-dotenv
+pydantic
+supabase
+curl_cffi
+lxml_html_clean
+slowapi
+PyJWT[crypto]

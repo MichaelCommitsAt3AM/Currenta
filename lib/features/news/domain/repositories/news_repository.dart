@@ -10,6 +10,16 @@ abstract class NewsRepository {
   /// Optionally filter by [category].
   Stream<List<NewsArticle>> watchFeed({NewsCategory? category});
 
+  /// Returns a single page of locally-cached articles, newest-first.
+  /// When [category] is set, results are sorted two-tier:
+  ///   1. Articles where [category] is at index 0 (primary).
+  ///   2. Articles where [category] appears elsewhere in the list.
+  Future<List<NewsArticle>> fetchPage({
+    NewsCategory? category,
+    int limit = 10,
+    int offset = 0,
+  });
+
   /// Fetches fresh articles from the remote source and upserts into local cache.
   Future<void> refreshFeed();
 
@@ -19,10 +29,6 @@ abstract class NewsRepository {
   /// Pre-fetches the top [count] articles for offline availability.
   Future<void> prefetchTopArticles({int count = 20});
 
-  /// Triggers the cloud/local ingestion pipeline for a specific [feedUrl].
-  Future<void> triggerIngestion(
-      {required String feedUrl, String? categoryHint});
-
   /// Processes all configured news sources from the NewsSources registry.
-  Future<void> triggerAllIngestion({int? limit});
+  // REMOVED (now strictly backend-controlled): triggerIngestion, triggerAllIngestion
 }

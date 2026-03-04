@@ -1,21 +1,10 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from curl_cffi import requests
 from trafilatura import bare_extraction
 from PIL import Image
 import io
 import base64
 
-app = FastAPI()
-
-class ScrapeRequest(BaseModel):
-    url: str
-
-@app.get("/")
-async def root():
-    return {"status": "online", "service": "Currenta Scraper"}
-
-def process_image(img_url: str):
+def process_image(img_url: str) -> str | None:
     """Downloads, resizes, and iteratively compresses to target ~150KB."""
     try:
         # 1. Fetch bytes
@@ -60,20 +49,24 @@ def process_image(img_url: str):
         print(f"[Image] Failed to process {img_url}: {e}")
         return None
 
-@app.post("/scrape")
-async def scrape_article(request: ScrapeRequest):
+def scrape_article_sync(url: str):
+    """
+    Synchronous scraper using curl_cffi and trafilatura.
+    Returns text, image_url, and compressed image_base64.
+    """
     try:
         # 1. Fetch with Chrome 120 impersonation
-        response = requests.get(request.url, impersonate="chrome120", timeout=15)
+        response = requests.get(url, impersonate="chrome120", timeout=15)
         
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail=f"Site blocked us (Status: {response.status_code})")
+            raise Exception(f"Site blocked us (Status: {response.status_code})")
 
         # 2. Extract clean text and metadata using trafilatura
-        result = bare_extraction(response.text, url=request.url)
+        result = bare_extraction(response.text, url=url)
         
         if not result or not result.get('text'):
-            raise HTTPException(status_code=404, detail="Could not extract text content")
+             # fallback or error out
+            return {"error": "Could not extract text content", "url": url}
 
         # 3. Handle Image Compression
         image_url = result.get('image')
@@ -86,12 +79,8 @@ async def scrape_article(request: ScrapeRequest):
             "image_url": image_url,
             "image_base64": image_base64,
             "title": result.get('title'),
-            "url": request.url
+            "url": url
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+        return {"error": str(e), "url": url}

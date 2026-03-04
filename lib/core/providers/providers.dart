@@ -39,7 +39,6 @@ final llmProviderProvider = Provider<LlmProvider>((ref) {
 
 final newsRemoteDataSourceProvider = Provider<NewsRemoteDataSource>((ref) {
   return NewsRemoteDataSource(
-    supabase: ref.watch(supabaseClientProvider),
     dio: ref.watch(dioClientProvider),
   );
 });

@@ -58,14 +58,11 @@ command -v jq     >/dev/null 2>&1 || warn "jq not found — ngrok URL extraction
 
 [[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
 
-# Ensure python service requirements are installed if the script exists
-if [[ -f "${PROJECT_ROOT}/scripts/scraper-service/run.sh" ]]; then
-  info "Checking Python Scraper dependencies..."
-  if [[ ! -d "${PROJECT_ROOT}/scripts/scraper-service/venv" ]]; then
-    warn "Virtual env not found for scraper. Running setup..."
-    bash "${PROJECT_ROOT}/scripts/scraper-service/run.sh" &
-    sleep 3
-    pkill -f "uvicorn main:app" || true
+# Ensure python backend requirements are installed
+if [[ -d "${PROJECT_ROOT}/backend" ]]; then
+  info "Checking Backend dependencies..."
+  if [[ ! -d "${PROJECT_ROOT}/venv" ]]; then
+    warn "Virtual env not found for backend. Please run 'python3 -m venv venv && source venv/bin/activate && pip install -r backend/requirements.txt'"
   fi
 fi
 
@@ -149,39 +146,41 @@ else
 fi
 echo ""
 
-# ── 2.5 Scraper Service ───────────────────────────────────────────────────────
+# ── 1.5 Currenta Backend ──────────────────────────────────────────────────────
 hr
-echo -e "${BOLD}  Step 1.5 · Python Scraper Service${RESET}"
+echo -e "${BOLD}  Step 1.5 · FastAPI Backend Service${RESET}"
 hr
 
-SCRAPER_PORT=8000
-SCRAPER_READY=false
+BACKEND_PORT=8000
+BACKEND_READY=false
 
-if curl -sf "http://localhost:${SCRAPER_PORT}/" >/dev/null 2>&1 || curl -sf -X POST "http://localhost:${SCRAPER_PORT}/scrape" >/dev/null 2>&1; then
-  ok "Scraper Service is already running on port ${SCRAPER_PORT}"
-  SCRAPER_READY=true
+# Check if Backend is already running
+if curl -sf "http://localhost:${BACKEND_PORT}/" >/dev/null 2>&1; then
+  ok "Backend Service is already running on port ${BACKEND_PORT}"
+  BACKEND_READY=true
 else
-  info "Starting Python Scraper Service in background..."
-  nohup bash "${PROJECT_ROOT}/scripts/scraper-service/run.sh" \
-    >"${PROJECT_ROOT}/.scraper.log" 2>&1 &
-  echo $! >"${PROJECT_ROOT}/.scraper.pid"
-  info "Scraper PID $(cat "${PROJECT_ROOT}/.scraper.pid") — logs: .scraper.log"
+  info "Starting FastAPI Backend in background..."
+  # Use the root venv and run from project root to ensure module resolution
+  source "${PROJECT_ROOT}/venv/bin/activate"
+  PYTHONPATH="${PROJECT_ROOT}" nohup uvicorn backend.main:app --port ${BACKEND_PORT} --host 0.0.0.0 \
+    >"${PROJECT_ROOT}/.backend.log" 2>&1 &
+  echo $! >"${PROJECT_ROOT}/.backend.pid"
+  info "Backend PID $(cat "${PROJECT_ROOT}/.backend.pid") — logs: .backend.log"
 
-  info "Waiting for Scraper Service to be ready..."
-  for i in $(seq 1 10); do
-    # Expect 405 Method Not Allowed on /, since only POST /scrape is defined
-    if curl -sf http://localhost:${SCRAPER_PORT} >/dev/null 2>&1 || [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${SCRAPER_PORT}/)" -eq 404 ]; then
-      SCRAPER_READY=true
+  info "Waiting for Backend Service to be ready..."
+  for i in $(seq 1 15); do
+    if curl -sf "http://localhost:${BACKEND_PORT}/" >/dev/null 2>&1; then
+      BACKEND_READY=true
       break
     fi
     sleep 1
   done
 fi
 
-if [[ "${SCRAPER_READY}" != "true" ]]; then
-  warn "Scraper Service might not be ready. Check .scraper.log."
+if [[ "${BACKEND_READY}" != "true" ]]; then
+  warn "Backend Service might not be ready. Check .backend.log."
 else
-  ok "Scraper Service ready on port ${SCRAPER_PORT}"
+  ok "Backend Service ready on port ${BACKEND_PORT}"
 fi
 echo ""
 
@@ -197,95 +196,72 @@ if pgrep -x ngrok >/dev/null 2>&1; then
   sleep 1
 fi
 
-# Start ngrok in the background with both tunnels
-info "Starting ngrok with tunnels: ollama, scraper"
-nohup ngrok start --config "/home/linux/.config/ngrok/ngrok.yml" --config "${NGROK_CONFIG}" ollama scraper \
+# Start ngrok in the background for the backend
+info "Starting ngrok tunnel for backend (port ${BACKEND_PORT})..."
+nohup ngrok start --config "/home/linux/.config/ngrok/ngrok.yml" --config "${NGROK_CONFIG}" backend \
   >"${PROJECT_ROOT}/.ngrok.log" 2>&1 &
 NGROK_PID=$!
 echo "${NGROK_PID}" >"${PROJECT_ROOT}/.ngrok.pid"
 info "ngrok PID ${NGROK_PID} — logs: .ngrok.log"
 
 # Wait for ngrok local API to become available
-info "Waiting for ngrok to establish tunnels..."
-OLLAMA_NGROK_URL=""
-SCRAPER_NGROK_URL=""
+info "Waiting for ngrok to establish tunnel..."
+BACKEND_NGROK_URL=""
 for i in $(seq 1 20); do
   if command -v jq >/dev/null 2>&1; then
-    OLLAMA_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | jq -r '.tunnels[]? | select(.name=="ollama") | .public_url' 2>/dev/null | head -1 || echo "")
-    SCRAPER_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | jq -r '.tunnels[]? | select(.name=="scraper") | .public_url' 2>/dev/null | head -1 || echo "")
+    BACKEND_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | jq -r '.tunnels[]? | select(.name=="backend") | .public_url' 2>/dev/null | head -1 || echo "")
   else
-    # Fallback without jq (less precise if multiple tunnels exist, but tries)
-    OLLAMA_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | grep -oP '"name":"ollama","[^"]+","public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f5 || echo "")
-    SCRAPER_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
-      | grep -oP '"name":"scraper","[^"]+","public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f5 || echo "")
+    BACKEND_NGROK_URL=$(curl -sf "http://localhost:${NGROK_API_PORT}/api/tunnels" 2>/dev/null \
+      | grep -oP '"name":"backend","[^"]+","public_url":"https://[^"]+' 2>/dev/null | head -1 | cut -d'"' -f5 || echo "")
   fi
-  [[ -n "${OLLAMA_NGROK_URL}" && -n "${SCRAPER_NGROK_URL}" ]] && break
+  [[ -n "${BACKEND_NGROK_URL}" ]] && break
   sleep 1
 done
 
-if [[ -z "${OLLAMA_NGROK_URL}" || -z "${SCRAPER_NGROK_URL}" ]]; then
-  die "Could not extract ngrok URLs after 20 seconds. Check .ngrok.log for errors."
+if [[ -z "${BACKEND_NGROK_URL}" ]]; then
+  die "Could not extract ngrok URL after 20 seconds. Check .ngrok.log for errors."
 fi
 
-ok "ngrok tunnels active:"
-echo -e "    Ollama:  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
-echo -e "    Scraper: ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
+ok "ngrok tunnel active:"
+echo -e "    Backend: ${BOLD}${BACKEND_NGROK_URL}${RESET}"
 echo ""
 
-# ── 4. Update Supabase secret ─────────────────────────────────────────────────
+# ── 4. Update Flutter Config ──────────────────────────────────────────────────
 hr
-echo -e "${BOLD}  Step 3 · Supabase Secret${RESET}"
+echo -e "${BOLD}  Step 3 · App Configuration${RESET}"
 hr
 
-UPDATE_SECRET=false
-if [[ "${AUTO_UPDATE_SECRET}" == "1" ]]; then
-  UPDATE_SECRET=true
-else
-  echo -e "  Ollama ngrok URL:  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
-  echo -e "  Scraper ngrok URL: ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
-  echo ""
-  read -rp "  Update LLM & Scraper secrets in Supabase now? [Y/n] " secret_answer
-  [[ "${secret_answer:-Y}" =~ ^[Yy]$ ]] && UPDATE_SECRET=true
-fi
-
-if [[ "${UPDATE_SECRET}" == "true" ]]; then
-  if command -v npx >/dev/null 2>&1 && [[ -f "${PROJECT_ROOT}/package.json" ]]; then
-    info "Setting Supabase secrets..."
-    npx --prefix "${PROJECT_ROOT}" supabase secrets set \
-      --project-ref trfqhobnkgtfccrdsexa \
-      "LOCAL_LLM_BASE_URL=${OLLAMA_NGROK_URL}" \
-      "SCRAPER_SERVICE_URL=${SCRAPER_NGROK_URL}/scrape" \
-      && ok "Supabase secrets updated (Ollama + Scraper) ✓" \
-      || warn "Failed to update secrets."
+info "Updating Flutter app config with new ngrok URL..."
+CONFIG_FILE="${PROJECT_ROOT}/lib/core/config/app_config.dart"
+if [[ -f "${CONFIG_FILE}" ]]; then
+  # More robust regex that handles potential multiline or trailing whitespace from formatters (.app or .dev)
+  sed -i "s|static const String apiBaseUrl =.*'https://.*.ngrok-free\..*';|static const String apiBaseUrl = '${BACKEND_NGROK_URL}';|g" "${CONFIG_FILE}"
+  # Check if the file actually contains the new URL to confirm update
+  if grep -q "${BACKEND_NGROK_URL}" "${CONFIG_FILE}"; then
+    ok "Updated apiBaseUrl in app_config.dart ✓"
   else
-    warn "npx or package.json not found. Update manually."
+    warn "Failed to update apiBaseUrl in app_config.dart (check if the pattern in the script matches your file structure)"
   fi
+
 else
-  info "Skipped secret update."
+  warn "app_config.dart not found at ${CONFIG_FILE}. Please update manualy."
 fi
 echo ""
 
 # ── 5. Summary ────────────────────────────────────────────────────────────────
 hr
-echo -e "${BOLD}  🎉  Dev environment is ready!${RESET}"
+echo -e "${BOLD}  🎉  Currenta Dev setup is live!${RESET}"
 hr
 echo ""
-echo -e "  ${BOLD}Ollama${RESET}         http://localhost:${OLLAMA_PORT}"
-echo -e "  ${BOLD}ngrok (Ollama)${RESET}  ${BOLD}${OLLAMA_NGROK_URL}${RESET}"
-echo -e "  ${BOLD}ngrok (Scraper)${RESET} ${BOLD}${SCRAPER_NGROK_URL}${RESET}"
-echo -e "  ${BOLD}ngrok (UI)${RESET}      http://localhost:${NGROK_API_PORT}"
+echo -e "  ${BOLD}Ollama (Local)${RESET}   http://localhost:${OLLAMA_PORT}"
+echo -e "  ${BOLD}Backend (Local)${RESET}  http://localhost:${BACKEND_PORT}"
+echo -e "  ${BOLD}Backend (Public)${RESET} ${BOLD}${BACKEND_NGROK_URL}${RESET}"
+echo -e "  ${BOLD}ngrok Dashboard${RESET}  http://localhost:${NGROK_API_PORT}"
 echo ""
-echo -e "  ${BOLD}Models exposed via Ollama tunnel:${RESET}"
-echo -e "    🧠  LLM        ${OLLAMA_MODEL}  →  ${OLLAMA_NGROK_URL}/v1/chat/completions"
-echo -e "    🔢  Embeddings ${OLLAMA_EMBED_MODEL}  →  ${OLLAMA_NGROK_URL}/v1/embeddings"
-echo -e "  ${BOLD}Scraper Local${RESET}   http://localhost:${SCRAPER_PORT}"
-echo ""
-echo -e "  ${BOLD}Flutter${RESET}  →  lib/core/config/app_config.dart"
-echo -e "           localLlmBaseUrl = '${OLLAMA_NGROK_URL}'  (for direct phone access)"
-echo -e "           localLlmBaseUrl = 'http://localhost:${OLLAMA_PORT}/v1'  (for emulator)"
+echo -e "  ${BOLD}App Details:${RESET}"
+echo -e "    📁  Config:    lib/core/config/app_config.dart"
+echo -e "    🌐  Base URL:  ${BACKEND_NGROK_URL}"
 echo ""
 echo -e "  To stop all services:  ${BOLD}bash scripts/dev-stop.sh${RESET}"
 echo ""
