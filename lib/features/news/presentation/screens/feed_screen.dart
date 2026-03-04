@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
+import '../../../../core/providers/providers.dart';
+import '../../../auth/presentation/screens/login_screen.dart';
 import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
 import 'empty_state_screen.dart';
@@ -33,6 +35,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       statusBarIconBrightness: Brightness.light,
     ));
     _pageController.addListener(_onPageScroll);
+
+    // Mark the very first article as viewed
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _trackPageView(0);
+    });
   }
 
   @override
@@ -63,12 +70,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
   }
 
-  /// Preload images when a user lands on a new page.
+  /// Preload images and track views when a user lands on a new page.
   void _onPageChanged(int index) {
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
 
-    // Preload next 3 images only once
+    // 1. Preload next 3 images
     for (var ahead = 1; ahead <= 3; ahead++) {
       final nextIndex = index + ahead;
       if (nextIndex < feed.articles.length) {
@@ -77,6 +84,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           precacheImage(NetworkImage(url), context);
         }
       }
+    }
+
+    // 2. Track view
+    _trackPageView(index);
+  }
+
+  void _trackPageView(int index) {
+    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    if (feed != null && index < feed.articles.length) {
+      final articleId = feed.articles[index].id;
+      ref.read(newsRepositoryProvider).markAsViewed(articleId);
     }
   }
 
@@ -246,6 +264,30 @@ class _CategoryBar extends StatelessWidget {
               ),
               child: const Icon(Icons.refresh_rounded,
                   color: Colors.white, size: 18),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Temp Auth Button for testing
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LoginScreen(),
+                ),
+              );
+            },
+            child: Container(
+              height: 38,
+              width: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.20),
+                borderRadius: BorderRadius.circular(100),
+                border: Border.all(
+                    color: const Color(0xFF6C63FF).withValues(alpha: 0.50)),
+              ),
+              child: const Icon(Icons.person_outline,
+                  color: Color(0xFF6C63FF), size: 18),
             ),
           ),
         ],

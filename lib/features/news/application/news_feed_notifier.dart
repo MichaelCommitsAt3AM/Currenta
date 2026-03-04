@@ -91,29 +91,29 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current == null || current.isLoadingMore || !current.hasMore) return;
 
-    state = AsyncData(current.copyWith(isLoadingMore: true));
-
     try {
       final category = current.selectedCategory;
 
-      // Try local cache first (cheap, no network)
+      // 1. Try local cache first (FAST, shouldn't trigger loading state change)
       var nextPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         offset: _loadedCount,
       );
 
-      // Local cache exhausted — sync more from remote then re-query
+      // 2. Only if local cache is empty do we trigger the 'Loading More' UI state
+      // and hit the network.
       if (nextPage.isEmpty) {
-        final impl = _repo as dynamic; // syncMoreFromRemote is on the impl only
+        state = AsyncData(current.copyWith(isLoadingMore: true));
+
+        final impl = _repo as dynamic;
         final synced = await impl.syncMoreFromRemote(
           category: category,
           remoteOffset: _loadedCount,
-          limit: 30, // fetch 30 at a time from remote to keep latency low
+          limit: 30,
         ) as int;
 
         if (synced == 0) {
-          // Truly no more articles anywhere
           state = AsyncData(current.copyWith(
             isLoadingMore: false,
             hasMore: false,
@@ -121,7 +121,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           return;
         }
 
-        // Re-query local now that new rows are cached
         nextPage = await _repo.fetchPage(
           category: category,
           limit: _kPageSize,
@@ -142,7 +141,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       ));
     } catch (e, st) {
       final current = state.valueOrNull;
-      state = AsyncData(current!.copyWith(isLoadingMore: false));
+      if (current != null) {
+        state = AsyncData(current.copyWith(isLoadingMore: false));
+      }
       debugPrint('[Feed] loadNextPage error: $e\n$st');
     }
   }
@@ -181,6 +182,35 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   Future<void> refresh() async {
     state = const AsyncLoading();
     await _backgroundRefresh();
+  }
+
+  /// Toggles the like status of an article.
+  Future<void> toggleLike(String articleId) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+
+    // 1. Optimistic UI update
+    final updatedArticles = current.articles.map((a) {
+      if (a.id == articleId) {
+        final newIsLiked = !a.isLiked;
+        return a.copyWith(
+          isLiked: newIsLiked,
+          likesCount: newIsLiked ? a.likesCount + 1 : a.likesCount - 1,
+        );
+      }
+      return a;
+    }).toList();
+
+    state = AsyncData(current.copyWith(articles: updatedArticles));
+
+    // 2. Persist to DB
+    try {
+      await _repo.toggleLike(articleId);
+    } catch (e) {
+      // Revert on error if needed, but for now we'll just log it
+      debugPrint('[Feed] toggleLike error: $e');
+      state = AsyncData(current);
+    }
   }
 
   // ── Private ─────────────────────────────────────────────────────

@@ -50,8 +50,27 @@ class NewsRemoteDataSource {
     } on DioException catch (e) {
       throw ServerException(
         'API request failed: ${e.message}',
-        statusCode: e.response?.statusCode,
       );
+    }
+  }
+
+  /// Records that the user has seen this article.
+  Future<void> trackArticleView(String articleId) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/view';
+      final session = Supabase.instance.client.auth.currentSession;
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      await _dio.post(url,
+          queryParameters: {'article_id': articleId}, options: options);
+    } catch (e) {
+      // Slurp error — view tracking is non-critical for the user
+      print('[Remote] Failed to track view for $articleId: $e');
     }
   }
 }

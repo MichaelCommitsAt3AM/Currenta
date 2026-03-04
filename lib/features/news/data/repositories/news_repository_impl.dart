@@ -132,4 +132,19 @@ class NewsRepositoryImpl implements NewsRepository {
       throw ServerException('Prefetch failed: $e');
     }
   }
+
+  @override
+  Future<void> markAsViewed(String articleId) async {
+    // 1. Record locally immediately (for instant filtering in same session)
+    await _dao.recordView(articleId);
+
+    // 2. Report to backend
+    await _remote.trackArticleView(articleId);
+  }
+
+  @override
+  Future<void> toggleLike(String articleId) async {
+    // For now, toggle locally. Backend integration can be added later.
+    await _dao.toggleLike(articleId);
+  }
 }

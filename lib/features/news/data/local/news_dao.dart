@@ -6,7 +6,7 @@ import 'app_database.dart';
 
 part 'news_dao.g.dart';
 
-@DriftAccessor(tables: [NewsArticlesTable])
+@DriftAccessor(tables: [NewsArticlesTable, ViewedArticlesTable])
 class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   NewsDao(super.db);
 
@@ -17,10 +17,14 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   Stream<List<NewsArticlesTableData>> watchArticles({String? category}) {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
-          ..where((t) => category != null
-              // JSON-encoded check: e.g. '"tech"' will match '["tech","politics"]'
-              ? t.categories.like('%"$category"%')
-              : const Constant(true)))
+          ..where((t) {
+            final catFilter = category != null
+                ? t.categories.like('%"$category"%')
+                : const Constant(true);
+            final viewedIds = selectOnly(viewedArticlesTable)
+              ..addColumns([viewedArticlesTable.id]);
+            return catFilter & t.id.isNotInQuery(viewedIds);
+          }))
         .watch();
   }
 
@@ -42,9 +46,14 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   }) {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
-          ..where((t) => category != null
-              ? t.categories.like('%"$category"%')
-              : const Constant(true))
+          ..where((t) {
+            final catFilter = category != null
+                ? t.categories.like('%"$category"%')
+                : const Constant(true);
+            final viewedIds = selectOnly(viewedArticlesTable)
+              ..addColumns([viewedArticlesTable.id]);
+            return catFilter & t.id.isNotInQuery(viewedIds);
+          })
           ..limit(limit, offset: offset))
         .get();
   }
@@ -67,6 +76,39 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     await batch((b) {
       b.insertAllOnConflictUpdate(newsArticlesTable, articles);
     });
+  }
+
+  // ── Viewed Articles ───────────────────────────────────────────
+
+  Future<void> recordView(String articleId) async {
+    await into(viewedArticlesTable).insert(
+      ViewedArticlesTableCompanion.insert(id: articleId),
+      mode: InsertMode.insertOrIgnore,
+    );
+  }
+
+  Future<void> toggleLike(String articleId) async {
+    final query = select(newsArticlesTable)
+      ..where((t) => t.id.equals(articleId));
+    final article = await query.getSingleOrNull();
+    if (article == null) return;
+
+    final isLiked = !article.isLiked;
+    final likesCount =
+        isLiked ? article.likesCount + 1 : article.likesCount - 1;
+
+    await (update(newsArticlesTable)..where((t) => t.id.equals(articleId)))
+        .write(NewsArticlesTableCompanion(
+      isLiked: Value(isLiked),
+      likesCount: Value(likesCount.clamp(0, 999999)),
+    ));
+  }
+
+  Future<bool> isViewed(String articleId) async {
+    final query = select(viewedArticlesTable)
+      ..where((t) => t.id.equals(articleId));
+    final res = await query.get();
+    return res.isNotEmpty;
   }
 
   // ── Cache Cleanup ─────────────────────────────────────────────
@@ -93,6 +135,8 @@ extension NewsArticleMapper on NewsArticlesTableData {
         publishedAt: publishedAt,
         categories: categories, // already decoded by CategoryListConverter
         isPaywalled: isPaywalled,
+        isLiked: isLiked,
+        likesCount: likesCount,
         clusterId: clusterId,
       );
 }
@@ -110,6 +154,8 @@ extension NewsArticleDboMapper on NewsArticle {
         // Encode List<NewsCategory> → JSON string via the TypeConverter-aware Value
         categories: Value(categories),
         isPaywalled: Value(isPaywalled),
+        isLiked: Value(isLiked),
+        likesCount: Value(likesCount),
         clusterId: Value(clusterId),
       );
 }

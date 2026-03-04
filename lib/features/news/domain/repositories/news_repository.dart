@@ -29,6 +29,9 @@ abstract class NewsRepository {
   /// Pre-fetches the top [count] articles for offline availability.
   Future<void> prefetchTopArticles({int count = 20});
 
-  /// Processes all configured news sources from the NewsSources registry.
-  // REMOVED (now strictly backend-controlled): triggerIngestion, triggerAllIngestion
+  /// Marks an article as viewed both locally and on the server.
+  Future<void> markAsViewed(String articleId);
+
+  /// Toggles the like status of an article.
+  Future<void> toggleLike(String articleId);
 }

@@ -7,6 +7,8 @@ import '../../features/news/data/local/app_database.dart';
 import '../../features/news/data/remote/news_remote_datasource.dart';
 import '../../features/news/data/repositories/news_repository_impl.dart';
 import '../../features/news/domain/repositories/news_repository.dart';
+import '../../features/auth/data/repositories/auth_repository_impl.dart';
+import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../utils/dio_client.dart';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -41,5 +43,11 @@ final newsRepositoryProvider = Provider<NewsRepository>((ref) {
   return NewsRepositoryImpl(
     database: ref.watch(appDatabaseProvider),
     remote: ref.watch(newsRemoteDataSourceProvider),
+  );
+});
+
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepositoryImpl(
+    supabaseClient: ref.watch(supabaseClientProvider),
   );
 });

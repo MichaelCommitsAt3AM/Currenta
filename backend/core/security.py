@@ -23,14 +23,17 @@ async def verify_admin_api_key(api_key: str = Security(admin_api_key_header)):
 
 # --- Supabase JWKS Setup ---
 SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
 # Cache the JWKS fetching so we don't hit the Supabase API on every request
 jwks_client = None
 
 if SUPABASE_URL:
-    jwks_url = f"{SUPABASE_URL}/rest/v1/" # PyJWT PyJWKClient needs the JWKS url, but supabase exposes auth/v1/keys
-    jwks_url = f"{SUPABASE_URL}/auth/v1/keys"
-    jwks_client = jwt.PyJWKClient(jwks_url)
+    jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+    jwks_client = jwt.PyJWKClient(
+        jwks_url,
+        headers={"apikey": SUPABASE_KEY} if SUPABASE_KEY else {}
+    )
 
 class User(BaseModel):
     id: str
@@ -40,10 +43,7 @@ class User(BaseModel):
 async def verify_supabase_jwt(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         print(f"DEBUG AUTH: Authorization header missing or malformed: {authorization[:32] if authorization else 'None'}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing Authorization header"
-        )
+        return None
     
     token = authorization.split(" ")[1]
     print(f"DEBUG AUTH: Received token starting with: {token[:16]}...")
@@ -67,7 +67,7 @@ async def verify_supabase_jwt(authorization: str = Header(None)):
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=["RS256"],
+            algorithms=["ES256"],
             audience="authenticated", 
             options={"verify_exp": True}
         )

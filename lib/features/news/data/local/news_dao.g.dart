@@ -6,4 +6,6 @@ part of 'news_dao.dart';
 mixin _$NewsDaoMixin on DatabaseAccessor<AppDatabase> {
   $NewsArticlesTableTable get newsArticlesTable =>
       attachedDatabase.newsArticlesTable;
+  $ViewedArticlesTableTable get viewedArticlesTable =>
+      attachedDatabase.viewedArticlesTable;
 }

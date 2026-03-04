@@ -73,6 +73,24 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("is_paywalled" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _isLikedMeta =
+      const VerificationMeta('isLiked');
+  @override
+  late final GeneratedColumn<bool> isLiked = GeneratedColumn<bool>(
+      'is_liked', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_liked" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _likesCountMeta =
+      const VerificationMeta('likesCount');
+  @override
+  late final GeneratedColumn<int> likesCount = GeneratedColumn<int>(
+      'likes_count', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
   static const VerificationMeta _clusterIdMeta =
       const VerificationMeta('clusterId');
   @override
@@ -91,6 +109,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         publishedAt,
         categories,
         isPaywalled,
+        isLiked,
+        likesCount,
         clusterId
       ];
   @override
@@ -161,6 +181,16 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           isPaywalled.isAcceptableOrUnknown(
               data['is_paywalled']!, _isPaywalledMeta));
     }
+    if (data.containsKey('is_liked')) {
+      context.handle(_isLikedMeta,
+          isLiked.isAcceptableOrUnknown(data['is_liked']!, _isLikedMeta));
+    }
+    if (data.containsKey('likes_count')) {
+      context.handle(
+          _likesCountMeta,
+          likesCount.isAcceptableOrUnknown(
+              data['likes_count']!, _likesCountMeta));
+    }
     if (data.containsKey('cluster_id')) {
       context.handle(_clusterIdMeta,
           clusterId.isAcceptableOrUnknown(data['cluster_id']!, _clusterIdMeta));
@@ -195,6 +225,10 @@ class $NewsArticlesTableTable extends NewsArticlesTable
               DriftSqlType.string, data['${effectivePrefix}categories'])!),
       isPaywalled: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_paywalled'])!,
+      isLiked: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_liked'])!,
+      likesCount: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}likes_count'])!,
       clusterId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}cluster_id']),
     );
@@ -223,6 +257,8 @@ class NewsArticlesTableData extends DataClass
   /// Stored as a JSON-encoded list, e.g. '["tech","politics"]'
   final List<NewsCategory> categories;
   final bool isPaywalled;
+  final bool isLiked;
+  final int likesCount;
   final String? clusterId;
   const NewsArticlesTableData(
       {required this.id,
@@ -235,6 +271,8 @@ class NewsArticlesTableData extends DataClass
       required this.publishedAt,
       required this.categories,
       required this.isPaywalled,
+      required this.isLiked,
+      required this.likesCount,
       this.clusterId});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -256,6 +294,8 @@ class NewsArticlesTableData extends DataClass
           $NewsArticlesTableTable.$convertercategories.toSql(categories));
     }
     map['is_paywalled'] = Variable<bool>(isPaywalled);
+    map['is_liked'] = Variable<bool>(isLiked);
+    map['likes_count'] = Variable<int>(likesCount);
     if (!nullToAbsent || clusterId != null) {
       map['cluster_id'] = Variable<String>(clusterId);
     }
@@ -278,6 +318,8 @@ class NewsArticlesTableData extends DataClass
       publishedAt: Value(publishedAt),
       categories: Value(categories),
       isPaywalled: Value(isPaywalled),
+      isLiked: Value(isLiked),
+      likesCount: Value(likesCount),
       clusterId: clusterId == null && nullToAbsent
           ? const Value.absent()
           : Value(clusterId),
@@ -298,6 +340,8 @@ class NewsArticlesTableData extends DataClass
       publishedAt: serializer.fromJson<DateTime>(json['publishedAt']),
       categories: serializer.fromJson<List<NewsCategory>>(json['categories']),
       isPaywalled: serializer.fromJson<bool>(json['isPaywalled']),
+      isLiked: serializer.fromJson<bool>(json['isLiked']),
+      likesCount: serializer.fromJson<int>(json['likesCount']),
       clusterId: serializer.fromJson<String?>(json['clusterId']),
     );
   }
@@ -315,6 +359,8 @@ class NewsArticlesTableData extends DataClass
       'publishedAt': serializer.toJson<DateTime>(publishedAt),
       'categories': serializer.toJson<List<NewsCategory>>(categories),
       'isPaywalled': serializer.toJson<bool>(isPaywalled),
+      'isLiked': serializer.toJson<bool>(isLiked),
+      'likesCount': serializer.toJson<int>(likesCount),
       'clusterId': serializer.toJson<String?>(clusterId),
     };
   }
@@ -330,6 +376,8 @@ class NewsArticlesTableData extends DataClass
           DateTime? publishedAt,
           List<NewsCategory>? categories,
           bool? isPaywalled,
+          bool? isLiked,
+          int? likesCount,
           Value<String?> clusterId = const Value.absent()}) =>
       NewsArticlesTableData(
         id: id ?? this.id,
@@ -344,6 +392,8 @@ class NewsArticlesTableData extends DataClass
         publishedAt: publishedAt ?? this.publishedAt,
         categories: categories ?? this.categories,
         isPaywalled: isPaywalled ?? this.isPaywalled,
+        isLiked: isLiked ?? this.isLiked,
+        likesCount: likesCount ?? this.likesCount,
         clusterId: clusterId.present ? clusterId.value : this.clusterId,
       );
   NewsArticlesTableData copyWithCompanion(NewsArticlesTableCompanion data) {
@@ -365,6 +415,9 @@ class NewsArticlesTableData extends DataClass
           data.categories.present ? data.categories.value : this.categories,
       isPaywalled:
           data.isPaywalled.present ? data.isPaywalled.value : this.isPaywalled,
+      isLiked: data.isLiked.present ? data.isLiked.value : this.isLiked,
+      likesCount:
+          data.likesCount.present ? data.likesCount.value : this.likesCount,
       clusterId: data.clusterId.present ? data.clusterId.value : this.clusterId,
     );
   }
@@ -382,6 +435,8 @@ class NewsArticlesTableData extends DataClass
           ..write('publishedAt: $publishedAt, ')
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
+          ..write('isLiked: $isLiked, ')
+          ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId')
           ..write(')'))
         .toString();
@@ -399,6 +454,8 @@ class NewsArticlesTableData extends DataClass
       publishedAt,
       categories,
       isPaywalled,
+      isLiked,
+      likesCount,
       clusterId);
   @override
   bool operator ==(Object other) =>
@@ -414,6 +471,8 @@ class NewsArticlesTableData extends DataClass
           other.publishedAt == this.publishedAt &&
           other.categories == this.categories &&
           other.isPaywalled == this.isPaywalled &&
+          other.isLiked == this.isLiked &&
+          other.likesCount == this.likesCount &&
           other.clusterId == this.clusterId);
 }
 
@@ -429,6 +488,8 @@ class NewsArticlesTableCompanion
   final Value<DateTime> publishedAt;
   final Value<List<NewsCategory>> categories;
   final Value<bool> isPaywalled;
+  final Value<bool> isLiked;
+  final Value<int> likesCount;
   final Value<String?> clusterId;
   final Value<int> rowid;
   const NewsArticlesTableCompanion({
@@ -442,6 +503,8 @@ class NewsArticlesTableCompanion
     this.publishedAt = const Value.absent(),
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
+    this.isLiked = const Value.absent(),
+    this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -456,6 +519,8 @@ class NewsArticlesTableCompanion
     required DateTime publishedAt,
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
+    this.isLiked = const Value.absent(),
+    this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
@@ -475,6 +540,8 @@ class NewsArticlesTableCompanion
     Expression<DateTime>? publishedAt,
     Expression<String>? categories,
     Expression<bool>? isPaywalled,
+    Expression<bool>? isLiked,
+    Expression<int>? likesCount,
     Expression<String>? clusterId,
     Expression<int>? rowid,
   }) {
@@ -489,6 +556,8 @@ class NewsArticlesTableCompanion
       if (publishedAt != null) 'published_at': publishedAt,
       if (categories != null) 'categories': categories,
       if (isPaywalled != null) 'is_paywalled': isPaywalled,
+      if (isLiked != null) 'is_liked': isLiked,
+      if (likesCount != null) 'likes_count': likesCount,
       if (clusterId != null) 'cluster_id': clusterId,
       if (rowid != null) 'rowid': rowid,
     });
@@ -505,6 +574,8 @@ class NewsArticlesTableCompanion
       Value<DateTime>? publishedAt,
       Value<List<NewsCategory>>? categories,
       Value<bool>? isPaywalled,
+      Value<bool>? isLiked,
+      Value<int>? likesCount,
       Value<String?>? clusterId,
       Value<int>? rowid}) {
     return NewsArticlesTableCompanion(
@@ -518,6 +589,8 @@ class NewsArticlesTableCompanion
       publishedAt: publishedAt ?? this.publishedAt,
       categories: categories ?? this.categories,
       isPaywalled: isPaywalled ?? this.isPaywalled,
+      isLiked: isLiked ?? this.isLiked,
+      likesCount: likesCount ?? this.likesCount,
       clusterId: clusterId ?? this.clusterId,
       rowid: rowid ?? this.rowid,
     );
@@ -557,6 +630,12 @@ class NewsArticlesTableCompanion
     if (isPaywalled.present) {
       map['is_paywalled'] = Variable<bool>(isPaywalled.value);
     }
+    if (isLiked.present) {
+      map['is_liked'] = Variable<bool>(isLiked.value);
+    }
+    if (likesCount.present) {
+      map['likes_count'] = Variable<int>(likesCount.value);
+    }
     if (clusterId.present) {
       map['cluster_id'] = Variable<String>(clusterId.value);
     }
@@ -579,7 +658,203 @@ class NewsArticlesTableCompanion
           ..write('publishedAt: $publishedAt, ')
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
+          ..write('isLiked: $isLiked, ')
+          ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ViewedArticlesTableTable extends ViewedArticlesTable
+    with TableInfo<$ViewedArticlesTableTable, ViewedArticlesTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ViewedArticlesTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _viewedAtMeta =
+      const VerificationMeta('viewedAt');
+  @override
+  late final GeneratedColumn<DateTime> viewedAt = GeneratedColumn<DateTime>(
+      'viewed_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns => [id, viewedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'viewed_articles';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<ViewedArticlesTableData> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('viewed_at')) {
+      context.handle(_viewedAtMeta,
+          viewedAt.isAcceptableOrUnknown(data['viewed_at']!, _viewedAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ViewedArticlesTableData map(Map<String, dynamic> data,
+      {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ViewedArticlesTableData(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      viewedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}viewed_at'])!,
+    );
+  }
+
+  @override
+  $ViewedArticlesTableTable createAlias(String alias) {
+    return $ViewedArticlesTableTable(attachedDatabase, alias);
+  }
+}
+
+class ViewedArticlesTableData extends DataClass
+    implements Insertable<ViewedArticlesTableData> {
+  final String id;
+  final DateTime viewedAt;
+  const ViewedArticlesTableData({required this.id, required this.viewedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['viewed_at'] = Variable<DateTime>(viewedAt);
+    return map;
+  }
+
+  ViewedArticlesTableCompanion toCompanion(bool nullToAbsent) {
+    return ViewedArticlesTableCompanion(
+      id: Value(id),
+      viewedAt: Value(viewedAt),
+    );
+  }
+
+  factory ViewedArticlesTableData.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ViewedArticlesTableData(
+      id: serializer.fromJson<String>(json['id']),
+      viewedAt: serializer.fromJson<DateTime>(json['viewedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'viewedAt': serializer.toJson<DateTime>(viewedAt),
+    };
+  }
+
+  ViewedArticlesTableData copyWith({String? id, DateTime? viewedAt}) =>
+      ViewedArticlesTableData(
+        id: id ?? this.id,
+        viewedAt: viewedAt ?? this.viewedAt,
+      );
+  ViewedArticlesTableData copyWithCompanion(ViewedArticlesTableCompanion data) {
+    return ViewedArticlesTableData(
+      id: data.id.present ? data.id.value : this.id,
+      viewedAt: data.viewedAt.present ? data.viewedAt.value : this.viewedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ViewedArticlesTableData(')
+          ..write('id: $id, ')
+          ..write('viewedAt: $viewedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, viewedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ViewedArticlesTableData &&
+          other.id == this.id &&
+          other.viewedAt == this.viewedAt);
+}
+
+class ViewedArticlesTableCompanion
+    extends UpdateCompanion<ViewedArticlesTableData> {
+  final Value<String> id;
+  final Value<DateTime> viewedAt;
+  final Value<int> rowid;
+  const ViewedArticlesTableCompanion({
+    this.id = const Value.absent(),
+    this.viewedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ViewedArticlesTableCompanion.insert({
+    required String id,
+    this.viewedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id);
+  static Insertable<ViewedArticlesTableData> custom({
+    Expression<String>? id,
+    Expression<DateTime>? viewedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (viewedAt != null) 'viewed_at': viewedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ViewedArticlesTableCompanion copyWith(
+      {Value<String>? id, Value<DateTime>? viewedAt, Value<int>? rowid}) {
+    return ViewedArticlesTableCompanion(
+      id: id ?? this.id,
+      viewedAt: viewedAt ?? this.viewedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (viewedAt.present) {
+      map['viewed_at'] = Variable<DateTime>(viewedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ViewedArticlesTableCompanion(')
+          ..write('id: $id, ')
+          ..write('viewedAt: $viewedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -591,11 +866,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $NewsArticlesTableTable newsArticlesTable =
       $NewsArticlesTableTable(this);
+  late final $ViewedArticlesTableTable viewedArticlesTable =
+      $ViewedArticlesTableTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [newsArticlesTable];
+  List<DatabaseSchemaEntity> get allSchemaEntities =>
+      [newsArticlesTable, viewedArticlesTable];
 }
 
 typedef $$NewsArticlesTableTableCreateCompanionBuilder
@@ -610,6 +888,8 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   required DateTime publishedAt,
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
+  Value<bool> isLiked,
+  Value<int> likesCount,
   Value<String?> clusterId,
   Value<int> rowid,
 });
@@ -625,6 +905,8 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<DateTime> publishedAt,
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
+  Value<bool> isLiked,
+  Value<int> likesCount,
   Value<String?> clusterId,
   Value<int> rowid,
 });
@@ -671,6 +953,12 @@ class $$NewsArticlesTableTableFilterComposer
   ColumnFilters<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<bool> get isLiked => $composableBuilder(
+      column: $table.isLiked, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get likesCount => $composableBuilder(
+      column: $table.likesCount, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnFilters(column));
 }
@@ -714,6 +1002,12 @@ class $$NewsArticlesTableTableOrderingComposer
 
   ColumnOrderings<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isLiked => $composableBuilder(
+      column: $table.isLiked, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get likesCount => $composableBuilder(
+      column: $table.likesCount, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnOrderings(column));
@@ -759,6 +1053,12 @@ class $$NewsArticlesTableTableAnnotationComposer
   GeneratedColumn<bool> get isPaywalled => $composableBuilder(
       column: $table.isPaywalled, builder: (column) => column);
 
+  GeneratedColumn<bool> get isLiked =>
+      $composableBuilder(column: $table.isLiked, builder: (column) => column);
+
+  GeneratedColumn<int> get likesCount => $composableBuilder(
+      column: $table.likesCount, builder: (column) => column);
+
   GeneratedColumn<String> get clusterId =>
       $composableBuilder(column: $table.clusterId, builder: (column) => column);
 }
@@ -802,6 +1102,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<DateTime> publishedAt = const Value.absent(),
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
+            Value<bool> isLiked = const Value.absent(),
+            Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -816,6 +1118,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             publishedAt: publishedAt,
             categories: categories,
             isPaywalled: isPaywalled,
+            isLiked: isLiked,
+            likesCount: likesCount,
             clusterId: clusterId,
             rowid: rowid,
           ),
@@ -830,6 +1134,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             required DateTime publishedAt,
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
+            Value<bool> isLiked = const Value.absent(),
+            Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
@@ -844,6 +1150,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             publishedAt: publishedAt,
             categories: categories,
             isPaywalled: isPaywalled,
+            isLiked: isLiked,
+            likesCount: likesCount,
             clusterId: clusterId,
             rowid: rowid,
           ),
@@ -870,10 +1178,145 @@ typedef $$NewsArticlesTableTableProcessedTableManager = ProcessedTableManager<
     ),
     NewsArticlesTableData,
     PrefetchHooks Function()>;
+typedef $$ViewedArticlesTableTableCreateCompanionBuilder
+    = ViewedArticlesTableCompanion Function({
+  required String id,
+  Value<DateTime> viewedAt,
+  Value<int> rowid,
+});
+typedef $$ViewedArticlesTableTableUpdateCompanionBuilder
+    = ViewedArticlesTableCompanion Function({
+  Value<String> id,
+  Value<DateTime> viewedAt,
+  Value<int> rowid,
+});
+
+class $$ViewedArticlesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $ViewedArticlesTableTable> {
+  $$ViewedArticlesTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get viewedAt => $composableBuilder(
+      column: $table.viewedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$ViewedArticlesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $ViewedArticlesTableTable> {
+  $$ViewedArticlesTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get viewedAt => $composableBuilder(
+      column: $table.viewedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$ViewedArticlesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ViewedArticlesTableTable> {
+  $$ViewedArticlesTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get viewedAt =>
+      $composableBuilder(column: $table.viewedAt, builder: (column) => column);
+}
+
+class $$ViewedArticlesTableTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ViewedArticlesTableTable,
+    ViewedArticlesTableData,
+    $$ViewedArticlesTableTableFilterComposer,
+    $$ViewedArticlesTableTableOrderingComposer,
+    $$ViewedArticlesTableTableAnnotationComposer,
+    $$ViewedArticlesTableTableCreateCompanionBuilder,
+    $$ViewedArticlesTableTableUpdateCompanionBuilder,
+    (
+      ViewedArticlesTableData,
+      BaseReferences<_$AppDatabase, $ViewedArticlesTableTable,
+          ViewedArticlesTableData>
+    ),
+    ViewedArticlesTableData,
+    PrefetchHooks Function()> {
+  $$ViewedArticlesTableTableTableManager(
+      _$AppDatabase db, $ViewedArticlesTableTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ViewedArticlesTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ViewedArticlesTableTableOrderingComposer(
+                  $db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ViewedArticlesTableTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<DateTime> viewedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ViewedArticlesTableCompanion(
+            id: id,
+            viewedAt: viewedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            Value<DateTime> viewedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              ViewedArticlesTableCompanion.insert(
+            id: id,
+            viewedAt: viewedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$ViewedArticlesTableTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $ViewedArticlesTableTable,
+    ViewedArticlesTableData,
+    $$ViewedArticlesTableTableFilterComposer,
+    $$ViewedArticlesTableTableOrderingComposer,
+    $$ViewedArticlesTableTableAnnotationComposer,
+    $$ViewedArticlesTableTableCreateCompanionBuilder,
+    $$ViewedArticlesTableTableUpdateCompanionBuilder,
+    (
+      ViewedArticlesTableData,
+      BaseReferences<_$AppDatabase, $ViewedArticlesTableTable,
+          ViewedArticlesTableData>
+    ),
+    ViewedArticlesTableData,
+    PrefetchHooks Function()>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
   $$NewsArticlesTableTableTableManager get newsArticlesTable =>
       $$NewsArticlesTableTableTableManager(_db, _db.newsArticlesTable);
+  $$ViewedArticlesTableTableTableManager get viewedArticlesTable =>
+      $$ViewedArticlesTableTableTableManager(_db, _db.viewedArticlesTable);
 }

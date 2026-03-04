@@ -32,7 +32,7 @@ class CategoryListConverter extends TypeConverter<List<NewsCategory>, String> {
       jsonEncode(value.map((c) => c.name).toList());
 }
 
-// ── Table Definition ──────────────────────────────────────────────
+// ── Table Definitions ─────────────────────────────────────────────
 
 class NewsArticlesTable extends Table {
   @override
@@ -55,7 +55,23 @@ class NewsArticlesTable extends Table {
 
   BoolColumn get isPaywalled =>
       boolean().named('is_paywalled').withDefault(const Constant(false))();
+  BoolColumn get isLiked =>
+      boolean().named('is_liked').withDefault(const Constant(false))();
+  IntColumn get likesCount =>
+      integer().named('likes_count').withDefault(const Constant(0))();
   TextColumn get clusterId => text().named('cluster_id').nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class ViewedArticlesTable extends Table {
+  @override
+  String get tableName => 'viewed_articles';
+
+  TextColumn get id => text()(); // articleId
+  DateTimeColumn get viewedAt =>
+      dateTime().named('viewed_at').withDefault(currentDateAndTime)();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -63,23 +79,25 @@ class NewsArticlesTable extends Table {
 
 // ── Database ──────────────────────────────────────────────────────
 
-@DriftDatabase(tables: [NewsArticlesTable])
+@DriftDatabase(tables: [NewsArticlesTable, ViewedArticlesTable])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) {
-            // Add the new `categories` column (JSON text) for multi-label support.
-            // Articles without it will use the default value '["world"]'.
-            await m.issueCustomQuery(
-              'ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS '
-              "categories TEXT NOT NULL DEFAULT '[\"world\"]'",
-            );
+            await m.addColumn(newsArticlesTable, newsArticlesTable.categories);
+          }
+          if (from < 3) {
+            await m.createTable(viewedArticlesTable);
+          }
+          if (from < 4) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.isLiked);
+            await m.addColumn(newsArticlesTable, newsArticlesTable.likesCount);
           }
         },
       );

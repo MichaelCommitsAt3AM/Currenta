@@ -17,6 +17,13 @@ Future<void> main() async {
     anonKey: AppConfig.supabaseAnonKey,
   );
 
+  // Sign in anonymously if no session exists to track 'seen' state
+  final supabase = Supabase.instance.client;
+  if (supabase.auth.currentSession == null) {
+    debugPrint('[Auth] No session found. Signing in anonymously...');
+    await supabase.auth.signInAnonymously();
+  }
+
   // ── Background Tasks ──────────────────────────────────────────
   await registerBackgroundTasks();
 
