@@ -117,8 +117,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   icon: Icons.lock_outline,
                   isPassword: true,
                   validator: (val) {
-                    if (val == null || val.isEmpty)
+                    if (val == null || val.isEmpty) {
                       return 'Enter your password';
+                    }
                     return null;
                   },
                 ),

@@ -8,7 +8,8 @@ enum NewsCategory {
   sports,
   entertainment,
   health,
-  world;
+  world,
+  environment;
 
   String get displayName => switch (this) {
         NewsCategory.politics => 'Politics',
@@ -19,6 +20,7 @@ enum NewsCategory {
         NewsCategory.entertainment => 'Entertainment',
         NewsCategory.health => 'Health',
         NewsCategory.world => 'World',
+        NewsCategory.environment => 'Environment',
       };
 
   String get emoji => switch (this) {
@@ -30,5 +32,6 @@ enum NewsCategory {
         NewsCategory.entertainment => '🎬',
         NewsCategory.health => '🏥',
         NewsCategory.world => '🌍',
+        NewsCategory.environment => '🌱',
       };
 }

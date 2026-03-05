@@ -139,6 +139,15 @@ class NewsSources {
           url: 'https://www.mayoclinic.org/rss/all-news-topics.xml',
           categoryBias: 'strong'),
     ],
+    NewsCategory.environment: [
+      FeedConfig(
+          url: 'https://www.theguardian.com/environment/rss',
+          categoryBias: 'strong'),
+      FeedConfig(
+          url:
+              'https://www.sciencedaily.com/rss/earth_climate/environmental_issues.xml',
+          categoryBias: 'strong'),
+    ],
   };
 
   /// Flattened list of all feed URLs.

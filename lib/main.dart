@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/config/app_config.dart';
-import 'core/theme/app_theme.dart';
+import 'theme/theme.dart';
 import 'features/news/application/background_fetch_service.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
 

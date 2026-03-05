@@ -8,7 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/news_article.dart';
-import '../../../../core/theme/app_theme.dart';
+import '../../../../theme/theme.dart';
 import '../../application/news_feed_notifier.dart';
 import 'heart_shower.dart';
 import '../../../auth/application/auth_notifier.dart';
@@ -109,9 +109,9 @@ class _NewsCardState extends ConsumerState<NewsCard> {
   void _showAuthSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E202C),
+      backgroundColor: const Color(0xFF1A1E2E),
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) => SafeArea(
         child: Padding(
@@ -120,35 +120,44 @@ class _NewsCardState extends ConsumerState<NewsCard> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 40,
+                width: 48,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 24),
+                margin: const EdgeInsets.only(bottom: 32),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: const Color(0xFF262A3E),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const Icon(
-                Icons.person_outline_rounded,
-                size: 48,
-                color: Colors.white,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.person_outline_rounded,
+                  size: 40,
+                  color: Color(0xFF6C63FF),
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               const Text(
                 'Sign In Required',
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF0F2FF),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'You need to be signed in to like or favorite stories.',
+              const SizedBox(height: 12),
+              const Text(
+                'You need to be signed in to like or favorite stories. Join us to personalize your feed.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
+                  color: Color(0xFF8890B5),
                   fontSize: 15,
+                  height: 1.5,
                 ),
               ),
               const SizedBox(height: 32),
@@ -165,16 +174,22 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: const Color(0xFF6C63FF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Sign In to Continue',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      letterSpacing: 0.5,
                     ),
                   ),
-                  child: const Text('Sign In',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                 ),
               ),
               const SizedBox(height: 16),
