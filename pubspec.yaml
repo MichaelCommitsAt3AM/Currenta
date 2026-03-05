@@ -59,6 +59,8 @@ dev_dependencies:
   freezed: ^3.0.0
   json_serializable: ^6.9.3
   drift_dev: ^2.23.1
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.4
 
 flutter:
   uses-material-design: true
@@ -67,3 +69,16 @@ flutter:
     - assets/fonts/
     - assets/images/
     - assets/animations/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icons/app_logo.jpg"
+  min_sdk_android: 21
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/icons/app_logo.jpg"
+  android: true
+  ios: true
+  fullscreen: true
