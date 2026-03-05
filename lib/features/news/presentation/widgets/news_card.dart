@@ -11,6 +11,8 @@ import '../../domain/entities/news_article.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../application/news_feed_notifier.dart';
 import 'heart_shower.dart';
+import '../../../auth/application/auth_notifier.dart';
+import '../../../auth/presentation/screens/login_screen.dart';
 
 class NewsCard extends ConsumerStatefulWidget {
   const NewsCard({
@@ -63,6 +65,13 @@ class _NewsCardState extends ConsumerState<NewsCard> {
 
   void _handleDoubleTap() {
     HapticFeedback.mediumImpact();
+
+    final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+    if (!isAuth) {
+      _showAuthSheet();
+      return;
+    }
+
     setState(() {
       showShower = true;
       if (!_isLiked) {
@@ -78,6 +87,13 @@ class _NewsCardState extends ConsumerState<NewsCard> {
 
   void _handleIconPress() {
     HapticFeedback.mediumImpact();
+
+    final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+    if (!isAuth) {
+      _showAuthSheet();
+      return;
+    }
+
     setState(() {
       final newIsLiked = !_isLiked;
       _localIsLiked = newIsLiked;
@@ -88,6 +104,85 @@ class _NewsCardState extends ConsumerState<NewsCard> {
       }
     });
     ref.read(newsFeedNotifierProvider.notifier).toggleLike(widget.article.id);
+  }
+
+  void _showAuthSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E202C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 24),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Icon(
+                Icons.person_outline_rounded,
+                size: 48,
+                color: Colors.white,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Sign In Required',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You need to be signed in to like or favorite stories.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LoginScreen(),
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Sign In',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
