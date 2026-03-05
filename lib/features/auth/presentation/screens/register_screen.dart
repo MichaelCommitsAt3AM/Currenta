@@ -250,11 +250,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     const SizedBox(height: 48),
                     AuthTextField(
                       controller: _nameController,
-                      hintText: 'Full Name',
+                      hintText: 'Display Name',
                       icon: Icons.person_outline,
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
-                          return 'Enter your name';
+                          return 'Enter your display name';
                         }
                         return null;
                       },
