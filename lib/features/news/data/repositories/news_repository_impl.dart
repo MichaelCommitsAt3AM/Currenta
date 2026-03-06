@@ -36,11 +36,15 @@ class NewsRepositoryImpl implements NewsRepository {
     NewsCategory? category,
     int limit = 10,
     int offset = 0,
+    DateTime? before,
+    bool includeViewed = false,
   }) async {
     final rows = await _dao.getArticlesPage(
       category: category?.name,
       limit: limit,
       offset: offset,
+      before: before,
+      includeViewed: includeViewed,
     );
     final articles = rows.map((r) => r.toDomain()).toList();
 
@@ -79,9 +83,11 @@ class NewsRepositoryImpl implements NewsRepository {
   /// Fetches a batch of [limit] articles from remote starting at [remoteOffset]
   /// and upserts them into the local cache.
   /// Returns the number of articles written (0 = no more remote data).
+  @override
   Future<int> syncMoreFromRemote({
     NewsCategory? category,
     int remoteOffset = 0,
+    DateTime? before,
     int limit = 30,
   }) async {
     try {
@@ -89,6 +95,7 @@ class NewsRepositoryImpl implements NewsRepository {
         category: category,
         limit: limit,
         offset: remoteOffset,
+        before: before,
       );
       if (remoteArticles.isEmpty) return 0;
       final companions = remoteArticles.map((a) => a.toCompanion()).toList();

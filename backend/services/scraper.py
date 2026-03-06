@@ -39,7 +39,7 @@ def process_image(img_url: str) -> str | None:
             
             if size <= target_size_bytes or quality == min_quality:
                 final_buffer = current_buffer
-                print(f"[Image] Compressed to {size/1024:.1f}KB at quality {quality}")
+                # print(f"[Image] Compressed to {size/1024:.1f}KB at quality {quality}")
                 break
             
             quality = quality - step
@@ -138,17 +138,17 @@ def scrape_article_sync(url: str):
         
         # Fallback: manual meta-tag extraction if Trafilatura missed it
         if not image_url:
-            print(f"[Scraper] Trafilatura missed image for {url}. Trying manual meta extraction...")
+            # print(f"[Scraper] Trafilatura missed image for {url}. Trying manual meta extraction...")
             image_url = extract_meta_image(response.text)
 
         image_base64 = None
         if image_url:
-            print(f"[Scraper] Found hero image URL: {image_url}")
+            # print(f"[Scraper] Found hero image URL: {image_url}")
             image_base64 = process_image(image_url)
-            if not image_base64:
-                print(f"[Scraper] Failed to process/download image: {image_url}")
-        else:
-            print(f"[Scraper] WARNING: No image found in meta tags either for {url}")
+            # if not image_base64:
+            #     print(f"[Scraper] Failed to process/download image: {image_url}")
+        # else:
+        #     print(f"[Scraper] WARNING: No image found in meta tags either for {url}")
 
         return {
             "text": result.get('text'),

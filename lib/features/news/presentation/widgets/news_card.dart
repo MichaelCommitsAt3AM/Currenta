@@ -268,7 +268,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     ],
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
 
                   // ── Feature Image ──────────────────────────────────
                   if (widget.article.imageUrl != null)
@@ -278,11 +278,12 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
                           width: double.infinity,
-                          height: size.height * 0.28,
+                          height: size.height * 0.25,
                           color: Colors.white.withValues(alpha: 0.05),
                           child: Image.network(
                             widget.article.imageUrl!,
                             fit: BoxFit.cover,
+                            cacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
                             errorBuilder: (context, _, __) => Center(
                               child: Icon(Icons.image_not_supported_rounded,
                                   color: Colors.white.withValues(alpha: 0.2)),
@@ -306,25 +307,25 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     overflow: TextOverflow.ellipsis,
                   ),
 
-                  const SizedBox(height: 16),
-
-                  // ── AI Summary ─────────────────────────────────────
-                  Expanded(
-                    child: SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
-                      child: Text(
-                        widget.article.summary,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontSize: 15,
-                          height: 1.5,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+ 
+                   // ── AI Summary ─────────────────────────────────────
+                   Expanded(
+                     child: SingleChildScrollView(
+                       physics: const BouncingScrollPhysics(),
+                       child: Text(
+                         widget.article.summary,
+                         style: TextStyle(
+                           color: Colors.white.withValues(alpha: 0.75),
+                           fontSize: 15,
+                           height: 1.5,
+                           fontWeight: FontWeight.w400,
+                         ),
+                       ),
+                     ),
+                   ),
+ 
+                   const SizedBox(height: 18),
 
                   // ── Source Row (tap to open article in default browser) ──
                   GestureDetector(
@@ -384,7 +385,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     ),
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 12),
 
                   // ── Footer Actions ───────────────────────────────
                   Row(

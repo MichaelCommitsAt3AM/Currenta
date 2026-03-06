@@ -1,19 +1,19 @@
 // lib/features/news/presentation/screens/feed_screen.dart
 // Full-screen vertical PageView feed — one story per screen,
 // swipe down (upward gesture) advances to the next story.
-// Loads the next batch of 10 articles when the user is within 3 pages of the end.
+// Loads the next batch of 10 articles when the user is within 5 pages of the end.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
 import '../../../../core/providers/providers.dart';
-import '../../../auth/presentation/screens/login_screen.dart';
 import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
+import '../widgets/sidebar.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
+import '../../../../theme/app_theme.dart';
 
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
@@ -25,15 +25,12 @@ class FeedScreen extends ConsumerStatefulWidget {
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   NewsCategory? _selectedCategory;
   late final PageController _pageController;
+  int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-    ));
     _pageController.addListener(_onPageScroll);
 
     // Mark the very first article as viewed
@@ -51,7 +48,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   int _lastTriggeredPage = -1;
 
-  /// Triggers next-page load when we are within 3 pages of the end.
+  /// Triggers next-page load when we are within 5 pages of the end.
   void _onPageScroll() {
     if (!_pageController.hasClients) return;
     final feedAsync = ref.read(newsFeedNotifierProvider);
@@ -64,22 +61,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     // Deduplicate: only trigger once for each unique page threshold
     if (currentPage != _lastTriggeredPage &&
         totalPages > 0 &&
-        currentPage >= totalPages - 3) {
+        currentPage >= totalPages - 5) {
       _lastTriggeredPage = currentPage;
       ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
     }
   }
 
-  /// Preload images and track views when a user lands on a new page.
   void _onPageChanged(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
 
-    // 1. Preload next 3 images
-    for (var ahead = 1; ahead <= 3; ahead++) {
+    // 0. Notify window manager
+    ref.read(newsFeedNotifierProvider.notifier).onPageChanged(index);
+
+    // 1. Preload next article
+    for (var ahead = 1; ahead <= 1; ahead++) {
       final nextIndex = index + ahead;
       if (nextIndex < feed.articles.length) {
-        final url = feed.articles[nextIndex].imageUrl;
+        final article = feed.articles[nextIndex];
+        if (article == null) continue;
+        final url = article.imageUrl;
         if (url != null && url.isNotEmpty) {
           precacheImage(NetworkImage(url), context);
         }
@@ -93,17 +98,31 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   void _trackPageView(int index) {
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed != null && index < feed.articles.length) {
-      final articleId = feed.articles[index].id;
-      ref.read(newsRepositoryProvider).markAsViewed(articleId);
+      final article = feed.articles[index];
+      if (article != null) {
+        ref.read(newsRepositoryProvider).markAsViewed(article.id);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final feedAsync = ref.watch(newsFeedNotifierProvider);
+    final feed = feedAsync.valueOrNull;
+    
+    // Determine the color of the current article for the sidebar
+    final articles = feed?.articles ?? [];
+    final currentArticle = (_currentIndex >= 0 && _currentIndex < articles.length) 
+        ? articles[_currentIndex] 
+        : null;
+    final primaryCategory = currentArticle?.categories.isNotEmpty == true 
+        ? currentArticle!.categories.first 
+        : null;
+    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),
+      drawer: Sidebar(catColor: catColor),
       body: Stack(
         children: [
           // ── Main content ─────────────────────────────────────────
@@ -138,9 +157,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                     return const _LoadingMorePage();
                   }
 
+                  final article = feed.articles[i];
+                  if (article == null) {
+                    return const ShimmerFeed(); // Show shimmer for virtualized/null articles
+                  }
+
                   return RepaintBoundary(
                     child: NewsCard(
-                      article: feed.articles[i],
+                      article: article,
                       index: i,
                       total: feed.articles.length,
                     ),
@@ -151,8 +175,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           ),
 
           // ── Category filter bar ──────────────────────────────────
-          SafeArea(
-            child: _CategoryBar(
+          Builder(
+            builder: (context) => _CategoryBar(
               selectedCategory: _selectedCategory,
               onCategoryChanged: (cat) {
                 setState(() => _selectedCategory = cat);
@@ -163,6 +187,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               },
               onRefresh: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
+              onOpenDrawer: () => Scaffold.of(context).openDrawer(),
             ),
           ),
         ],
@@ -212,85 +237,98 @@ class _CategoryBar extends StatelessWidget {
     required this.selectedCategory,
     required this.onCategoryChanged,
     required this.onRefresh,
+    required this.onOpenDrawer,
   });
 
   final NewsCategory? selectedCategory;
   final ValueChanged<NewsCategory?> onCategoryChanged;
   final VoidCallback onRefresh;
+  final VoidCallback onOpenDrawer;
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    
     return Container(
-      height: 48,
+      padding: EdgeInsets.only(top: topPadding),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF0A0C14).withValues(alpha: 0.92),
+            const Color(0xFF0A0C14).withValues(alpha: 0.95),
+            const Color(0xFF0A0C14).withValues(alpha: 0.70),
             Colors.transparent,
           ],
+          stops: const [0.0, 0.4, 1.0],
         ),
       ),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
+      child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        children: [
-          _FilterChip(
-            label: '🌐 All',
-            isSelected: selectedCategory == null,
-            onTap: () => onCategoryChanged(null),
-          ),
-          const SizedBox(width: 8),
-          ...NewsCategory.values.map((cat) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _FilterChip(
-                  label: '${cat.emoji}  ${cat.displayName}',
-                  isSelected: selectedCategory == cat,
-                  onTap: () => onCategoryChanged(cat),
+        child: Row(
+          children: [
+            // Fixed Sidebar Menu Button (Left)
+            GestureDetector(
+              onTap: onOpenDrawer,
+              child: Container(
+                height: 38,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(100),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.20)),
                 ),
-              )),
-          // Refresh button at the very end of chip row
-          const SizedBox(width: 4),
-          GestureDetector(
-            onTap: onRefresh,
-            child: Container(
-              height: 38,
-              width: 40,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(100),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+                child: const Icon(Icons.menu_rounded,
+                    color: Colors.white, size: 20),
               ),
-              child: const Icon(Icons.refresh_rounded,
-                  color: Colors.white, size: 18),
             ),
-          ),
-          const SizedBox(width: 8),
-          // Temp Auth Button for testing
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LoginScreen(),
+            const SizedBox(width: 8),
+
+            // Scrollable Chips area
+            Expanded(
+              child: SizedBox(
+                height: 38,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  children: [
+                    _FilterChip(
+                      label: '🌐 All',
+                      isSelected: selectedCategory == null,
+                      onTap: () => onCategoryChanged(null),
+                    ),
+                    const SizedBox(width: 8),
+                    ...NewsCategory.values.map((cat) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _FilterChip(
+                            label: '${cat.emoji}  ${cat.displayName}',
+                            isSelected: selectedCategory == cat,
+                            onTap: () => onCategoryChanged(cat),
+                          ),
+                        )),
+                    // Refresh button at the very end of chip row
+                    GestureDetector(
+                      onTap: onRefresh,
+                      child: Container(
+                        height: 38,
+                        width: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.20)),
+                        ),
+                        child: const Icon(Icons.refresh_rounded,
+                            color: Colors.white, size: 18),
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
-            child: Container(
-              height: 38,
-              width: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFF6C63FF).withValues(alpha: 0.20),
-                borderRadius: BorderRadius.circular(100),
-                border: Border.all(
-                    color: const Color(0xFF6C63FF).withValues(alpha: 0.50)),
               ),
-              child: const Icon(Icons.person_outline,
-                  color: Color(0xFF6C63FF), size: 18),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

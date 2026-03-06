@@ -19,14 +19,18 @@ class FeedState {
   const FeedState({
     this.articles = const [],
     this.isLoadingMore = false,
+    this.isRehydrating = false,
     this.hasMore = true,
     this.selectedCategory,
   });
 
-  final List<NewsArticle> articles;
+  final List<NewsArticle?> articles;
 
   /// True while a next-page fetch is in flight.
   final bool isLoadingMore;
+
+  /// True while a previous-page re-hydration is in flight.
+  final bool isRehydrating;
 
   /// False once a fetch returns fewer articles than [_kPageSize].
   final bool hasMore;
@@ -34,14 +38,16 @@ class FeedState {
   final NewsCategory? selectedCategory;
 
   FeedState copyWith({
-    List<NewsArticle>? articles,
+    List<NewsArticle?>? articles,
     bool? isLoadingMore,
+    bool? isRehydrating,
     bool? hasMore,
     NewsCategory? Function()? selectedCategory,
   }) =>
       FeedState(
         articles: articles ?? this.articles,
         isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+        isRehydrating: isRehydrating ?? this.isRehydrating,
         hasMore: hasMore ?? this.hasMore,
         selectedCategory: selectedCategory != null
             ? selectedCategory()
@@ -55,9 +61,6 @@ class FeedState {
 class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
 
-  // Tracks how many articles have been loaded so far (for offset calculation).
-  int _loadedCount = 0;
-
   @override
   Future<FeedState> build() async {
     final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
@@ -68,7 +71,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       debugPrint('[Feed] Cache empty. Performing initial remote sync...');
       await _repo.refreshFeed();
       final freshPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
-      _loadedCount = freshPage.length;
       return FeedState(
         articles: freshPage,
         hasMore: freshPage.length >= _kPageSize,
@@ -77,7 +79,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // If we have cache, show it immediately and refresh in background.
     Future.microtask(_backgroundRefresh);
-    _loadedCount = firstPage.length;
     return FeedState(
       articles: firstPage,
       hasMore: firstPage.length >= _kPageSize,
@@ -93,27 +94,27 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     try {
       final category = current.selectedCategory;
+      final lastArticle = current.articles.lastWhere((a) => a != null, orElse: () => null);
+      final cursor = lastArticle?.publishedAt;
 
-      // 1. Try local cache first (FAST, shouldn't trigger loading state change)
+      // 1. Try local cache first.
       var nextPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
-        offset: _loadedCount,
+        before: cursor,
       );
 
-      // 2. Only if local cache is empty do we trigger the 'Loading More' UI state
-      // and hit the network.
-      if (nextPage.isEmpty) {
+      // 2. If local cache is thin, hit the network.
+      if (nextPage.length < 5) {
         state = AsyncData(current.copyWith(isLoadingMore: true));
 
-        final impl = _repo as dynamic;
-        final synced = await impl.syncMoreFromRemote(
+        final synced = await _repo.syncMoreFromRemote(
           category: category,
-          remoteOffset: _loadedCount,
+          before: cursor,
           limit: 30,
-        ) as int;
+        );
 
-        if (synced == 0) {
+        if (synced == 0 && nextPage.isEmpty) {
           state = AsyncData(current.copyWith(
             isLoadingMore: false,
             hasMore: false,
@@ -124,20 +125,18 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         nextPage = await _repo.fetchPage(
           category: category,
           limit: _kPageSize,
-          offset: _loadedCount,
+          before: cursor,
         );
       }
 
-      _loadedCount += nextPage.length;
-
       // De-duplicate by id before appending
-      final existingIds = current.articles.map((a) => a.id).toSet();
+      final existingIds = current.articles.whereType<NewsArticle>().map((a) => a.id).toSet();
       final fresh = nextPage.where((a) => !existingIds.contains(a.id)).toList();
 
       state = AsyncData(current.copyWith(
         articles: [...current.articles, ...fresh],
         isLoadingMore: false,
-        hasMore: nextPage.length >= _kPageSize,
+        hasMore: nextPage.isNotEmpty,
       ));
     } catch (e, st) {
       final current = state.valueOrNull;
@@ -148,19 +147,75 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
+  /// Manages the sliding window: nullifies data far from [currentIndex]
+  /// and re-hydrates if necessary.
+  Future<void> onPageChanged(int index) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+
+    const windowSize = 40; // Max items to keep around the current index
+
+    bool needsUpdate = false;
+    final List<NewsArticle?> newArticles = List.from(current.articles);
+
+    // 1. Sliding Window: Nullify articles outside the range [index - 20, index + 20]
+    for (int i = 0; i < newArticles.length; i++) {
+      if ((i < index - windowSize ~/ 2 || i > index + windowSize ~/ 2)) {
+        if (newArticles[i] != null) {
+          newArticles[i] = null;
+          needsUpdate = true;
+        }
+      }
+    }
+
+    // 2. Re-hydration: If the user is near a null entry, fetch it from local cache.
+    // We check a small range ahead and behind.
+    final checkRange = [index - 1, index, index + 1];
+    for (final i in checkRange) {
+      if (i >= 0 && i < newArticles.length && newArticles[i] == null) {
+        if (current.isRehydrating) return;
+        
+        state = AsyncData(current.copyWith(isRehydrating: true));
+        
+        // Fetch a batch centered around the missing index
+        final startOffset = (i - 5).clamp(0, newArticles.length);
+        final restoredBatch = await _repo.fetchPage(
+          category: current.selectedCategory,
+          limit: 15,
+          offset: startOffset,
+          includeViewed: true,
+        );
+
+        for (int j = 0; j < restoredBatch.length; j++) {
+            final targetIdx = startOffset + j;
+            if (targetIdx < newArticles.length) {
+              newArticles[targetIdx] = restoredBatch[j];
+            }
+        }
+        
+        state = AsyncData(current.copyWith(
+          articles: newArticles,
+          isRehydrating: false,
+        ));
+        return;
+      }
+    }
+
+    if (needsUpdate) {
+      state = AsyncData(current.copyWith(articles: newArticles));
+    }
+  }
+
   /// Filter by category, resetting pagination to page 0.
   /// Auto-fetches a second page if the first returns fewer than [_kPageSize].
   Future<void> filterByCategory(NewsCategory? category) async {
     state = const AsyncLoading();
-    _loadedCount = 0;
-
     try {
       final firstPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         offset: 0,
       );
-      _loadedCount = firstPage.length;
 
       state = AsyncData(FeedState(
         articles: firstPage,
@@ -191,7 +246,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // 1. Optimistic UI update
     final updatedArticles = current.articles.map((a) {
-      if (a.id == articleId) {
+      if (a != null && a.id == articleId) {
         final newIsLiked = !a.isLiked;
         return a.copyWith(
           isLiked: newIsLiked,
@@ -220,7 +275,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       await _repo.refreshFeed();
 
       // After the remote sync, start fresh from page 1.
-      _loadedCount = 0;
       final category = state.valueOrNull?.selectedCategory;
       final firstPage = await _repo.fetchPage(
         category: category,
@@ -228,7 +282,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         offset: 0,
       );
 
-      _loadedCount = firstPage.length;
       state = AsyncData(FeedState(
         articles: firstPage,
         hasMore: firstPage.length >= _kPageSize,

@@ -18,11 +18,13 @@ async def get_feed(
     category: Optional[str] = Query(None, description="Filter articles by category"),
     limit: int = Query(30, ge=1, le=100, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
+    before: Optional[str] = Query(None, description="Only return articles published before this ISO timestamp (cursor)"),
     db_pool: asyncpg.Pool = Depends(get_db),
     user: Optional[User] = Depends(verify_supabase_jwt) # Extract user if JWT present
 ):
     """
     Returns the newest articles, skipping ones the user has already viewed.
+    Supports cursor-based pagination via 'before' parameter.
     """
     try:
         user_id = user.id if user else None
@@ -37,6 +39,12 @@ async def get_feed(
                 where_clauses.append(f"$1 = ANY(categories)")
                 params.append(category)
             
+            if before:
+                # Add before filter for cursor-based pagination
+                p_idx = len(params) + 1
+                where_clauses.append(f"published_at < ${p_idx}")
+                params.append(before)
+
             if user_id:
                 # Skip articles the user has already viewed
                 # offset + 1 is the next parameter index

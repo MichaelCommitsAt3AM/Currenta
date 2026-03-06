@@ -43,6 +43,8 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     String? category,
     int limit = 10,
     int offset = 0,
+    DateTime? before,
+    bool includeViewed = false,
   }) {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
@@ -50,9 +52,19 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
             final catFilter = category != null
                 ? t.categories.like('%"$category"%')
                 : const Constant(true);
+            
+            Expression<bool> timeFilter = const Constant(true);
+            if (before != null) {
+              timeFilter = t.publishedAt.isSmallerThanValue(before);
+            }
+
+            if (includeViewed) {
+              return catFilter & timeFilter;
+            }
+
             final viewedIds = selectOnly(viewedArticlesTable)
               ..addColumns([viewedArticlesTable.id]);
-            return catFilter & t.id.isNotInQuery(viewedIds);
+            return catFilter & timeFilter & t.id.isNotInQuery(viewedIds);
           })
           ..limit(limit, offset: offset))
         .get();

@@ -20,6 +20,7 @@ class NewsRemoteDataSource {
     NewsCategory? category,
     int limit = 30,
     int offset = 0,
+    DateTime? before,
   }) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed';
@@ -30,6 +31,10 @@ class NewsRemoteDataSource {
 
       if (category != null) {
         queryParams['category'] = category.name;
+      }
+
+      if (before != null) {
+        queryParams['before'] = before.toUtc().toIso8601String();
       }
 
       // Pass the Supabase JWT to authenticate the feed request asymmetrically

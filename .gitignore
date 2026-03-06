@@ -63,3 +63,4 @@ __pycache__/
 *.pid
 .env
 implementation_plan.md
+devtools_options.yaml

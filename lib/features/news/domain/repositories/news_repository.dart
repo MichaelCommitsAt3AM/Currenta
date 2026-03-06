@@ -18,10 +18,21 @@ abstract class NewsRepository {
     NewsCategory? category,
     int limit = 10,
     int offset = 0,
+    DateTime? before,
+    bool includeViewed = false,
   });
 
   /// Fetches fresh articles from the remote source and upserts into local cache.
   Future<void> refreshFeed();
+
+  /// Fetches a batch of articles from remote and syncs to local cache.
+  /// Returns the number of articles synced.
+  Future<int> syncMoreFromRemote({
+    NewsCategory? category,
+    int remoteOffset = 0,
+    DateTime? before,
+    int limit = 30,
+  });
 
   /// Removes articles older than the configured cache max age from local DB.
   Future<void> clearOldCache();

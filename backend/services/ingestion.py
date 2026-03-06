@@ -64,12 +64,12 @@ FEEDS = [
     { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://techcrunch.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.wired.com/feed/rss", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://www.cnet.com/rss/news/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://feeds.arstechnica.com/arstechnica/index", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.engadget.com/rss.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://9to5mac.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.gizmodo.com/rss", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://mashable.com/feeds/rss/all", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://venturebeat.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://www.technologyreview.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     # Politics
     { "feedUrl": "https://www.politico.com/rss/politicopicks.xml", "defaultCategory": "politics", "categoryBias": "strong" },
     { "feedUrl": "https://thehill.com/homenews/feed/", "defaultCategory": "politics", "categoryBias": "strong" },
@@ -294,7 +294,7 @@ def parse_llm_response(raw_str: str) -> dict:
             "title": "News Update",
             "summary": raw_str[:300],
             "categories": ["world"],
-            "type": "hard_news",
+            "type": "irrelevant",
             "subcategory": ""
         }
 
@@ -317,7 +317,7 @@ async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
         import base64
         image_bytes = base64.b64decode(base64_data)
         file_path = f"covers/{file_name}.jpg"
-        print(f"[Image-Storage] Attempting upload of {file_path} ({len(image_bytes)/1024:.1f}KB)...")
+        # print(f"[Image-Storage] Attempting upload of {file_path} ({len(image_bytes)/1024:.1f}KB)...")
         
         # Check bucket before upload? Minimal approach: just attempt
         res = supabase_client.storage.from_("article-images").upload(
@@ -328,10 +328,10 @@ async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
         
         # Supabase Python client returns the response object or raises an exception
         # We need to see what's inside.
-        print(f"[Image-Storage] Upload result: {res}")
+        # print(f"[Image-Storage] Upload result: {res}")
         
         public_url = supabase_client.storage.from_("article-images").get_public_url(file_path)
-        print(f"[Image-Storage] Generated Public URL: {public_url}")
+        # print(f"[Image-Storage] Generated Public URL: {public_url}")
         
         return public_url
     except Exception as e:
@@ -441,8 +441,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
             if media_thumbnail:
                 image_url_rss = media_thumbnail.get('url')
 
-        if image_url_rss:
-            print(f"[parseRss] Found image in RSS for '{title[:30]}...': {image_url_rss}")
+        # if image_url_rss:
+        #     print(f"[parseRss] Found image in RSS for '{title[:30]}...': {image_url_rss}")
 
         parsed_items.append({
             "title": title,
@@ -515,7 +515,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 else:
                     scraper_text_is_error = is_scraper_error_page(scraper_result.get("text", ""))
                     result_text = scraper_result.get("text", "")
-                    print(f"[processFeed] Scraper succeeded: text_len={len(result_text)}, has_image={'image_base64' in scraper_result}")
+                    # print(f"[processFeed] Scraper succeeded: text_len={len(result_text)}, has_image={'image_base64' in scraper_result}")
 
                 if scraper_text_is_error:
                     print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
@@ -532,35 +532,35 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 if not scraper_text_is_error and scraper_result.get("image_base64"):
                     image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                    print(f"[processFeed] Attempting storage upload for scraped image...")
+                    # print(f"[processFeed] Attempting storage upload for scraped image...")
                     persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
                     article_image_url = persistent_url or scraper_result.get("image_url")
-                    print(f"[processFeed] Final image URL from scraper path: {article_image_url}")
+                    # print(f"[processFeed] Final image URL from scraper path: {article_image_url}")
                 else:
                     article_image_url = scraper_result.get("image_url") if "error" not in scraper_result else None
-                    if article_image_url:
-                        print(f"[processFeed] Scraper found image URL but no base64: {article_image_url}")
+                    # if article_image_url:
+                    #     print(f"[processFeed] Scraper found image URL but no base64: {article_image_url}")
                 
                 # Secondary fallback: Use RSS image if scraper found nothing or failed
                 if not article_image_url and item.get("imageUrl"):
-                    print(f"[processFeed] Falling back to RSS image: {item.get('imageUrl')}")
+                    # print(f"[processFeed] Falling back to RSS image: {item.get('imageUrl')}")
                     article_image_url = item.get("imageUrl")
                     # Try to process and upload the RSS image if we have one
                     from .scraper import process_image
-                    print(f"[processFeed] Processing RSS image for storage...")
+                    # print(f"[processFeed] Processing RSS image for storage...")
                     image_base64 = process_image(article_image_url)
                     if image_base64:
                         image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
                         persistent_url = await upload_image_sync(image_base64, image_file_name)
                         if persistent_url:
                             article_image_url = persistent_url
-                    print(f"[processFeed] Final image URL from RSS path: {article_image_url}")
+                    # print(f"[processFeed] Final image URL from RSS path: {article_image_url}")
 
-                if not article_image_url:
-                    print(f"[processFeed] WARNING: No image found for article: {item['link']}")
+                # if not article_image_url:
+                #     print(f"[processFeed] WARNING: No image found for article: {item['link']}")
 
             except Exception as e:
-                print(f"[processFeed] Unexpected error in image/content block: {e}")
+                # print(f"[processFeed] Unexpected error in image/content block: {e}")
                 # Unexpected scraper exception — same fallback logic
                 fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
                 if is_scraper_error_page(fallback) or len(fallback) < 100:
@@ -589,6 +589,11 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 results["skipped"] += 1
                 continue
 
+            if llm_res["title"].strip().lower() == "news update":
+                print(f"[processFeed] Skipping article with generic 'News Update' title: {item['link']}")
+                results["skipped"] += 1
+                continue
+
             allowed_types = ["hard_news", "analysis"]
             if llm_res["type"] not in allowed_types:
                 print(f"[processFeed] Skipping low-signal content type '{llm_res['type']}' for {item['link']}")
@@ -604,7 +609,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             # Insert
             async with db_pool.acquire() as conn:
                 try:
-                    print(f"[processFeed] DB INSERT: title='{llm_res['title'][:30]}...', image_url='{article_image_url}'")
+                    # print(f"[processFeed] DB INSERT: title='{llm_res['title'][:30]}...', image_url='{article_image_url}'")
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,

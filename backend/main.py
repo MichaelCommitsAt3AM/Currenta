@@ -33,8 +33,13 @@ async def lifespan(app: FastAPI):
         try:
             print("Connecting to PostgreSQL...")
             # Added a timeout to prevent hanging the entire app startup
+            # statement_cache_size=0 is REQUIRED for pgbouncer (Supabase) in transaction mode
             db_pool = await asyncio.wait_for(
-                asyncpg.create_pool(dsn=database_url, ssl='require'),
+                asyncpg.create_pool(
+                    dsn=database_url, 
+                    ssl='require',
+                    statement_cache_size=0
+                ),
                 timeout=10.0
             )
             app.state.db_pool = db_pool
