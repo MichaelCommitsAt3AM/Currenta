@@ -48,23 +48,7 @@ class NewsRepositoryImpl implements NewsRepository {
       afterId: afterId,
       includeViewed: includeViewed,
     );
-    final articles = rows.map((r) => r.toDomain()).toList();
-
-    if (category == null) return articles;
-
-    // Two-tier sort:
-    //   Tier 1 — category is at index 0 (primary category)
-    //   Tier 2 — category appears elsewhere in the list
-    final primary = <NewsArticle>[];
-    final secondary = <NewsArticle>[];
-    for (final a in articles) {
-      if (a.categories.isNotEmpty && a.categories.first == category) {
-        primary.add(a);
-      } else {
-        secondary.add(a);
-      }
-    }
-    return [...primary, ...secondary];
+    return rows.map((r) => r.toDomain()).toList();
   }
 
   // ── Refresh (remote → local upsert) ───────────────────────────
@@ -155,5 +139,21 @@ class NewsRepositoryImpl implements NewsRepository {
   Future<void> toggleLike(String articleId) async {
     // For now, toggle locally. Backend integration can be added later.
     await _dao.toggleLike(articleId);
+  }
+
+  @override
+  Future<void> toggleFavorite(String articleId) async {
+    // 1. Toggle locally
+    await _dao.toggleFavorite(articleId);
+
+    // 2. Sync with backend
+    await _remote.toggleArticleFavorite(articleId);
+  }
+
+  @override
+  Stream<List<NewsArticle>> watchFavorites() {
+    return _dao
+        .watchFavorites()
+        .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
 }

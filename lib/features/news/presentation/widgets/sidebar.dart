@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../auth/application/auth_notifier.dart';
+import '../screens/favorites_screen.dart';
 
 class Sidebar extends ConsumerWidget {
   final Color catColor;
@@ -105,8 +106,11 @@ class Sidebar extends ConsumerWidget {
                 label: 'Saved Articles',
                 color: Colors.white.withValues(alpha: 0.7),
                 onTap: () {
-                  // TODO: Implement saved articles
-                  Navigator.pop(context);
+                  Navigator.pop(context); // Close drawer
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const FavoritesScreen()),
+                  );
                 },
               ),
               _SidebarTile(

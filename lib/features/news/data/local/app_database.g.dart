@@ -83,6 +83,16 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       defaultConstraints:
           GeneratedColumn.constraintIsAlways('CHECK ("is_liked" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _isFavoritedMeta =
+      const VerificationMeta('isFavorited');
+  @override
+  late final GeneratedColumn<bool> isFavorited = GeneratedColumn<bool>(
+      'is_favorited', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_favorited" IN (0, 1))'),
+      defaultValue: const Constant(false));
   static const VerificationMeta _likesCountMeta =
       const VerificationMeta('likesCount');
   @override
@@ -110,6 +120,7 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         categories,
         isPaywalled,
         isLiked,
+        isFavorited,
         likesCount,
         clusterId
       ];
@@ -185,6 +196,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       context.handle(_isLikedMeta,
           isLiked.isAcceptableOrUnknown(data['is_liked']!, _isLikedMeta));
     }
+    if (data.containsKey('is_favorited')) {
+      context.handle(
+          _isFavoritedMeta,
+          isFavorited.isAcceptableOrUnknown(
+              data['is_favorited']!, _isFavoritedMeta));
+    }
     if (data.containsKey('likes_count')) {
       context.handle(
           _likesCountMeta,
@@ -227,6 +244,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.bool, data['${effectivePrefix}is_paywalled'])!,
       isLiked: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_liked'])!,
+      isFavorited: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_favorited'])!,
       likesCount: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}likes_count'])!,
       clusterId: attachedDatabase.typeMapping
@@ -258,6 +277,7 @@ class NewsArticlesTableData extends DataClass
   final List<NewsCategory> categories;
   final bool isPaywalled;
   final bool isLiked;
+  final bool isFavorited;
   final int likesCount;
   final String? clusterId;
   const NewsArticlesTableData(
@@ -272,6 +292,7 @@ class NewsArticlesTableData extends DataClass
       required this.categories,
       required this.isPaywalled,
       required this.isLiked,
+      required this.isFavorited,
       required this.likesCount,
       this.clusterId});
   @override
@@ -295,6 +316,7 @@ class NewsArticlesTableData extends DataClass
     }
     map['is_paywalled'] = Variable<bool>(isPaywalled);
     map['is_liked'] = Variable<bool>(isLiked);
+    map['is_favorited'] = Variable<bool>(isFavorited);
     map['likes_count'] = Variable<int>(likesCount);
     if (!nullToAbsent || clusterId != null) {
       map['cluster_id'] = Variable<String>(clusterId);
@@ -319,6 +341,7 @@ class NewsArticlesTableData extends DataClass
       categories: Value(categories),
       isPaywalled: Value(isPaywalled),
       isLiked: Value(isLiked),
+      isFavorited: Value(isFavorited),
       likesCount: Value(likesCount),
       clusterId: clusterId == null && nullToAbsent
           ? const Value.absent()
@@ -341,6 +364,7 @@ class NewsArticlesTableData extends DataClass
       categories: serializer.fromJson<List<NewsCategory>>(json['categories']),
       isPaywalled: serializer.fromJson<bool>(json['isPaywalled']),
       isLiked: serializer.fromJson<bool>(json['isLiked']),
+      isFavorited: serializer.fromJson<bool>(json['isFavorited']),
       likesCount: serializer.fromJson<int>(json['likesCount']),
       clusterId: serializer.fromJson<String?>(json['clusterId']),
     );
@@ -360,6 +384,7 @@ class NewsArticlesTableData extends DataClass
       'categories': serializer.toJson<List<NewsCategory>>(categories),
       'isPaywalled': serializer.toJson<bool>(isPaywalled),
       'isLiked': serializer.toJson<bool>(isLiked),
+      'isFavorited': serializer.toJson<bool>(isFavorited),
       'likesCount': serializer.toJson<int>(likesCount),
       'clusterId': serializer.toJson<String?>(clusterId),
     };
@@ -377,6 +402,7 @@ class NewsArticlesTableData extends DataClass
           List<NewsCategory>? categories,
           bool? isPaywalled,
           bool? isLiked,
+          bool? isFavorited,
           int? likesCount,
           Value<String?> clusterId = const Value.absent()}) =>
       NewsArticlesTableData(
@@ -393,6 +419,7 @@ class NewsArticlesTableData extends DataClass
         categories: categories ?? this.categories,
         isPaywalled: isPaywalled ?? this.isPaywalled,
         isLiked: isLiked ?? this.isLiked,
+        isFavorited: isFavorited ?? this.isFavorited,
         likesCount: likesCount ?? this.likesCount,
         clusterId: clusterId.present ? clusterId.value : this.clusterId,
       );
@@ -416,6 +443,8 @@ class NewsArticlesTableData extends DataClass
       isPaywalled:
           data.isPaywalled.present ? data.isPaywalled.value : this.isPaywalled,
       isLiked: data.isLiked.present ? data.isLiked.value : this.isLiked,
+      isFavorited:
+          data.isFavorited.present ? data.isFavorited.value : this.isFavorited,
       likesCount:
           data.likesCount.present ? data.likesCount.value : this.likesCount,
       clusterId: data.clusterId.present ? data.clusterId.value : this.clusterId,
@@ -436,6 +465,7 @@ class NewsArticlesTableData extends DataClass
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('isLiked: $isLiked, ')
+          ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId')
           ..write(')'))
@@ -455,6 +485,7 @@ class NewsArticlesTableData extends DataClass
       categories,
       isPaywalled,
       isLiked,
+      isFavorited,
       likesCount,
       clusterId);
   @override
@@ -472,6 +503,7 @@ class NewsArticlesTableData extends DataClass
           other.categories == this.categories &&
           other.isPaywalled == this.isPaywalled &&
           other.isLiked == this.isLiked &&
+          other.isFavorited == this.isFavorited &&
           other.likesCount == this.likesCount &&
           other.clusterId == this.clusterId);
 }
@@ -489,6 +521,7 @@ class NewsArticlesTableCompanion
   final Value<List<NewsCategory>> categories;
   final Value<bool> isPaywalled;
   final Value<bool> isLiked;
+  final Value<bool> isFavorited;
   final Value<int> likesCount;
   final Value<String?> clusterId;
   final Value<int> rowid;
@@ -504,6 +537,7 @@ class NewsArticlesTableCompanion
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.isLiked = const Value.absent(),
+    this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -520,6 +554,7 @@ class NewsArticlesTableCompanion
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.isLiked = const Value.absent(),
+    this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -541,6 +576,7 @@ class NewsArticlesTableCompanion
     Expression<String>? categories,
     Expression<bool>? isPaywalled,
     Expression<bool>? isLiked,
+    Expression<bool>? isFavorited,
     Expression<int>? likesCount,
     Expression<String>? clusterId,
     Expression<int>? rowid,
@@ -557,6 +593,7 @@ class NewsArticlesTableCompanion
       if (categories != null) 'categories': categories,
       if (isPaywalled != null) 'is_paywalled': isPaywalled,
       if (isLiked != null) 'is_liked': isLiked,
+      if (isFavorited != null) 'is_favorited': isFavorited,
       if (likesCount != null) 'likes_count': likesCount,
       if (clusterId != null) 'cluster_id': clusterId,
       if (rowid != null) 'rowid': rowid,
@@ -575,6 +612,7 @@ class NewsArticlesTableCompanion
       Value<List<NewsCategory>>? categories,
       Value<bool>? isPaywalled,
       Value<bool>? isLiked,
+      Value<bool>? isFavorited,
       Value<int>? likesCount,
       Value<String?>? clusterId,
       Value<int>? rowid}) {
@@ -590,6 +628,7 @@ class NewsArticlesTableCompanion
       categories: categories ?? this.categories,
       isPaywalled: isPaywalled ?? this.isPaywalled,
       isLiked: isLiked ?? this.isLiked,
+      isFavorited: isFavorited ?? this.isFavorited,
       likesCount: likesCount ?? this.likesCount,
       clusterId: clusterId ?? this.clusterId,
       rowid: rowid ?? this.rowid,
@@ -633,6 +672,9 @@ class NewsArticlesTableCompanion
     if (isLiked.present) {
       map['is_liked'] = Variable<bool>(isLiked.value);
     }
+    if (isFavorited.present) {
+      map['is_favorited'] = Variable<bool>(isFavorited.value);
+    }
     if (likesCount.present) {
       map['likes_count'] = Variable<int>(likesCount.value);
     }
@@ -659,6 +701,7 @@ class NewsArticlesTableCompanion
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('isLiked: $isLiked, ')
+          ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId, ')
           ..write('rowid: $rowid')
@@ -889,6 +932,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<bool> isLiked,
+  Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
   Value<int> rowid,
@@ -906,6 +950,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<bool> isLiked,
+  Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
   Value<int> rowid,
@@ -955,6 +1000,9 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<bool> get isLiked => $composableBuilder(
       column: $table.isLiked, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isFavorited => $composableBuilder(
+      column: $table.isFavorited, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get likesCount => $composableBuilder(
       column: $table.likesCount, builder: (column) => ColumnFilters(column));
@@ -1006,6 +1054,9 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<bool> get isLiked => $composableBuilder(
       column: $table.isLiked, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<bool> get isFavorited => $composableBuilder(
+      column: $table.isFavorited, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get likesCount => $composableBuilder(
       column: $table.likesCount, builder: (column) => ColumnOrderings(column));
 
@@ -1056,6 +1107,9 @@ class $$NewsArticlesTableTableAnnotationComposer
   GeneratedColumn<bool> get isLiked =>
       $composableBuilder(column: $table.isLiked, builder: (column) => column);
 
+  GeneratedColumn<bool> get isFavorited => $composableBuilder(
+      column: $table.isFavorited, builder: (column) => column);
+
   GeneratedColumn<int> get likesCount => $composableBuilder(
       column: $table.likesCount, builder: (column) => column);
 
@@ -1103,6 +1157,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<bool> isLiked = const Value.absent(),
+            Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -1119,6 +1174,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             categories: categories,
             isPaywalled: isPaywalled,
             isLiked: isLiked,
+            isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
             rowid: rowid,
@@ -1135,6 +1191,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<bool> isLiked = const Value.absent(),
+            Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -1151,6 +1208,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             categories: categories,
             isPaywalled: isPaywalled,
             isLiked: isLiked,
+            isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
             rowid: rowid,

@@ -46,4 +46,10 @@ abstract class NewsRepository {
 
   /// Toggles the like status of an article.
   Future<void> toggleLike(String articleId);
+
+  /// Toggles the favorite status of an article.
+  Future<void> toggleFavorite(String articleId);
+
+  /// Returns a stream of favorited articles.
+  Stream<List<NewsArticle>> watchFavorites();
 }

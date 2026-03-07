@@ -78,4 +78,23 @@ class NewsRemoteDataSource {
       print('[Remote] Failed to track view for $articleId: $e');
     }
   }
+  /// Records that the user has favorited this article.
+  Future<void> toggleArticleFavorite(String articleId) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/favorite';
+      final session = Supabase.instance.client.auth.currentSession;
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      await _dio.post(url,
+          queryParameters: {'article_id': articleId}, options: options);
+    } catch (e) {
+      print('[Remote] Failed to toggle favorite for $articleId: $e');
+      rethrow;
+    }
+  }
 }

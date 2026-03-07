@@ -188,7 +188,78 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               onOpenDrawer: () => Scaffold.of(context).openDrawer(),
             ),
           ),
+
+          // ── New Stories Badge ─────────────────────────────────────
+          if (feed != null && feed.newArticlesCount > 0)
+            _NewStoriesBadge(
+              count: feed.newArticlesCount,
+              onTap: () {
+                ref
+                    .read(newsFeedNotifierProvider.notifier)
+                    .applyPendingArticles();
+                _pageController.animateToPage(
+                  0,
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.fastOutSlowIn,
+                );
+              },
+            ),
         ],
+      ),
+    );
+  }
+}
+
+// ── New Stories Badge ─────────────────────────────────────────────────────────
+
+class _NewStoriesBadge extends StatelessWidget {
+  const _NewStoriesBadge({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top + 60;
+
+    return Positioned(
+      top: topPadding,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6C63FF),
+              borderRadius: BorderRadius.circular(100),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.arrow_upward_rounded,
+                    color: Colors.white, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  '$count new ${count == 1 ? 'story' : 'stories'}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

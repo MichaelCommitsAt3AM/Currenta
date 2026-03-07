@@ -4,8 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class EmptyStateScreen extends StatefulWidget {
-  const EmptyStateScreen({super.key, required this.onRetry});
+  const EmptyStateScreen({
+    super.key,
+    required this.onRetry,
+    this.title = 'No News Yet',
+    this.message = "We couldn't find any stories.\nPull down to refresh or check back soon.",
+    this.buttonLabel = 'Try Again',
+    this.icon = Icons.newspaper_rounded,
+  });
+
   final VoidCallback onRetry;
+  final String title;
+  final String message;
+  final String buttonLabel;
+  final IconData icon;
 
   @override
   State<EmptyStateScreen> createState() => _EmptyStateScreenState();
@@ -62,8 +74,8 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.newspaper_rounded,
+                child: Icon(
+                  widget.icon,
                   size: 54,
                   color: Colors.white,
                 ),
@@ -73,7 +85,7 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
             const SizedBox(height: 32),
 
             Text(
-              'No News Yet',
+              widget.title,
               style: GoogleFonts.inter(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
@@ -84,7 +96,7 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
             const SizedBox(height: 12),
 
             Text(
-              'We couldn\'t find any stories.\nPull down to refresh or check back soon.',
+              widget.message,
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 14,
@@ -98,8 +110,8 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
             // ── Retry button ────────────────────────────────────
             FilledButton.icon(
               onPressed: widget.onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 18),
-              label: const Text('Try Again'),
+              icon: Icon(widget.buttonLabel == 'Try Again' ? Icons.refresh_rounded : Icons.arrow_back_rounded, size: 18),
+              label: Text(widget.buttonLabel),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF6C63FF),
                 foregroundColor: Colors.white,

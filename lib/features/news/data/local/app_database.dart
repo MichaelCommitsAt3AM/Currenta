@@ -57,6 +57,8 @@ class NewsArticlesTable extends Table {
       boolean().named('is_paywalled').withDefault(const Constant(false))();
   BoolColumn get isLiked =>
       boolean().named('is_liked').withDefault(const Constant(false))();
+  BoolColumn get isFavorited =>
+      boolean().named('is_favorited').withDefault(const Constant(false))();
   IntColumn get likesCount =>
       integer().named('likes_count').withDefault(const Constant(0))();
   TextColumn get clusterId => text().named('cluster_id').nullable()();
@@ -84,7 +86,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -98,6 +100,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 4) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.isLiked);
             await m.addColumn(newsArticlesTable, newsArticlesTable.likesCount);
+          }
+          if (from < 5) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.isFavorited);
           }
         },
       );

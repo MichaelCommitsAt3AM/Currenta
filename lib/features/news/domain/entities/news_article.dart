@@ -67,10 +67,13 @@ abstract class NewsArticle with _$NewsArticle {
     @JsonKey(name: 'is_paywalled') @Default(false) bool isPaywalled,
 
     /// Whether the current user has liked this article
-    @Default(false) bool isLiked,
+    @JsonKey(name: 'is_liked') @Default(false) bool isLiked,
 
     /// Total number of likes
     @JsonKey(name: 'likes_count') @Default(0) int likesCount,
+
+    /// Whether the current user has favorited this article
+    @JsonKey(name: 'is_favorited') @Default(false) bool isFavorited,
 
     /// Semantic cluster ID — articles with the same cluster cover the same story
     @JsonKey(name: 'cluster_id') String? clusterId,

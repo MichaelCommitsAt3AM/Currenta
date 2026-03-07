@@ -55,11 +55,16 @@ mixin _$NewsArticle {
   bool get isPaywalled;
 
   /// Whether the current user has liked this article
+  @JsonKey(name: 'is_liked')
   bool get isLiked;
 
   /// Total number of likes
   @JsonKey(name: 'likes_count')
   int get likesCount;
+
+  /// Whether the current user has favorited this article
+  @JsonKey(name: 'is_favorited')
+  bool get isFavorited;
 
   /// Semantic cluster ID — articles with the same cluster cover the same story
   @JsonKey(name: 'cluster_id')
@@ -100,6 +105,8 @@ mixin _$NewsArticle {
             (identical(other.isLiked, isLiked) || other.isLiked == isLiked) &&
             (identical(other.likesCount, likesCount) ||
                 other.likesCount == likesCount) &&
+            (identical(other.isFavorited, isFavorited) ||
+                other.isFavorited == isFavorited) &&
             (identical(other.clusterId, clusterId) ||
                 other.clusterId == clusterId));
   }
@@ -120,11 +127,12 @@ mixin _$NewsArticle {
       isPaywalled,
       isLiked,
       likesCount,
+      isFavorited,
       clusterId);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, clusterId: $clusterId)';
   }
 }
 
@@ -149,8 +157,9 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
-      bool isLiked,
+      @JsonKey(name: 'is_liked') bool isLiked,
       @JsonKey(name: 'likes_count') int likesCount,
+      @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'cluster_id') String? clusterId});
 }
 
@@ -178,6 +187,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? isPaywalled = null,
     Object? isLiked = null,
     Object? likesCount = null,
+    Object? isFavorited = null,
     Object? clusterId = freezed,
   }) {
     return _then(_self.copyWith(
@@ -229,6 +239,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.likesCount
           : likesCount // ignore: cast_nullable_to_non_nullable
               as int,
+      isFavorited: null == isFavorited
+          ? _self.isFavorited
+          : isFavorited // ignore: cast_nullable_to_non_nullable
+              as bool,
       clusterId: freezed == clusterId
           ? _self.clusterId
           : clusterId // ignore: cast_nullable_to_non_nullable
@@ -345,8 +359,9 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
-            bool isLiked,
+            @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
+            @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'cluster_id') String? clusterId)?
         $default, {
     required TResult orElse(),
@@ -367,6 +382,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
+            _that.isFavorited,
             _that.clusterId);
       case _:
         return orElse();
@@ -403,8 +419,9 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
-            bool isLiked,
+            @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
+            @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'cluster_id') String? clusterId)
         $default,
   ) {
@@ -424,6 +441,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
+            _that.isFavorited,
             _that.clusterId);
       case _:
         throw StateError('Unexpected subclass');
@@ -459,8 +477,9 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
-            bool isLiked,
+            @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
+            @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'cluster_id') String? clusterId)?
         $default,
   ) {
@@ -480,6 +499,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
+            _that.isFavorited,
             _that.clusterId);
       case _:
         return null;
@@ -505,8 +525,9 @@ class _NewsArticle implements NewsArticle {
           toJson: _categoriesToJson)
       final List<NewsCategory> categories = const [NewsCategory.world],
       @JsonKey(name: 'is_paywalled') this.isPaywalled = false,
-      this.isLiked = false,
+      @JsonKey(name: 'is_liked') this.isLiked = false,
       @JsonKey(name: 'likes_count') this.likesCount = 0,
+      @JsonKey(name: 'is_favorited') this.isFavorited = false,
       @JsonKey(name: 'cluster_id') this.clusterId})
       : _categories = categories;
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
@@ -571,13 +592,18 @@ class _NewsArticle implements NewsArticle {
 
   /// Whether the current user has liked this article
   @override
-  @JsonKey()
+  @JsonKey(name: 'is_liked')
   final bool isLiked;
 
   /// Total number of likes
   @override
   @JsonKey(name: 'likes_count')
   final int likesCount;
+
+  /// Whether the current user has favorited this article
+  @override
+  @JsonKey(name: 'is_favorited')
+  final bool isFavorited;
 
   /// Semantic cluster ID — articles with the same cluster cover the same story
   @override
@@ -624,6 +650,8 @@ class _NewsArticle implements NewsArticle {
             (identical(other.isLiked, isLiked) || other.isLiked == isLiked) &&
             (identical(other.likesCount, likesCount) ||
                 other.likesCount == likesCount) &&
+            (identical(other.isFavorited, isFavorited) ||
+                other.isFavorited == isFavorited) &&
             (identical(other.clusterId, clusterId) ||
                 other.clusterId == clusterId));
   }
@@ -644,11 +672,12 @@ class _NewsArticle implements NewsArticle {
       isPaywalled,
       isLiked,
       likesCount,
+      isFavorited,
       clusterId);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, clusterId: $clusterId)';
   }
 }
 
@@ -675,8 +704,9 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
-      bool isLiked,
+      @JsonKey(name: 'is_liked') bool isLiked,
       @JsonKey(name: 'likes_count') int likesCount,
+      @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'cluster_id') String? clusterId});
 }
 
@@ -704,6 +734,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? isPaywalled = null,
     Object? isLiked = null,
     Object? likesCount = null,
+    Object? isFavorited = null,
     Object? clusterId = freezed,
   }) {
     return _then(_NewsArticle(
@@ -755,6 +786,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self.likesCount
           : likesCount // ignore: cast_nullable_to_non_nullable
               as int,
+      isFavorited: null == isFavorited
+          ? _self.isFavorited
+          : isFavorited // ignore: cast_nullable_to_non_nullable
+              as bool,
       clusterId: freezed == clusterId
           ? _self.clusterId
           : clusterId // ignore: cast_nullable_to_non_nullable

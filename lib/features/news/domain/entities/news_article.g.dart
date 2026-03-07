@@ -19,8 +19,9 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
           ? const [NewsCategory.world]
           : _categoriesFromJson(json['categories']),
       isPaywalled: json['is_paywalled'] as bool? ?? false,
-      isLiked: json['isLiked'] as bool? ?? false,
+      isLiked: json['is_liked'] as bool? ?? false,
       likesCount: (json['likes_count'] as num?)?.toInt() ?? 0,
+      isFavorited: json['is_favorited'] as bool? ?? false,
       clusterId: json['cluster_id'] as String?,
     );
 
@@ -36,7 +37,8 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'published_at': instance.publishedAt.toIso8601String(),
       'categories': _categoriesToJson(instance.categories),
       'is_paywalled': instance.isPaywalled,
-      'isLiked': instance.isLiked,
+      'is_liked': instance.isLiked,
       'likes_count': instance.likesCount,
+      'is_favorited': instance.isFavorited,
       'cluster_id': instance.clusterId,
     };

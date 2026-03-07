@@ -61,6 +61,7 @@ FEEDS = [
     { "feedUrl": "https://www.dw.com/xml/rss-en-all", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://www.france24.com/en/rss", "defaultCategory": "world", "categoryBias": "neutral" },
     # Tech
+    { "feedUrl": "https://www.techmeme.com/feed.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://techcrunch.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.wired.com/feed/rss", "defaultCategory": "tech", "categoryBias": "strong" },
@@ -96,7 +97,6 @@ FEEDS = [
     { "feedUrl": "https://www.ft.com/news-feed.rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://www.bloomberg.com/feeds/podcasts/pfe_itunes.xml", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://www.healthline.com/rss/all-news.xml", "defaultCategory": "health", "categoryBias": "strong" },
@@ -173,7 +173,8 @@ def is_scraper_error_page(text: str) -> bool:
     ]
     return any(signal in lower for signal in error_signals)
 
-def is_promotional_content(text: str, title: str) -> bool:
+def is_junk_content(text: str, title: str) -> bool:
+    """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
     combined = (title + " " + text).lower()
     hard_signals = [
         "promo code", "bonus bets", "bonus bet", "sign-up bonus", "sign up bonus",
@@ -189,6 +190,9 @@ def is_promotional_content(text: str, title: str) -> bool:
         "problem gambling helpline", "1-800-gambler", "gambling helpline",
         "bet must be placed", "min. odds", "minimum odds", "-500 odds", "odds req",
         "token and bonus bets", "non-withdrawable",
+        "podcast summary", "latest episode", "new episode", "listen to the podcast",
+        "listen on apple", "listen on spotify", "subscribe on", "full episode of",
+        "this episode of", "bonus episode", "transcript provided", "show notes",
     ]
     if any(signal in combined for signal in hard_signals):
         return True
@@ -196,7 +200,7 @@ def is_promotional_content(text: str, title: str) -> bool:
     soft_signals = [
         "promo", "sportsbook", "oddsmaker", "parlay", "moneyline", "point spread",
         "over/under", "wagering", "sweepstakes", "giveaway", "refer a friend",
-        "loyalty points", "cash back offer",
+        "loyalty points", "cash back offer", "podcast", "episode"
     ]
     matches = sum(1 for signal in soft_signals if signal in combined)
     return matches >= 2
@@ -262,8 +266,32 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
     return parse_llm_response(raw_content)
 
 def parse_llm_response(raw_str: str) -> dict:
+    import re
+    # 4. LLM Failure Handling: Add robust parsing layer
+    # Strip markdown fences and trailing commentary
+    clean_str = re.sub(r"```(?:json)?\s*([\s\S]*?)```", r"\1", raw_str).strip()
+    
     try:
-        parsed = json.loads(raw_str)
+        parsed = json.loads(clean_str)
+    except json.JSONDecodeError:
+        # Retry parse once by finding the first '{' and last '}'
+        try:
+            match = re.search(r"(\{.*\})", clean_str, re.DOTALL)
+            if match:
+                parsed = json.loads(match.group(1))
+            else:
+                raise
+        except Exception:
+            print(f"[LLM Parser] Failed to parse JSON even with cleanup: {raw_str[:100]}...")
+            return {
+                "title": "News Update",
+                "summary": raw_str[:300],
+                "categories": ["world"],
+                "type": "irrelevant",
+                "subcategory": ""
+            }
+
+    try:
         title = parsed.get("title", "News Update").replace("**", "").strip('"')
         summary = parsed.get("summary", raw_str).replace("**", "").strip('"')
         
@@ -289,7 +317,8 @@ def parse_llm_response(raw_str: str) -> dict:
             "type": type_str,
             "subcategory": subcat
         }
-    except Exception:
+    except Exception as e:
+        print(f"[LLM Parser] Logic error: {e}")
         return {
             "title": "News Update",
             "summary": raw_str[:300],
@@ -375,6 +404,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "Al Jazeera": "Al Jazeera",
         "The Verge -  All Posts": "The Verge",
         "BBC News - World": "BBC",
+        "Source: Techmeme": "Techmeme",
+        "Techmeme": "Techmeme",
         "BBC News": "BBC",
         "Reuters: Top News": "Reuters",
     }
@@ -395,12 +426,15 @@ async def parse_rss(feed_url: str) -> list[dict]:
         # Use clean channel name
         source_name = channel_display_name
         title = item.title.text if item.title else ""
-        link = item.link.text if item.link else ""
-        # Handle atom links
-        if not link:
-            link_tag = item.find('link', href=True)
-            if link_tag:
-                link = link_tag['href']
+        link = ""
+        if item.link:
+            link = item.link.get_text(strip=True)
+            if not link:
+                # Handle atom-style <link href="..."/>
+                link = item.link.get('href', '')
+        
+        if not link and item.guid:
+            link = item.guid.get_text(strip=True)
         
         description = item.description.text if item.description else (item.summary.text if item.summary else "")
         description = BeautifulSoup(description, "html.parser").get_text(strip=True)
@@ -417,9 +451,10 @@ async def parse_rss(feed_url: str) -> list[dict]:
         if not title or not link:
             continue
             
-        is_junk = any(kw in title.lower() for kw in junk_keywords)
+        check_text = (title + " " + description).lower()
+        is_junk = any(kw in check_text for kw in junk_keywords)
         if is_junk:
-            print(f"[parseRss] Filtering out junk article title: {title}")
+            print(f"[parseRss] Filtering out junk article: {title}")
             continue
             
         # Extract image from RSS if available
@@ -455,20 +490,29 @@ async def parse_rss(feed_url: str) -> list[dict]:
         
     return parsed_items
 
-async def is_duplicate(db_pool, embedding: list[float]) -> bool:
-    # Use the RPC function match_recent_articles to find similarity
-    # We must ensure to use the asyncpg pool here
-    embedding_str = f"[{','.join(map(str, embedding))}]"
-    
-    async with db_pool.acquire() as conn:
+async def is_duplicate(conn, embedding: list[float]) -> bool:
+    # 3. Duplicate Detection Logic optimization: Reduces latency by passing the connection
+    # 2. Embedding Conversion Bug Risk: If PostgreSQL + pgvector is used, pass as list (driver handles serialization) or string if needed.
+    # We attempt passing the list directly.
+    try:
+        # Check similarity match (...)
+        records = await conn.fetch(
+            "SELECT id FROM match_recent_articles($1, $2, $3)",
+            embedding, SIMILARITY_THRESHOLD, 1
+        )
+        return len(records) > 0
+    except Exception as e:
+        # Fallback to string if the driver doesn't handle list->vector automatically
+        # though modern asyncpg + pgvector usually prefers list or specialized type.
         try:
+            embedding_str = f"[{','.join(map(str, embedding))}]"
             records = await conn.fetch(
                 "SELECT id FROM match_recent_articles($1, $2, $3)",
                 embedding_str, SIMILARITY_THRESHOLD, 1
             )
             return len(records) > 0
-        except Exception as e:
-            print(f"[Duplicate Check] error: {e}")
+        except Exception as inner_e:
+            print(f"[Duplicate Check] error: {inner_e}")
             return False
 
 def get_model_name(provider: str) -> str:
@@ -486,130 +530,122 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
         print(f"[processFeed] RSS parse error for {feed_url}: {e}")
         return results
 
-    for item in items:
-        # Layer 1: URL-based idempotency
-        async with db_pool.acquire() as conn:
-            existing_url = await conn.fetchrow("SELECT id FROM articles WHERE original_url = $1", item["link"])
-            if existing_url:
-                results["skipped"] += 1
-                continue
-                
-            # Layer 2: content_hash idempotency
-            content_hash = generate_content_hash(item["link"], item["title"])
-            existing_hash = await conn.fetchrow("SELECT id FROM articles WHERE content_hash = $1", content_hash)
-            if existing_hash:
-                results["skipped"] += 1
-                continue
+    if not items:
+        return results
 
+    # 1. Database Pool Race Condition Risk: Acquire once and batch check
+    async with db_pool.acquire() as conn:
+        # Initialize sets to ensure they are available even if the query fails
+        existing_urls = set()
+        existing_hashes = set()
+
+        # Batch URL + hash checks using ANY($1) queries (similar to IN)
+        urls = [item["link"] for item in items]
+        hashes = [generate_content_hash(item["link"], item["title"]) for item in items]
+        
         try:
-            article_text = ""
-            article_image_url = None
-            
-            try:
-                # Scrape internally
-                scraper_result = scrape_article_sync(item["link"])
-                if "error" in scraper_result:
-                    print(f"[processFeed] Scraper Error for {item['link']}: {scraper_result['error']}")
-                    scraper_text_is_error = True
-                    result_text = item.get("description", "")
-                else:
-                    scraper_text_is_error = is_scraper_error_page(scraper_result.get("text", ""))
-                    result_text = scraper_result.get("text", "")
-                    # print(f"[processFeed] Scraper succeeded: text_len={len(result_text)}, has_image={'image_base64' in scraper_result}")
+            existing = await conn.fetch("""
+                SELECT original_url, content_hash FROM articles 
+                WHERE original_url = ANY($1) OR content_hash = ANY($2)
+            """, urls, hashes)
+            existing_urls = {r["original_url"] for r in existing}
+            existing_hashes = {r["content_hash"] for r in existing}
+        except Exception as e:
+            print(f"[processFeed] Batch dedupe query failed: {e}")
 
-                if scraper_text_is_error:
-                    print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
-                    # Scraper was blocked (paywall, JS-wall, etc.) — fall back to title + RSS description.
-                    # This is enough context for a good LLM summary on major outlets.
+        for item in items:
+            # Combined duplicate detection logic optimization
+            content_hash = generate_content_hash(item["link"], item["title"])
+            if item["link"] in existing_urls or content_hash in existing_hashes:
+                results["skipped"] += 1
+                continue
+
+            try:
+                article_text = ""
+                article_image_url = None
+                
+                try:
+                    # Scrape internally
+                    scraper_result = scrape_article_sync(item["link"])
+                    if "error" in scraper_result:
+                        print(f"[processFeed] Scraper Error for {item['link']}: {scraper_result['error']}")
+                        scraper_text_is_error = True
+                        result_text = item.get("description", "")
+                    else:
+                        scraper_text_is_error = is_scraper_error_page(scraper_result.get("text", ""))
+                        result_text = scraper_result.get("text", "")
+
+                    if scraper_text_is_error:
+                        print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
+                        fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
+                        if is_scraper_error_page(fallback) or len(fallback) < 100:
+                            results["skipped"] += 1
+                            continue
+                        article_text = fallback
+                    else:
+                        article_text = result_text
+
+                    if not scraper_text_is_error and scraper_result.get("image_base64"):
+                        image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
+                        persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
+                        article_image_url = persistent_url or scraper_result.get("image_url")
+                    else:
+                        article_image_url = scraper_result.get("image_url") if "error" not in scraper_result else None
+                    
+                    # Secondary fallback
+                    if not article_image_url and item.get("imageUrl"):
+                        article_image_url = item.get("imageUrl")
+                        from .scraper import process_image
+                        image_base64 = process_image(article_image_url)
+                        if image_base64:
+                            image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
+                            persistent_url = await upload_image_sync(image_base64, image_file_name)
+                            if persistent_url:
+                                article_image_url = persistent_url
+
+                except Exception:
                     fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
                     if is_scraper_error_page(fallback) or len(fallback) < 100:
-                        print(f"[processFeed] Skipping {item['link']}: Too short or invalid content")
                         results["skipped"] += 1
                         continue
                     article_text = fallback
-                else:
-                    article_text = result_text
 
-                if not scraper_text_is_error and scraper_result.get("image_base64"):
-                    image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                    # print(f"[processFeed] Attempting storage upload for scraped image...")
-                    persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
-                    article_image_url = persistent_url or scraper_result.get("image_url")
-                    # print(f"[processFeed] Final image URL from scraper path: {article_image_url}")
-                else:
-                    article_image_url = scraper_result.get("image_url") if "error" not in scraper_result else None
-                    # if article_image_url:
-                    #     print(f"[processFeed] Scraper found image URL but no base64: {article_image_url}")
-                
-                # Secondary fallback: Use RSS image if scraper found nothing or failed
-                if not article_image_url and item.get("imageUrl"):
-                    # print(f"[processFeed] Falling back to RSS image: {item.get('imageUrl')}")
-                    article_image_url = item.get("imageUrl")
-                    # Try to process and upload the RSS image if we have one
-                    from .scraper import process_image
-                    # print(f"[processFeed] Processing RSS image for storage...")
-                    image_base64 = process_image(article_image_url)
-                    if image_base64:
-                        image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                        persistent_url = await upload_image_sync(image_base64, image_file_name)
-                        if persistent_url:
-                            article_image_url = persistent_url
-                    # print(f"[processFeed] Final image URL from RSS path: {article_image_url}")
+                if len(article_text) < 100:
+                    article_text = f"{item['title']}\n\n{article_text}"
 
-                # if not article_image_url:
-                #     print(f"[processFeed] WARNING: No image found for article: {item['link']}")
-
-            except Exception as e:
-                # print(f"[processFeed] Unexpected error in image/content block: {e}")
-                # Unexpected scraper exception — same fallback logic
-                fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
-                if is_scraper_error_page(fallback) or len(fallback) < 100:
+                if is_scraper_error_page(article_text) or len(article_text) < 100:
                     results["skipped"] += 1
                     continue
-                article_text = fallback
 
-            # Final guard: if even the scraped full text is suspiciously short, prepend title
-            if len(article_text) < 100:
-                article_text = f"{item['title']}\n\n{article_text}"
+                if is_junk_content(article_text, item["title"]):
+                    results["skipped"] += 1
+                    continue
 
-            if is_scraper_error_page(article_text) or len(article_text) < 100:
-                results["skipped"] += 1
-                continue
+                # Summarize
+                llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
+                
+                if is_scraper_error_page(llm_res["title"]) or is_scraper_error_page(llm_res["summary"][:100]):
+                    results["skipped"] += 1
+                    continue
 
-            if is_promotional_content(article_text, item["title"]):
-                print(f"[processFeed] Skipping promotional content: {item['title']}")
-                results["skipped"] += 1
-                continue
+                if llm_res["title"].strip().lower() == "news update":
+                    results["skipped"] += 1
+                    continue
 
-            # Summarize
-            llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
-            
-            if is_scraper_error_page(llm_res["title"]) or is_scraper_error_page(llm_res["summary"][:100]):
-                print(f"[processFeed] AI summarized an error page for {item['link']} (Title: {llm_res['title']}). Skipping.")
-                results["skipped"] += 1
-                continue
+                allowed_types = ["hard_news", "analysis"]
+                if llm_res["type"] not in allowed_types:
+                    results["skipped"] += 1
+                    continue
 
-            if llm_res["title"].strip().lower() == "news update":
-                print(f"[processFeed] Skipping article with generic 'News Update' title: {item['link']}")
-                results["skipped"] += 1
-                continue
+                embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
+                
+                # Check for semantic duplicate using the same connection
+                if await is_duplicate(conn, embedding):
+                    results["skipped"] += 1
+                    continue
 
-            allowed_types = ["hard_news", "analysis"]
-            if llm_res["type"] not in allowed_types:
-                print(f"[processFeed] Skipping low-signal content type '{llm_res['type']}' for {item['link']}")
-                results["skipped"] += 1
-                continue
-
-            embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
-            
-            if await is_duplicate(db_pool, embedding):
-                results["skipped"] += 1
-                continue
-
-            # Insert
-            async with db_pool.acquire() as conn:
+                # Insert using the same connection
                 try:
-                    # print(f"[processFeed] DB INSERT: title='{llm_res['title'][:30]}...', image_url='{article_image_url}'")
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
@@ -619,17 +655,17 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
                     item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    f"[{','.join(map(str, embedding))}]", content_hash, get_model_name(LLM_PROVIDER))
+                    embedding, content_hash, get_model_name(LLM_PROVIDER))
                     
                     results["ingested"] += 1
-                    print(f"[processFeed] Success! Article ingested.")
+                    print(f"[processFeed] Success! {llm_res['title'][:40]}...")
                 except Exception as db_err:
                     print(f"[processFeed] DB Insert Error: {db_err}")
                     results["errors"] += 1
 
-        except Exception as item_err:
-            print(f"[processFeed] Item processing error: {item_err}")
-            results["errors"] += 1
+            except Exception as item_err:
+                print(f"[processFeed] Item processing error: {item_err}")
+                results["errors"] += 1
 
     return results
 
@@ -647,20 +683,22 @@ async def orchestrate():
     global SHOULD_STOP_INGESTION
     SHOULD_STOP_INGESTION = False
     
-    # Simple queue processing without the database queue table
-    # Since we are running in python memory now, we can just process them directly.
-    # To keep simple and not overload, we will process feeds sequentially, 
-    # but process individual articles concurrently (optional) or just sequentially.
-    for feed in FEEDS:
-        if SHOULD_STOP_INGESTION:
-            print("[Orchestrator] Stop signal detected. Terminating orchestration.")
-            break
+    # 5. Orchestration Sequential Bottleneck: Use controlled concurrency
+    semaphore = asyncio.Semaphore(4) # Limit to 4 concurrent feeds to avoid overloading LLM/DB
 
-        print(f"[Orchestrator] Processing: {feed['feedUrl']}")
-        try:
-            await process_feed(feed["feedUrl"], feed["defaultCategory"], feed["categoryBias"], db_pool)
-        except Exception as e:
-            print(f"[Orchestrator] Error processing feed {feed['feedUrl']}: {e}")
+    async def safe_process(feed):
+        if SHOULD_STOP_INGESTION:
+            return
+        async with semaphore:
+            print(f"[Orchestrator] Processing: {feed['feedUrl']}")
+            try:
+                await process_feed(feed["feedUrl"], feed["defaultCategory"], feed["categoryBias"], db_pool)
+            except Exception as e:
+                print(f"[Orchestrator] Error processing feed {feed['feedUrl']}: {e}")
+
+    # Create tasks for all feeds
+    tasks = [safe_process(feed) for feed in FEEDS]
+    await asyncio.gather(*tasks)
 
     print("[Orchestrator] Orchestration complete")
 

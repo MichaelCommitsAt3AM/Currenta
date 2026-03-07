@@ -32,9 +32,11 @@ class _NewsCardState extends ConsumerState<NewsCard> {
 
   // Local optimistic state for instant feedback
   bool? _localIsLiked;
+  bool? _localIsFavorited;
   int? _localLikesCount;
 
   bool get _isLiked => _localIsLiked ?? widget.article.isLiked;
+  bool get _isFavorited => _localIsFavorited ?? widget.article.isFavorited;
   int get _likesCount => _localLikesCount ?? widget.article.likesCount;
 
   @override
@@ -52,6 +54,10 @@ class _NewsCardState extends ConsumerState<NewsCard> {
         widget.article.likesCount == _localLikesCount) {
       _localIsLiked = null;
       _localLikesCount = null;
+    }
+    if (_localIsFavorited != null &&
+        widget.article.isFavorited == _localIsFavorited) {
+      _localIsFavorited = null;
     }
   }
 
@@ -101,6 +107,23 @@ class _NewsCardState extends ConsumerState<NewsCard> {
       }
     });
     ref.read(newsFeedNotifierProvider.notifier).toggleLike(widget.article.id);
+  }
+
+  void _handleFavoritePress() {
+    HapticFeedback.lightImpact();
+
+    final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+    if (!isAuth) {
+      _showAuthSheet();
+      return;
+    }
+
+    setState(() {
+      _localIsFavorited = !_isFavorited;
+    });
+    ref
+        .read(newsFeedNotifierProvider.notifier)
+        .toggleFavorite(widget.article.id);
   }
 
   void _showAuthSheet() {
@@ -416,8 +439,20 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                           style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.6))),
                       const SizedBox(width: 24),
-                      Icon(Icons.bookmark_border_rounded,
-                          color: Colors.white.withValues(alpha: 0.6), size: 22),
+                      IconButton(
+                        onPressed: _handleFavoritePress,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          _isFavorited
+                              ? Icons.bookmark_rounded
+                              : Icons.bookmark_border_rounded,
+                          color: _isFavorited
+                              ? const Color(0xFF6C63FF)
+                              : Colors.white.withValues(alpha: 0.6),
+                          size: 24,
+                        ),
+                      ),
                       const SizedBox(width: 24),
                       Icon(Icons.share_outlined,
                           color: Colors.white.withValues(alpha: 0.6), size: 22),
@@ -447,9 +482,9 @@ class _NewsCardState extends ConsumerState<NewsCard> {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     try {
-      // LaunchMode.externalApplication opens in the user's default browser
-      // (Chrome, Brave, Firefox, etc.) — not constrained to Custom Tabs.
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      // Use inAppBrowserView for Custom Tabs (Chrome Custom Tabs / SFSafariViewController)
+      // This keeps the user in the app while using their default browser engine.
+      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
     } catch (_) {
       // Swallowed if the device has no browser capable of handling the URL.
     }
