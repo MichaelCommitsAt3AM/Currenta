@@ -19,6 +19,7 @@ abstract class NewsRepository {
     int limit = 10,
     int offset = 0,
     DateTime? before,
+    String? afterId,
     bool includeViewed = false,
   });
 

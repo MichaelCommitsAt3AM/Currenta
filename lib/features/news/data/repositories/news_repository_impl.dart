@@ -37,6 +37,7 @@ class NewsRepositoryImpl implements NewsRepository {
     int limit = 10,
     int offset = 0,
     DateTime? before,
+    String? afterId,
     bool includeViewed = false,
   }) async {
     final rows = await _dao.getArticlesPage(
@@ -44,6 +45,7 @@ class NewsRepositoryImpl implements NewsRepository {
       limit: limit,
       offset: offset,
       before: before,
+      afterId: afterId,
       includeViewed: includeViewed,
     );
     final articles = rows.map((r) => r.toDomain()).toList();

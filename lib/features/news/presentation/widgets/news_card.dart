@@ -1,12 +1,9 @@
-// lib/features/news/presentation/widgets/news_card.dart
-// Full-screen immersive news card for vertical PageView.
-// Uses a gradient-over-image hero layout with the summary overlaid at bottom.
-// Performance: NO per-card AnimationController — the PageView handles transitions.
-
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 import '../../application/news_feed_notifier.dart';
@@ -280,11 +277,16 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                           width: double.infinity,
                           height: size.height * 0.25,
                           color: Colors.white.withValues(alpha: 0.05),
-                          child: Image.network(
-                            widget.article.imageUrl!,
+                          child: CachedNetworkImage(
+                            imageUrl: widget.article.imageUrl!,
                             fit: BoxFit.cover,
-                            cacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
-                            errorBuilder: (context, _, __) => Center(
+                            memCacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
+                            placeholder: (context, url) => Shimmer.fromColors(
+                              baseColor: Colors.white.withValues(alpha: 0.05),
+                              highlightColor: Colors.white.withValues(alpha: 0.1),
+                              child: Container(color: Colors.white),
+                            ),
+                            errorWidget: (context, url, error) => Center(
                               child: Icon(Icons.image_not_supported_rounded,
                                   color: Colors.white.withValues(alpha: 0.2)),
                             ),
@@ -338,11 +340,16 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                             padding: const EdgeInsets.only(right: 8),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(4),
-                              child: Image.network(
-                                widget.article.sourceFaviconUrl!,
+                              child: CachedNetworkImage(
+                                imageUrl: widget.article.sourceFaviconUrl!,
                                 width: 20,
                                 height: 20,
-                                errorBuilder: (context, _, __) =>
+                                placeholder: (context, url) => Container(
+                                  width: 20,
+                                  height: 20,
+                                  color: Colors.white.withValues(alpha: 0.05),
+                                ),
+                                errorWidget: (context, url, _) =>
                                     const SizedBox.shrink(),
                               ),
                             ),

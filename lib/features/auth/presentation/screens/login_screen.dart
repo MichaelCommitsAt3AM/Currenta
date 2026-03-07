@@ -46,6 +46,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // If authenticated, we can optionally pop or navigate away.
     // However, handling it via a router listener might be better long-term.
     ref.listen(authNotifierProvider, (previous, next) {
+      debugPrint('[Login] Auth state changed: auth=${next.isAuthenticated}, loading=${next.isLoading}, error=${next.error != null}');
       if (next.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -56,9 +57,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
       if (next.isAuthenticated) {
+        debugPrint('[Login] Authenticated! Attempting to pop...');
         // Assuming we came to this screen by pushing it, we can pop back to Feed.
         if (Navigator.canPop(context)) {
           Navigator.pop(context);
+        } else {
+          debugPrint('[Login] Cannot pop! Maybe we are at the root?');
         }
       }
     });

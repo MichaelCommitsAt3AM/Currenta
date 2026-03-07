@@ -37,17 +37,21 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
         .get();
   }
 
-  /// Paginated fetch: returns [limit] articles starting at [offset], newest-first.
-  /// Optionally filters by category (JSON substring match).
+  /// Paginated fetch: returns [limit] articles newest-first.
+  /// Uses a robust compound cursor (publishedAt, id) for paging.
   Future<List<NewsArticlesTableData>> getArticlesPage({
     String? category,
     int limit = 10,
     int offset = 0,
     DateTime? before,
+    String? afterId,
     bool includeViewed = false,
   }) {
-    return (select(newsArticlesTable)
-          ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
+    final query = select(newsArticlesTable)
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.publishedAt),
+            (t) => OrderingTerm.desc(t.id),
+          ])
           ..where((t) {
             final catFilter = category != null
                 ? t.categories.like('%"$category"%')
@@ -55,7 +59,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
             
             Expression<bool> timeFilter = const Constant(true);
             if (before != null) {
-              timeFilter = t.publishedAt.isSmallerThanValue(before);
+              if (afterId != null) {
+                // Compound cursor: (publishedAt < before) OR (publishedAt == before AND id < afterId)
+                timeFilter = t.publishedAt.isSmallerThanValue(before) | 
+                           (t.publishedAt.equals(before) & t.id.isSmallerThanValue(afterId));
+              } else {
+                timeFilter = t.publishedAt.isSmallerThanValue(before);
+              }
             }
 
             if (includeViewed) {
@@ -65,9 +75,18 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
             final viewedIds = selectOnly(viewedArticlesTable)
               ..addColumns([viewedArticlesTable.id]);
             return catFilter & timeFilter & t.id.isNotInQuery(viewedIds);
-          })
-          ..limit(limit, offset: offset))
-        .get();
+          });
+
+    // ── Pagination Logic ──────────────────────────────────────────
+    // Use limit for both, but ONLY apply offset if we're not using cursor pagination (before == null).
+    // This allows the first page to use offset (if needed), while subsequent pages use the cursor.
+    if (before == null) {
+      query.limit(limit, offset: offset);
+    } else {
+      query.limit(limit);
+    }
+
+    return query.get();
   }
 
   /// Returns the total number of locally-cached articles (optionally filtered by category).

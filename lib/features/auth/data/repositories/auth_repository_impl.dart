@@ -64,47 +64,72 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
+  bool _isGoogleSignInInitialized = false;
+
   @override
   Future<void> signInWithGoogle() async {
     try {
-      // 1. Access Google Sign-In singleton
-      final GoogleSignIn googleSignIn = GoogleSignIn.instance;
+      debugPrint('[Auth] --- Native Google Sign-In Start ---');
+      
+      final googleSignIn = GoogleSignIn.instance;
 
-      // 2. Initialize with your Web Client ID
-      await googleSignIn.initialize(
-        serverClientId: AppConfig.googleWebClientId,
-      );
-
-      // 3. Trigger the native Google Account Picker
-      // Note: In 7.x, authenticate() returns a Future<GoogleSignInAccount>
-      // and throws an exception on failure/cancellation.
-      final googleUser = await googleSignIn.authenticate();
-
-      // 4. Obtain the ID token (synchronous property in 7.x)
-      final googleAuth = googleUser.authentication;
-      final idToken = googleAuth.idToken;
-
-      if (idToken == null) {
-        throw const ServerException('No ID Token found.');
+      // 1. Initialize once
+      if (!_isGoogleSignInInitialized) {
+        debugPrint('[Auth] Initializing GoogleSignIn (once) with Web Client ID: ${AppConfig.googleWebClientId}');
+        await googleSignIn.initialize(
+          serverClientId: AppConfig.googleWebClientId,
+        );
+        _isGoogleSignInInitialized = true;
       }
 
-      // 5. Send the ID token to Supabase to sign in
-      // For Google, providing the idToken is sufficient for OIDC authentication.
-      await _supabase.auth.signInWithIdToken(
+      // 2. Trigger native picker
+      debugPrint('[Auth] Calling googleSignIn.authenticate()...');
+      // If it hangs here, it's a platform/signature issue.
+      final googleUser = await googleSignIn.authenticate();
+      debugPrint('[Auth] Account selected: ${googleUser.email}');
+
+      // 3. Get tokens
+      final googleAuth = googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      
+      debugPrint('[Auth] ID Token obtained: ${idToken != null ? "YES" : "NO"}');
+
+      if (idToken == null) {
+        debugPrint('[Auth] Error: No ID Token found for user ${googleUser.email}');
+        throw const ServerException('No ID Token found. Please try again.');
+      }
+
+      // 4. PREVENT CONFLICT: Sign out of any local anonymous session before upgrading
+      // to the Google session. This is safer for some Supabase edge cases.
+      final currentSession = _supabase.auth.currentSession;
+      if (currentSession != null && currentSession.user.isAnonymous) {
+        debugPrint('[Auth] Clearing existing anonymous session...');
+        await _supabase.auth.signOut(scope: SignOutScope.local);
+      }
+
+      // 5. Sign in to Supabase
+      debugPrint('[Auth] Calling Supabase signInWithIdToken...');
+      final response = await _supabase.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
       );
+      
+      debugPrint('[Auth] Supabase response received. User: ${response.user?.email}');
+      debugPrint('[Auth] --- Native Google Sign-In Success ---');
     } on GoogleSignInException catch (e) {
-      // Handle user cancellation gracefully
+      debugPrint('[Auth] GoogleSignInException: ${e.code}, $e');
       if (e.code == GoogleSignInExceptionCode.canceled) {
-        debugPrint('[Auth] Google Sign-In cancelled by user');
-        return;
+        debugPrint('[Auth] User cancelled the picker.');
+        return; 
       }
-      throw ServerException('Google Sign-In failed: ${e.toString()}');
+      throw ServerException('Google Sign-In failed (${e.code}): ${e.toString()}');
     } on AuthException catch (e) {
+      debugPrint('[Auth] Supabase AuthException: ${e.message} (Code: ${e.statusCode})');
       throw ServerException(e.message);
-    } catch (e) {
-      throw ServerException('An unexpected error occurred: $e');
+    } catch (e, stack) {
+      debugPrint('[Auth] Unexpected error: $e');
+      debugPrint('[Auth] Stack trace: $stack');
+      throw ServerException('An unexpected error occurred during sign-in.');
     }
   }
 

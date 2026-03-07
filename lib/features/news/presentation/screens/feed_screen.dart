@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
 import '../../../../core/providers/providers.dart';
@@ -26,6 +27,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   NewsCategory? _selectedCategory;
   late final PageController _pageController;
   int _currentIndex = 0;
+  final Set<String> _viewedIdsInSession = {};
 
   @override
   void initState() {
@@ -75,18 +77,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
 
-    // 0. Notify window manager
-    ref.read(newsFeedNotifierProvider.notifier).onPageChanged(index);
-
-    // 1. Preload next article
-    for (var ahead = 1; ahead <= 1; ahead++) {
+    // 1. Preload images for next 5 articles to ensure smooth scrolling
+    for (var ahead = 1; ahead <= 5; ahead++) {
       final nextIndex = index + ahead;
       if (nextIndex < feed.articles.length) {
         final article = feed.articles[nextIndex];
-        if (article == null) continue;
         final url = article.imageUrl;
         if (url != null && url.isNotEmpty) {
-          precacheImage(NetworkImage(url), context);
+          // Use CachedNetworkImageProvider to share the same cache as the widgets
+          precacheImage(CachedNetworkImageProvider(url), context);
         }
       }
     }
@@ -99,7 +98,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed != null && index < feed.articles.length) {
       final article = feed.articles[index];
-      if (article != null) {
+      // Only track if we haven't tracked it this session
+      if (!_viewedIdsInSession.contains(article.id)) {
+        _viewedIdsInSession.add(article.id);
         ref.read(newsRepositoryProvider).markAsViewed(article.id);
       }
     }
@@ -158,9 +159,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   }
 
                   final article = feed.articles[i];
-                  if (article == null) {
-                    return const ShimmerFeed(); // Show shimmer for virtualized/null articles
-                  }
 
                   return RepaintBoundary(
                     child: NewsCard(
