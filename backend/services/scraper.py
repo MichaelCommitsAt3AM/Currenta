@@ -4,6 +4,8 @@ from PIL import Image
 import io
 import base64
 from bs4 import BeautifulSoup
+import httpx
+from googlenewsdecoder import gnewsdecoder
 
 def process_image(img_url: str) -> str | None:
     """Downloads, resizes, and iteratively compresses to target ~150KB."""
@@ -50,10 +52,13 @@ def process_image(img_url: str) -> str | None:
         print(f"[Image] Failed to process {img_url}: {e}")
         return None
 
+import json
+
 def extract_meta_image(html: str) -> str | None:
-    """Fallback manual extraction for hero images."""
+    """Fallback manual extraction for hero images with support for JSON-LD and site-specific patterns."""
     try:
         soup = BeautifulSoup(html, 'html.parser')
+        
         # Priority 1: Open Graph Image
         og_image = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "og:image"})
         if og_image and og_image.get("content"):
@@ -64,11 +69,68 @@ def extract_meta_image(html: str) -> str | None:
         if twitter_image and twitter_image.get("content"):
             return twitter_image["content"]
 
-        # Priority 3: Article image tag if unique enough (careful)
+        # Priority 3: JSON-LD (Schema.org) - Very reliable for news sites
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.string)
+                if isinstance(data, list):
+                    for entry in data:
+                        if "image" in entry:
+                            img = entry["image"]
+                            if isinstance(img, dict) and "url" in img: return img["url"]
+                            if isinstance(img, str): return img
+                elif isinstance(data, dict):
+                    # Check direct or within @graph
+                    graph = data.get("@graph", [])
+                    items = graph if isinstance(graph, list) else [data]
+                    for item in items:
+                        if "image" in item:
+                            img = item["image"]
+                            if isinstance(img, dict) and "url" in img: return img["url"]
+                            if isinstance(img, str): return img
+            except:
+                continue
+
+        # Priority 4: Specific site patterns (e.g., The Hill)
+        # thehill.com uses figure.article__featured-image img
+        hill_img = soup.select_one("figure.article__featured-image img")
+        if hill_img:
+            # Check data-src (lazy loading) then src
+            res = hill_img.get("data-src") or hill_img.get("src")
+            if res: return res
+
+        # Priority 5: Generic hero/featured image selectors
+        selectors = [
+            "img.featured-image", "img.hero-image", ".main-image img", 
+            ".article-lead-image img", ".post-thumbnail img"
+        ]
+        for sel in selectors:
+            found = soup.select_one(sel)
+            if found:
+                res = found.get("data-src") or found.get("src")
+                if res and res.startswith("http"): return res
+
         return None
     except Exception as e:
-        print(f"[Scraper] Meta extraction error: {e}")
+        print(f"[Scraper] Image extraction error: {e}")
         return None
+
+def resolve_google_news_url(url: str) -> str:
+    """Decodes Google News wrapper URLs using googlenewsdecoder."""
+    if "news.google.com/rss/articles/" not in url:
+        return url
+    
+    try:
+        res = gnewsdecoder(url)
+        if res and res.get("status"):
+            decoded_url = res.get("decoded_url")
+            if decoded_url and decoded_url.startswith("http") and "news.google.com" not in decoded_url:
+                print(f"[Scraper] Resolved {url[:50]}... to {decoded_url[:50]}...")
+                return decoded_url
+        return url
+    except Exception as e:
+        print(f"[Scraper] GN Decoder error for {url}: {e}")
+        return url
 
 def scrape_article_sync(url: str):
     """
@@ -76,6 +138,10 @@ def scrape_article_sync(url: str):
     Returns text, image_url, and compressed image_base64.
     """
     try:
+        original_url = url
+        # 0. Resolve Google News wrapper URLs
+        url = resolve_google_news_url(url)
+
         # 1. Fetch with Chrome 120 impersonation
         domain = url.split("//")[-1].split("/")[0]
         headers = {
@@ -97,8 +163,8 @@ def scrape_article_sync(url: str):
         
         response = requests.get(url, impersonate="chrome120", headers=headers, timeout=15)
         
-        # If still blocked, try one last fallback: Social Media Bot (some sites allow these for previews)
-        if response.status_code in (401, 403):
+        # If still blocked, try fallback: Social Media Bot (some sites allow these for previews)
+        if response.status_code in (401, 403, 429):
             print(f"[Scraper] Primary block (Status {response.status_code}) for {url}. Retrying with social bot headers...")
             bot_headers = {
                 "User-Agent": "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
@@ -108,14 +174,13 @@ def scrape_article_sync(url: str):
             response = requests.get(url, headers=bot_headers, timeout=10)
 
         if response.status_code != 200:
-            return {"error": f"Site blocked us (Status: {response.status_code})", "url": url}
+            return {"error": f"Site blocked us (Status: {response.status_code})", "url": url, "original_url": original_url}
 
         # 2. Extract clean text and metadata using trafilatura
-        # result can be a dict in older versions or a 'Document' object in newer ones
         extraction_result = bare_extraction(response.text, url=url)
         
         if not extraction_result:
-            return {"error": "Could not extract content (empty result)", "url": url}
+            return {"error": "Could not extract content (empty result)", "url": url, "original_url": original_url}
 
         # Normalize to dict
         if hasattr(extraction_result, "as_dict"):
@@ -123,7 +188,6 @@ def scrape_article_sync(url: str):
         elif isinstance(extraction_result, dict):
             result = extraction_result
         else:
-            # Last resort: try vars or manual mapping
             result = {
                 "text": getattr(extraction_result, "text", None),
                 "image": getattr(extraction_result, "image", None),
@@ -131,32 +195,27 @@ def scrape_article_sync(url: str):
             }
         
         if not result.get('text'):
-            return {"error": "Could not extract text content", "url": url}
+            return {"error": "Could not extract text content", "url": url, "original_url": original_url}
 
         # 3. Handle Image Compression
         image_url = result.get('image')
         
         # Fallback: manual meta-tag extraction if Trafilatura missed it
         if not image_url:
-            # print(f"[Scraper] Trafilatura missed image for {url}. Trying manual meta extraction...")
             image_url = extract_meta_image(response.text)
 
         image_base64 = None
         if image_url:
-            # print(f"[Scraper] Found hero image URL: {image_url}")
             image_base64 = process_image(image_url)
-            # if not image_base64:
-            #     print(f"[Scraper] Failed to process/download image: {image_url}")
-        # else:
-        #     print(f"[Scraper] WARNING: No image found in meta tags either for {url}")
 
         return {
             "text": result.get('text'),
             "image_url": image_url,
             "image_base64": image_base64,
             "title": result.get('title'),
-            "url": url
+            "url": url,
+            "original_url": original_url
         }
 
     except Exception as e:
-        return {"error": str(e), "url": url}
+        return {"error": str(e), "url": url, "original_url": original_url}

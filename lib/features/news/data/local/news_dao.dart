@@ -48,7 +48,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
 
   /// Paginated fetch: returns [limit] articles newest-first.
   /// Uses a robust compound cursor (publishedAt, id) for paging.
-  Future<List<NewsArticlesTableData>> getArticlesPage({
+  Future<List<NewsArticle>> getArticlesPage({
     String? category,
     int limit = 10,
     int offset = 0,
@@ -56,13 +56,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     String? afterId,
     bool includeViewed = false,
   }) async {
-    // ── Priority Logic ──────────────────────────────────────────
-    // Determine priority of each article: 0 if category is at index 0 (primary), 1 otherwise.
-    // We use a CASE expression or LIKE heuristic for the SQL query.
+    // ... (rest of priority logic remains same)
     final categoryPrefix = category != null ? '["$category"%' : '';
     
-    // Calculate the tier of the 'afterId' article if provided, so the cursor
-    // knows whether to continue in the current tier or move to the next.
     int lastPriority = 0;
     if (afterId != null && category != null) {
       final lastArticle = await (select(newsArticlesTable)..where((t) => t.id.equals(afterId))).getSingleOrNull();
@@ -75,50 +71,59 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
         ? CustomExpression<int>("CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END")
         : const Constant(0);
 
-    final query = select(newsArticlesTable)
-          ..orderBy([
-            if (category != null) (t) => OrderingTerm(
-              expression: priorityExpr,
-              mode: OrderingMode.asc,
-            ),
-            (t) => OrderingTerm.desc(t.publishedAt),
-            (t) => OrderingTerm.desc(t.id),
-          ])
-          ..where((t) {
-            final catFilter = category != null
-                ? t.categories.like('%"$category"%')
-                : const Constant(true);
-            
-            Expression<bool> cursorFilter = const Constant(true);
-            if (before != null) {
-              if (afterId != null) {
-                final sameTierFilter = t.publishedAt.isSmallerThanValue(before) | 
-                                     (t.publishedAt.equals(before) & t.id.isSmallerThanValue(afterId));
-                
-                cursorFilter = (priorityExpr.equals(lastPriority) & sameTierFilter) | 
-                               priorityExpr.isBiggerThanValue(lastPriority);
-              } else {
-                cursorFilter = t.publishedAt.isSmallerThanValue(before);
-              }
-            }
+    final query = select(newsArticlesTable).join([
+      leftOuterJoin(viewedArticlesTable,
+          viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
+    ])
+      ..orderBy([
+        if (category != null)
+          OrderingTerm(
+            expression: priorityExpr,
+            mode: OrderingMode.asc,
+          ),
+        OrderingTerm.desc(newsArticlesTable.publishedAt),
+        OrderingTerm.desc(newsArticlesTable.id),
+      ])
+      ..where(() {
+        final catFilter = category != null
+            ? newsArticlesTable.categories.like('%"$category"%')
+            : const Constant(true);
 
-            if (includeViewed) {
-              return catFilter & cursorFilter;
-            }
+        Expression<bool> cursorFilter = const Constant(true);
+        if (before != null) {
+          if (afterId != null) {
+            final sameTierFilter = newsArticlesTable.publishedAt
+                    .isSmallerThanValue(before) |
+                (newsArticlesTable.publishedAt.equals(before) &
+                    newsArticlesTable.id.isSmallerThanValue(afterId));
 
-            final viewedIds = selectOnly(viewedArticlesTable)
-              ..addColumns([viewedArticlesTable.id]);
-            return catFilter & cursorFilter & t.id.isNotInQuery(viewedIds);
-          });
+            cursorFilter = (priorityExpr.equals(lastPriority) & sameTierFilter) |
+                priorityExpr.isBiggerThanValue(lastPriority);
+          } else {
+            cursorFilter =
+                newsArticlesTable.publishedAt.isSmallerThanValue(before);
+          }
+        }
 
-    // ── Pagination Logic ──────────────────────────────────────────
+        if (includeViewed) {
+          return catFilter & cursorFilter;
+        }
+
+        return catFilter & cursorFilter & viewedArticlesTable.id.isNull();
+      }());
+
     if (before == null) {
       query.limit(limit, offset: offset);
     } else {
       query.limit(limit);
     }
 
-    return query.get();
+    final rows = await query.get();
+    return rows.map((row) {
+      final article = row.readTable(newsArticlesTable);
+      final isViewed = row.readTableOrNull(viewedArticlesTable) != null;
+      return article.toDomain(isViewed: isViewed);
+    }).toList();
   }
 
   /// Returns the total number of locally-cached articles (optionally filtered by category).
@@ -135,9 +140,22 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   // ── Writes ────────────────────────────────────────────────────
 
   /// Bulk upsert: inserts or updates by primary key (id).
+  /// Preserves user-specific state like [isFavorited] and [isLiked].
   Future<void> upsertArticles(List<NewsArticlesTableCompanion> articles) async {
     await batch((b) {
-      b.insertAllOnConflictUpdate(newsArticlesTable, articles);
+      for (final article in articles) {
+        b.insert(
+          newsArticlesTable,
+          article,
+          onConflict: DoUpdate(
+            (old) => article.copyWith(
+              isFavorited: const Value.absent(),
+              isLiked: const Value.absent(),
+              likesCount: const Value.absent(),
+            ),
+          ),
+        );
+      }
     });
   }
 
@@ -208,7 +226,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
 // ── Domain Mapper Extension ───────────────────────────────────────
 
 extension NewsArticleMapper on NewsArticlesTableData {
-  NewsArticle toDomain() => NewsArticle(
+  NewsArticle toDomain({bool isViewed = false}) => NewsArticle(
         id: id,
         title: title,
         summary: summary,
@@ -222,6 +240,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         isLiked: isLiked,
         likesCount: likesCount,
         isFavorited: isFavorited,
+        isViewed: isViewed,
         clusterId: clusterId,
       );
 }

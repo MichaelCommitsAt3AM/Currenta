@@ -15,6 +15,7 @@ import '../widgets/sidebar.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
 import '../../../../theme/app_theme.dart';
+import '../../../../core/utils/browser_service.dart';
 
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
@@ -28,6 +29,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   late final PageController _pageController;
   int _currentIndex = 0;
   final Set<String> _viewedIdsInSession = {};
+  bool _hasWarmedUpBrowser = false;
 
   @override
   void initState() {
@@ -82,10 +84,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       final nextIndex = index + ahead;
       if (nextIndex < feed.articles.length) {
         final article = feed.articles[nextIndex];
-        final url = article.imageUrl;
-        if (url != null && url.isNotEmpty) {
-          // Use CachedNetworkImageProvider to share the same cache as the widgets
-          precacheImage(CachedNetworkImageProvider(url), context);
+
+        // Image preloading
+        final imageUrl = article.imageUrl;
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          precacheImage(CachedNetworkImageProvider(imageUrl), context);
         }
       }
     }
@@ -110,14 +113,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Widget build(BuildContext context) {
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.valueOrNull;
-    
+
     // Determine the color of the current article for the sidebar
     final articles = feed?.articles ?? [];
-    final currentArticle = (_currentIndex >= 0 && _currentIndex < articles.length) 
-        ? articles[_currentIndex] 
-        : null;
-    final primaryCategory = currentArticle?.categories.isNotEmpty == true 
-        ? currentArticle!.categories.first 
+    final currentArticle =
+        (_currentIndex >= 0 && _currentIndex < articles.length)
+            ? articles[_currentIndex]
+            : null;
+    final primaryCategory = currentArticle?.categories.isNotEmpty == true
+        ? currentArticle!.categories.first
         : null;
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
 
@@ -140,6 +144,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   onRetry: () =>
                       ref.read(newsFeedNotifierProvider.notifier).refresh(),
                 );
+              }
+
+              // ── Performance: Browser Pre-warming ──
+              // We only warmup once articles are successfully loaded.
+              if (!_hasWarmedUpBrowser && feed.articles.isNotEmpty) {
+                _hasWarmedUpBrowser = true;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  final browser = ref.read(browserServiceProvider);
+                  browser.warmup();
+                });
               }
 
               // Total items = articles + optional loading sentinel at the end
@@ -177,11 +191,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             builder: (context) => _CategoryBar(
               selectedCategory: _selectedCategory,
               onCategoryChanged: (cat) {
-                setState(() => _selectedCategory = cat);
+                setState(() {
+                  _selectedCategory = cat;
+                  _currentIndex = 0; // Reset index tracker
+                });
                 ref
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
                 _pageController.jumpToPage(0);
+
+                // No longer pre-fetching URLs here to save user data.
+                // Warming is already handled globally or on first load.
               },
               onRefresh: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
@@ -317,7 +337,7 @@ class _CategoryBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top;
-    
+
     return Container(
       padding: EdgeInsets.only(top: topPadding),
       decoration: BoxDecoration(
@@ -340,8 +360,8 @@ class _CategoryBar extends StatelessWidget {
             GestureDetector(
               onTap: onOpenDrawer,
               child: Container(
-                height: 38,
-                width: 40,
+                height: 32,
+                width: 36,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(100),
@@ -357,7 +377,7 @@ class _CategoryBar extends StatelessWidget {
             // Scrollable Chips area
             Expanded(
               child: SizedBox(
-                height: 38,
+                height: 32,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
@@ -368,20 +388,25 @@ class _CategoryBar extends StatelessWidget {
                       onTap: () => onCategoryChanged(null),
                     ),
                     const SizedBox(width: 8),
-                    ...NewsCategory.values.map((cat) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: _FilterChip(
-                            label: '${cat.emoji}  ${cat.displayName}',
-                            isSelected: selectedCategory == cat,
-                            onTap: () => onCategoryChanged(cat),
-                          ),
-                        )),
+                    ...NewsCategory.values
+                        .where((cat) => cat.isSupported(View.of(context)
+                            .platformDispatcher
+                            .locale
+                            .countryCode))
+                        .map((cat) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _FilterChip(
+                                label: '${cat.emoji}  ${cat.displayName}',
+                                isSelected: selectedCategory == cat,
+                                onTap: () => onCategoryChanged(cat),
+                              ),
+                            )),
                     // Refresh button at the very end of chip row
                     GestureDetector(
                       onTap: onRefresh,
                       child: Container(
-                        height: 38,
-                        width: 40,
+                        height: 32,
+                        width: 36,
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(100),
@@ -421,7 +446,8 @@ class _FilterChip extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected
               ? const Color(0xFF6C63FF)

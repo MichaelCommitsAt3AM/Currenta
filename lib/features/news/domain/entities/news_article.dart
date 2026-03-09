@@ -75,6 +75,9 @@ abstract class NewsArticle with _$NewsArticle {
     /// Whether the current user has favorited this article
     @JsonKey(name: 'is_favorited') @Default(false) bool isFavorited,
 
+    /// Whether the current user has viewed this article
+    @JsonKey(name: 'is_viewed') @Default(false) bool isViewed,
+
     /// Semantic cluster ID — articles with the same cluster cover the same story
     @JsonKey(name: 'cluster_id') String? clusterId,
   }) = _NewsArticle;

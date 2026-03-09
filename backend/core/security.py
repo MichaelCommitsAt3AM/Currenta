@@ -1,13 +1,29 @@
 import os
 import httpx
 import jwt
-from fastapi import Security, HTTPException, status, Header
+from fastapi import Security, HTTPException, status, Header, Request
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-limiter = Limiter(key_func=get_remote_address)
+def get_user_or_ip(request: Request):
+
+    """
+    Returns user ID if authenticated, else falls back to remote address.
+    """
+    # Try to get user from request state (if set by a dependency)
+    # Note: Dependencies run after the limiter check if decorator is on the route.
+    # However, if we use the limiter as a dependency or in middleware it works better.
+    # For now, let's look at the Authorization header directly if possible.
+    auth = request.headers.get("Authorization")
+    if auth and auth.startswith("Bearer "):
+        # We don't want to fully verify here (expensive), but we can use the token hash as a key
+        return auth
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=get_user_or_ip)
+
 
 # --- Admin API Key Setup ---
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "dev_admin_key_123")  # Replace with a strong key in prod

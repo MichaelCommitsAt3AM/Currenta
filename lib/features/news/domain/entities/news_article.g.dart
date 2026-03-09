@@ -22,6 +22,7 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
       isLiked: json['is_liked'] as bool? ?? false,
       likesCount: (json['likes_count'] as num?)?.toInt() ?? 0,
       isFavorited: json['is_favorited'] as bool? ?? false,
+      isViewed: json['is_viewed'] as bool? ?? false,
       clusterId: json['cluster_id'] as String?,
     );
 
@@ -40,5 +41,6 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'is_liked': instance.isLiked,
       'likes_count': instance.likesCount,
       'is_favorited': instance.isFavorited,
+      'is_viewed': instance.isViewed,
       'cluster_id': instance.clusterId,
     };

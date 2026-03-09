@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request
 import asyncpg
 from typing import Optional, List
 from ..core.security import limiter, verify_supabase_jwt, User
+from ..services.ingestion import fetch_local_news_on_demand
+from fastapi import BackgroundTasks
 
 router = APIRouter()
 
@@ -16,9 +18,11 @@ def get_db(request: Request) -> asyncpg.Pool:
 async def get_feed(
     request: Request,
     category: Optional[str] = Query(None, description="Filter articles by category"),
+    country: Optional[str] = Query(None, description="Country code for local news (e.g. KE, US)"),
     limit: int = Query(30, ge=1, le=100, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     before: Optional[str] = Query(None, description="Only return articles published before this ISO timestamp (cursor)"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db_pool: asyncpg.Pool = Depends(get_db),
     user: Optional[User] = Depends(verify_supabase_jwt) # Extract user if JWT present
 ):
@@ -36,8 +40,13 @@ async def get_feed(
             
             if category:
                 # categories on supabase schema is TEXT[] not JSONB
-                where_clauses.append(f"$1 = ANY(categories)")
-                params.append(category)
+                if category == "local" and country:
+                    # Filter by both local category and country code
+                    where_clauses.append(f"$1 = ANY(categories) AND country_code = $2")
+                    params.extend([category, country.upper()])
+                else:
+                    where_clauses.append(f"$1 = ANY(categories)")
+                    params.append(category)
             
             if before:
                 # Add before filter for cursor-based pagination

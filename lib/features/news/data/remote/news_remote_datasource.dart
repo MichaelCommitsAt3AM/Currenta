@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
+import 'package:flutter/widgets.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
 
@@ -18,6 +19,7 @@ class NewsRemoteDataSource {
   /// [offset] enables remote pagination: skip the first [offset] rows.
   Future<List<NewsArticle>> fetchArticles({
     NewsCategory? category,
+    String? country,
     int limit = 30,
     int offset = 0,
     DateTime? before,
@@ -31,6 +33,17 @@ class NewsRemoteDataSource {
 
       if (category != null) {
         queryParams['category'] = category.name;
+      }
+
+      if (country != null) {
+        queryParams['country'] = country;
+      } else if (category == NewsCategory.local) {
+        // Auto-detect country from system locale for localized news
+        final detectedCountry =
+            WidgetsBinding.instance.platformDispatcher.locale.countryCode;
+        if (detectedCountry != null) {
+          queryParams['country'] = detectedCountry;
+        }
       }
 
       if (before != null) {

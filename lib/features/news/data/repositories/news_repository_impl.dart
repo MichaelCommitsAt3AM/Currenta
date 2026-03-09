@@ -40,7 +40,7 @@ class NewsRepositoryImpl implements NewsRepository {
     String? afterId,
     bool includeViewed = false,
   }) async {
-    final rows = await _dao.getArticlesPage(
+    return _dao.getArticlesPage(
       category: category?.name,
       limit: limit,
       offset: offset,
@@ -48,7 +48,6 @@ class NewsRepositoryImpl implements NewsRepository {
       afterId: afterId,
       includeViewed: includeViewed,
     );
-    return rows.map((r) => r.toDomain()).toList();
   }
 
   // ── Refresh (remote → local upsert) ───────────────────────────

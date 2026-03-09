@@ -84,9 +84,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
 
     // 2. Fetch from local cache for initial load. 
-    // We include results from cache even if viewed, to maintain a stable index 
-    // if the user just restarts or if the provider rebuilds.
-    final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0, includeViewed: true);
+    // We now EXCLUDE viewed articles by default, so the user always sees fresh content.
+    final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0, includeViewed: false);
 
     // If cache is empty, wait for the first refresh to complete before showing data.
     if (firstPage.isEmpty) {
@@ -118,32 +117,46 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Appends the next batch of articles to the current list.
   Future<void> loadNextPage() async {
-    final current = state.valueOrNull;
-    if (current == null || current.isLoadingMore || !current.hasMore) return;
+    final startState = state.valueOrNull;
+    if (startState == null || startState.isLoadingMore || !startState.hasMore) return;
 
-    state = AsyncData(current.copyWith(isLoadingMore: true));
+    state = AsyncData(startState.copyWith(isLoadingMore: true));
 
     try {
-      final category = current.selectedCategory;
-      final last = current.articles.isEmpty ? null : current.articles.last;
+      final category = startState.selectedCategory;
+      final last = startState.articles.isEmpty ? null : startState.articles.last;
 
-      // Always includeViewed: true when paginating to avoid skips if user viewed previous items.
       final nextPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         before: last?.publishedAt,
         afterId: last?.id,
-        includeViewed: true,
+        includeViewed: false,
       );
 
+      // CRITICAL: Read the LATEST state to avoid overwriting updates (likes, etc.) 
+      // made while we were fetching.
+      final current = state.valueOrNull;
+      if (current == null || current.selectedCategory != category) {
+         debugPrint('[Feed] loadNextPage discarded: category changed during fetch.');
+         return;
+      }
+
+      // Deduplicate against already loaded articles
+      final existingIds = current.articles.map((a) => a.id).toSet();
+      final uniqueNextPage = nextPage.where((a) => !existingIds.contains(a.id)).toList();
+
       state = AsyncData(current.copyWith(
-        articles: [...current.articles, ...nextPage],
+        articles: [...current.articles, ...uniqueNextPage],
         isLoadingMore: false,
         hasMore: nextPage.length >= _kPageSize,
       ));
     } catch (e, st) {
       debugPrint('[Feed] loadNextPage error: $e\n$st');
-      state = AsyncData(current.copyWith(isLoadingMore: false));
+      final current = state.valueOrNull;
+      if (current != null) {
+        state = AsyncData(current.copyWith(isLoadingMore: false));
+      }
     }
   }
 
@@ -197,8 +210,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Full refresh: re-syncs remote data then resets to page 1.
   Future<void> refresh() async {
+    final currentCategory = state.valueOrNull?.selectedCategory;
     state = const AsyncLoading();
-    await _backgroundRefresh();
+    await _backgroundRefresh(forcedCategory: currentCategory);
   }
 
   /// Toggles the like status of an article.
@@ -224,9 +238,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     try {
       await _repo.toggleLike(articleId);
     } catch (e) {
-      // Revert on error if needed, but for now we'll just log it
       debugPrint('[Feed] toggleLike error: $e');
-      state = AsyncData(current);
+      // Revert if still on same state
+      if (state.valueOrNull == current) {
+         state = AsyncData(current);
+      }
     }
   }
 
@@ -250,7 +266,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       await _repo.toggleFavorite(articleId);
     } catch (e) {
       debugPrint('[Feed] toggleFavorite error: $e');
-      state = AsyncData(current);
+      if (state.valueOrNull == current) {
+        state = AsyncData(current);
+      }
     }
   }
 
@@ -271,15 +289,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Silently checks for new articles in the background.
   /// Instead of replacing the current list, it stores them in [pendingArticles].
-  Future<void> _backgroundRefresh() async {
-    final current = state.valueOrNull;
-    final isInitial = current == null || current.articles.isEmpty;
+  Future<void> _backgroundRefresh({NewsCategory? forcedCategory}) async {
+    final startState = state.valueOrNull;
+    final category = forcedCategory ?? startState?.selectedCategory;
+    final isInitial = startState == null || startState.articles.isEmpty;
 
     try {
       await _repo.refreshFeed();
 
-      final category = current?.selectedCategory;
-      // Use includeViewed: true to ensure we can find currentTopId even if it's already marked as viewed.
+      // Fetch the top articles for the relevant category
       final freshPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
@@ -287,9 +305,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         includeViewed: true, 
       );
 
-      final hasData = current != null && current.articles.isNotEmpty;
+      final current = state.valueOrNull;
+      
+      // If the category has changed since we started, discard the results to prevent mixing feeds.
+      if (current != null && current.selectedCategory != category) {
+        debugPrint('[Feed] backgroundRefresh discarded: category changed.');
+        return;
+      }
 
-      if (!hasData) {
+      if (current == null || current.articles.isEmpty) {
         // If we really have nothing, show immediately.
         state = AsyncData(FeedState(
           articles: freshPage,
@@ -300,14 +324,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       // Already have data: Find NEW articles that we don't have yet.
-      // We look at the top ID. 
       final currentTopId = current.articles.firstOrNull?.id;
       if (currentTopId == null) return; 
 
       final newArticles = <NewsArticle>[];
       for (final article in freshPage) {
         if (article.id == currentTopId) break;
-        newArticles.add(article);
+        if (!article.isViewed) {
+          newArticles.add(article);
+        }
       }
 
       if (newArticles.isNotEmpty) {
@@ -318,11 +343,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         ));
       }
     } catch (e, st) {
-      if (isInitial) {
+      if (isInitial && state.isLoading) {
         state = AsyncError(e, st);
       } else {
         debugPrint('[Feed] Silent background sync failed: $e');
-        // Let user continue with what they have
       }
     }
   }

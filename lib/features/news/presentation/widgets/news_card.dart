@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,6 +9,8 @@ import '../../application/news_feed_notifier.dart';
 import 'heart_shower.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../../core/utils/browser_service.dart';
+import 'ai_quick_chat_sheet.dart';
 
 class NewsCard extends ConsumerStatefulWidget {
   const NewsCard({
@@ -27,13 +28,15 @@ class NewsCard extends ConsumerStatefulWidget {
   ConsumerState<NewsCard> createState() => _NewsCardState();
 }
 
-class _NewsCardState extends ConsumerState<NewsCard> {
+class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMixin {
   bool showShower = false;
 
   // Local optimistic state for instant feedback
   bool? _localIsLiked;
   bool? _localIsFavorited;
   int? _localLikesCount;
+
+  late AnimationController _bookmarkController;
 
   bool get _isLiked => _localIsLiked ?? widget.article.isLiked;
   bool get _isFavorited => _localIsFavorited ?? widget.article.isFavorited;
@@ -42,6 +45,10 @@ class _NewsCardState extends ConsumerState<NewsCard> {
   @override
   void initState() {
     super.initState();
+    _bookmarkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
   }
 
   @override
@@ -63,6 +70,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
 
   @override
   void dispose() {
+    _bookmarkController.dispose();
     super.dispose();
   }
 
@@ -121,6 +129,10 @@ class _NewsCardState extends ConsumerState<NewsCard> {
     setState(() {
       _localIsFavorited = !_isFavorited;
     });
+
+    // Run pop animation
+    _bookmarkController.forward(from: 0).then((_) => _bookmarkController.reverse());
+
     ref
         .read(newsFeedNotifierProvider.notifier)
         .toggleFavorite(widget.article.id);
@@ -293,7 +305,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                   // ── Feature Image ──────────────────────────────────
                   if (widget.article.imageUrl != null)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
+                      padding: const EdgeInsets.only(bottom: 12),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(20),
                         child: Container(
@@ -323,7 +335,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     widget.article.title,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 22,
+                      fontSize: 19,
                       fontWeight: FontWeight.w800,
                       height: 1.3,
                       letterSpacing: -0.3,
@@ -350,7 +362,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                      ),
                    ),
  
-                   const SizedBox(height: 18),
+                  const SizedBox(height: 6),
 
                   // ── Source Row (tap to open article in default browser) ──
                   GestureDetector(
@@ -415,7 +427,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                     ),
                   ),
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
 
                   // ── Footer Actions ───────────────────────────────
                   Row(
@@ -439,23 +451,47 @@ class _NewsCardState extends ConsumerState<NewsCard> {
                           style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.6))),
                       const SizedBox(width: 24),
-                      IconButton(
-                        onPressed: _handleFavoritePress,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: Icon(
-                          _isFavorited
-                              ? Icons.bookmark_rounded
-                              : Icons.bookmark_border_rounded,
-                          color: _isFavorited
-                              ? const Color(0xFF6C63FF)
-                              : Colors.white.withValues(alpha: 0.6),
-                          size: 24,
+                      ScaleTransition(
+                        scale: Tween<double>(begin: 1.0, end: 1.3).animate(
+                          CurvedAnimation(
+                            parent: _bookmarkController,
+                            curve: Curves.easeOutBack,
+                          ),
+                        ),
+                        child: IconButton(
+                          onPressed: _handleFavoritePress,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          icon: Icon(
+                            _isFavorited
+                                ? Icons.bookmark_rounded
+                                : Icons.bookmark_border_rounded,
+                            color: _isFavorited
+                                ? const Color(0xFFFFD700) // Vibrant Gold/Yellow
+                                : Colors.white.withValues(alpha: 0.6),
+                            size: 24,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 24),
-                      Icon(Icons.share_outlined,
-                          color: Colors.white.withValues(alpha: 0.6), size: 22),
+                      IconButton(
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          showModalBottomSheet(
+                            context: context,
+                            isScrollControlled: true,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => AiQuickChatSheet(article: widget.article),
+                          );
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          Icons.auto_awesome,
+                          color: Colors.white.withValues(alpha: 0.6),
+                          size: 22,
+                        ),
+                      ),
                       const Spacer(),
                       if (widget.index < widget.total - 1)
                         Icon(Icons.keyboard_double_arrow_up_rounded,
@@ -479,15 +515,7 @@ class _NewsCardState extends ConsumerState<NewsCard> {
   }
 
   Future<void> _openOriginal(BuildContext context, String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    try {
-      // Use inAppBrowserView for Custom Tabs (Chrome Custom Tabs / SFSafariViewController)
-      // This keeps the user in the app while using their default browser engine.
-      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-    } catch (_) {
-      // Swallowed if the device has no browser capable of handling the URL.
-    }
+    ref.read(browserServiceProvider).openUrl(context, url);
   }
 }
 

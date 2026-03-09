@@ -9,7 +9,15 @@ enum NewsCategory {
   entertainment,
   health,
   world,
-  environment;
+  environment,
+  local;
+
+  static const supportedCountries = ['KE'];
+
+  bool isSupported(String? countryCode) {
+    if (this != NewsCategory.local) return true;
+    return supportedCountries.contains(countryCode?.toUpperCase());
+  }
 
   String get displayName => switch (this) {
         NewsCategory.politics => 'Politics',
@@ -21,6 +29,7 @@ enum NewsCategory {
         NewsCategory.health => 'Health',
         NewsCategory.world => 'World',
         NewsCategory.environment => 'Environment',
+        NewsCategory.local => 'Local',
       };
 
   String get emoji => switch (this) {
@@ -33,5 +42,6 @@ enum NewsCategory {
         NewsCategory.health => '🏥',
         NewsCategory.world => '🌍',
         NewsCategory.environment => '🌱',
+        NewsCategory.local => '📍',
       };
 }

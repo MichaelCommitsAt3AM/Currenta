@@ -22,7 +22,7 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  // ── Supabase ──────────────────────────────────────────────────
+  // ── Supabase x──────────────────────────────────────────────────
   await Supabase.initialize(
     url: AppConfig.supabaseUrl,
     anonKey: AppConfig.supabaseAnonKey,

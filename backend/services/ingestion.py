@@ -1,7 +1,9 @@
 import os
+import re
 import json
 import asyncio
 import hashlib
+from typing import Optional, List
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import httpx
@@ -25,7 +27,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 SIMILARITY_THRESHOLD = 0.92
 
-VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world"]
+VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment"]
 
 # Create a synchronous supabase client for storage uploads and RPC calls if needed
 supabase_client: Client | None = None
@@ -62,13 +64,13 @@ FEEDS = [
     { "feedUrl": "https://www.france24.com/en/rss", "defaultCategory": "world", "categoryBias": "neutral" },
     # Tech
     { "feedUrl": "https://www.techmeme.com/feed.xml", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://techcrunch.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://www.wired.com/feed/rss", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://feeds.arstechnica.com/arstechnica/index", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://www.engadget.com/rss.xml", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://www.wired.com/feed/rss", "defaultCategory": "tech", "categoryBias": "neutral" },
+    { "feedUrl": "https://feeds.arstechnica.com/arstechnica/index", "defaultCategory": "tech", "categoryBias": "neutral" },
+    { "feedUrl": "https://www.engadget.com/rss.xml", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://9to5mac.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://www.gizmodo.com/rss", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://www.gizmodo.com/rss", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://venturebeat.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.technologyreview.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     # Politics
@@ -101,7 +103,30 @@ FEEDS = [
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://www.healthline.com/rss/all-news.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://www.mayoclinic.org/rss/all-news-topics.xml", "defaultCategory": "health", "categoryBias": "strong" },
+    # Google News
+    { "feedUrl": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/BUSINESS", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SCIENCE", "defaultCategory": "science", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/HEALTH", "defaultCategory": "health", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT", "defaultCategory": "entertainment", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/POLITICS", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SPORTS", "defaultCategory": "sports", "categoryBias": "strong" },
 ]
+
+# Supported regions for localized news ingestion
+SUPPORTED_LOCAL_REGIONS = [
+    {"code": "KE", "lang": "en"},  # Kenya
+]
+
+def build_google_news_rss_url(country_code: str = "US", language_code: str = "en") -> str:
+    """
+    Builds a localized Google News RSS URL.
+    Example for Kenya: hl=en-KE, gl=KE, ceid=KE:en
+    """
+    cc = country_code.upper()
+    lc = language_code.lower()
+    return f"https://news.google.com/rss?hl={lc}-{cc}&gl={cc}&ceid={cc}:{lc}"
 
 SUMMARIZATION_PROMPT = """You are a factual news summarizer and multi-label classifier.
 1. Generate a strict, non-clickbait title.
@@ -121,12 +146,14 @@ Return the result as a raw JSON object only (no preamble):
 Rules:
 1. "summary" MUST be exactly 64 words. Count carefully. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
-3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
+3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
 4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
 5. "type" MUST be one of: "hard_news", "analysis", "opinion", "review", "listicle", "sponsored", "irrelevant".
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
    - opinion/review/listicle/sponsored/irrelevant: Low-signal fluff for a news app.
+     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
+6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
 
 Example of a 64-word summary (Use this density as a template):
 "Following a significant technological breakthrough, researchers at the leading national laboratory successfully demonstrated a new quantum computing architecture. This innovative approach utilizes stable silicon-based qubits, drastically reducing error rates compared to previous superconducting models. The team believes this advancement paves the logical path towards commercially viable quantum systems within five years, potentially revolutionizing cryptography, materials science, and complex financial modeling worldwide starting today."
@@ -193,8 +220,22 @@ def is_junk_content(text: str, title: str) -> bool:
         "podcast summary", "latest episode", "new episode", "listen to the podcast",
         "listen on apple", "listen on spotify", "subscribe on", "full episode of",
         "this episode of", "bonus episode", "transcript provided", "show notes",
+        "archive page", "daily summary", "weekly roundup", "morning newsletter",
+        "evening newsletter", "weekend edition", "today's headlines", "top stories of the week",
+        "news roundup", "summary of the day", "what we're reading", "recap", "news in brief",
+        "the morning download", "daily briefing", "around the web", "recommended reading",
+        "score update", "live update", "game tracker", "live blog", "play-by-play",
+        "half-time report", "halftime report", "mid-game", "scoring summary", "live scoring",
+        "things to know", "stories you missed", "daily news digest", "today's top stories",
+        "books in brief", "book review", "summaries of books", "best books of", "reading list"
     ]
     if any(signal in combined for signal in hard_signals):
+        return True
+
+    # Check for multi-topic title patterns (too many unrelated items)
+    # Titles like "Apple Event, LG TV, and Blu-ray Sales"
+    if title.count(',') >= 2 and (" and " in title.lower() or " & " in title):
+        # High probability of being a roundup
         return True
 
     soft_signals = [
@@ -266,30 +307,35 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
     return parse_llm_response(raw_content)
 
 def parse_llm_response(raw_str: str) -> dict:
-    import re
     # 4. LLM Failure Handling: Add robust parsing layer
     # Strip markdown fences and trailing commentary
     clean_str = re.sub(r"```(?:json)?\s*([\s\S]*?)```", r"\1", raw_str).strip()
     
+    parsed = None
     try:
+        # Try full parse first
         parsed = json.loads(clean_str)
     except json.JSONDecodeError:
-        # Retry parse once by finding the first '{' and last '}'
+        # If that fails, try to find the main JSON block using balanced braces or first/last markers
         try:
-            match = re.search(r"(\{.*\})", clean_str, re.DOTALL)
-            if match:
-                parsed = json.loads(match.group(1))
-            else:
-                raise
+            start_idx = clean_str.find('{')
+            end_idx = clean_str.rfind('}')
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_text = clean_str[start_idx:end_idx+1]
+                parsed = json.loads(json_text)
         except Exception:
-            print(f"[LLM Parser] Failed to parse JSON even with cleanup: {raw_str[:100]}...")
-            return {
-                "title": "News Update",
-                "summary": raw_str[:300],
-                "categories": ["world"],
-                "type": "irrelevant",
-                "subcategory": ""
-            }
+            pass
+
+    if not parsed:
+        content_snippet = str(raw_str)[:120]
+        print(f"[LLM Parser] Failed to parse JSON even with cleanup: {content_snippet}...")
+        return {
+            "title": "News Update",
+            "summary": str(raw_str)[:300],
+            "categories": ["world"],
+            "type": "irrelevant",
+            "subcategory": ""
+        }
 
     try:
         title = parsed.get("title", "News Update").replace("**", "").strip('"')
@@ -336,7 +382,9 @@ async def embed_text(text: str) -> list[float]:
         )
         res.raise_for_status()
         data = res.json()
-        return data["data"][0]["embedding"]
+        embedding = data["data"][0]["embedding"]
+        # Ensure we return a list of floats
+        return [float(x) for x in embedding]
 
 async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
     if not supabase_client:
@@ -408,6 +456,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "Techmeme": "Techmeme",
         "BBC News": "BBC",
         "Reuters: Top News": "Reuters",
+        "Google News": "Google News",
     }
     channel_display_name = source_mapping.get(channel_title, channel_title)
     
@@ -418,13 +467,22 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "sponsored", "promo code", "bonus offer", "sign up bonus", "betting odds", "sportsbook",
         "draftkings", "fanduel", "pointsbet", "caesars sportsbook", "mgm bet", "prize picks",
         "parlay", "sports betting", "gambling", "wager", "sweepstakes", "giveaway", "affiliate",
-        "discount code", "voucher"
+        "discount code", "voucher", "archive page", "daily summary", "roundup", "newsletter",
+        "score update", "game tracker", "live blog", "play-by-play", "score summary",
+        "news in brief", "daily briefing", "around the web", "what we're reading", "recap",
+        "books in brief", "book review", "summaries of books"
     ]
     
     parsed_items = []
     for item in items:
-        # Use clean channel name
+        # Initial source name from the channel/source mapping
         source_name = channel_display_name
+        
+        # Check for item-level source (common in Google News)
+        item_source = item.find('source')
+        if item_source and item_source.text:
+            source_name = item_source.text.strip()
+
         title = item.title.text if item.title else ""
         link = ""
         if item.link:
@@ -451,6 +509,29 @@ async def parse_rss(feed_url: str) -> list[dict]:
         if not title or not link:
             continue
             
+        # ── URL-level filtering ──
+        # Skip homepage-only links or common non-article paths
+        parsed_url = link.lower().split("://")[-1]
+        path = parsed_url.split("/", 1)[1] if "/" in parsed_url else ""
+        
+        # 1. Skip homepages (empty path or just slash)
+        if not path or path == "/":
+            print(f"[parseRss] Skipping homepage Link: {link}")
+            continue
+            
+        # 2. Techmeme archive pattern: techmeme.com/YYMMDD/ (e.g., techmeme.com/260309/)
+        if "techmeme.com" in parsed_url:
+            # Matches /260309/ or /260309/p1 etc.
+            if re.search(r'/\d{6}(/|$)', link):
+                print(f"[parseRss] Skipping Techmeme Archive: {link}")
+                continue
+        
+        # 3. Common non-article paths
+        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/"]
+        if any(p in link.lower() for p in non_article_paths):
+            print(f"[parseRss] Skipping Non-article Path: {link}")
+            continue
+
         check_text = (title + " " + description).lower()
         is_junk = any(kw in check_text for kw in junk_keywords)
         if is_junk:
@@ -476,14 +557,11 @@ async def parse_rss(feed_url: str) -> list[dict]:
             if media_thumbnail:
                 image_url_rss = media_thumbnail.get('url')
 
-        # if image_url_rss:
-        #     print(f"[parseRss] Found image in RSS for '{title[:30]}...': {image_url_rss}")
-
         parsed_items.append({
             "title": title,
             "link": link,
             "pubDate": pub_date,
-            "source": channel_title,
+            "source": source_name,
             "description": description,
             "imageUrl": image_url_rss
         })
@@ -492,37 +570,38 @@ async def parse_rss(feed_url: str) -> list[dict]:
 
 async def is_duplicate(conn, embedding: list[float]) -> bool:
     # 3. Duplicate Detection Logic optimization: Reduces latency by passing the connection
-    # 2. Embedding Conversion Bug Risk: If PostgreSQL + pgvector is used, pass as list (driver handles serialization) or string if needed.
-    # We attempt passing the list directly.
+    # 2. Embedding Conversion Bug Risk: If PostgreSQL + pgvector is used, pass as a string for safety
+    # The string format must be '[0.1, 0.2, ...]'
+    embedding_str = f"[{','.join(map(str, embedding))}]"
     try:
         # Check similarity match (...)
         records = await conn.fetch(
             "SELECT id FROM match_recent_articles($1, $2, $3)",
-            embedding, SIMILARITY_THRESHOLD, 1
+            embedding_str, SIMILARITY_THRESHOLD, 1
         )
         return len(records) > 0
     except Exception as e:
-        # Fallback to string if the driver doesn't handle list->vector automatically
-        # though modern asyncpg + pgvector usually prefers list or specialized type.
-        try:
-            embedding_str = f"[{','.join(map(str, embedding))}]"
-            records = await conn.fetch(
-                "SELECT id FROM match_recent_articles($1, $2, $3)",
-                embedding_str, SIMILARITY_THRESHOLD, 1
-            )
-            return len(records) > 0
-        except Exception as inner_e:
-            print(f"[Duplicate Check] error: {inner_e}")
-            return False
+        # Fallback log
+        print(f"[Duplicate Check] error: {e}")
+        return False
 
 def get_model_name(provider: str) -> str:
     if provider == "gemini": return "gemini-2.5-flash-lite"
     if provider == "groq": return "llama-3.3-70b-versatile"
     return LOCAL_LLM_MODEL
 
-import json
+async def log_ingestion_event(conn, url, status, source_name=None, error_type=None, error_message=None, has_text=False, has_image=False, extracted_image_url=None, content_preview=None, resolved_url=None):
+    try:
+        await conn.execute('''
+            INSERT INTO ingestion_logs (
+                original_url, status, source_name, error_type, error_message, 
+                has_text, has_image, extracted_image_url, content_preview, resolved_url
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ''', url, status, source_name, error_type, error_message, has_text, has_image, extracted_image_url, content_preview[:500] if content_preview else None, resolved_url)
+    except Exception as e:
+        print(f"[Logger] Failed to write to ingestion_logs: {e}")
 
-async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None):
+async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None):
     results = {"ingested": 0, "skipped": 0, "errors": 0}
     try:
         items = await parse_rss(feed_url)
@@ -567,8 +646,11 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 try:
                     # Scrape internally
                     scraper_result = scrape_article_sync(item["link"])
-                    if "error" in scraper_result:
-                        print(f"[processFeed] Scraper Error for {item['link']}: {scraper_result['error']}")
+                    scraper_error_msg = scraper_result.get("error")
+                    scraper_text_is_error = False
+
+                    if scraper_error_msg:
+                        print(f"[processFeed] Scraper Error for {item['link']}: {scraper_error_msg}")
                         scraper_text_is_error = True
                         result_text = item.get("description", "")
                     else:
@@ -577,20 +659,23 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                     if scraper_text_is_error:
                         print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
-                        fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
-                        if is_scraper_error_page(fallback) or len(fallback) < 100:
+                        fallback_text = f"{item['title']}\n\n{item.get('description', '')}".strip()
+                        if is_scraper_error_page(fallback_text) or len(fallback_text) < 100:
+                            await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SCRAPER_FAIL", error_message=scraper_error_msg or "Blocked/Invalid Content", resolved_url=scraper_result.get("url"))
                             results["skipped"] += 1
                             continue
-                        article_text = fallback
+                        article_text = fallback_text
+                        scraper_status = "DEGRADED"
                     else:
                         article_text = result_text
+                        scraper_status = "SUCCESS"
 
                     if not scraper_text_is_error and scraper_result.get("image_base64"):
                         image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
                         persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
                         article_image_url = persistent_url or scraper_result.get("image_url")
                     else:
-                        article_image_url = scraper_result.get("image_url") if "error" not in scraper_result else None
+                        article_image_url = scraper_result.get("image_url") if not scraper_error_msg else None
                     
                     # Secondary fallback
                     if not article_image_url and item.get("imageUrl"):
@@ -603,28 +688,38 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                             if persistent_url:
                                 article_image_url = persistent_url
 
-                except Exception:
-                    fallback = f"{item['title']}\n\n{item.get('description', '')}".strip()
-                    if is_scraper_error_page(fallback) or len(fallback) < 100:
+                except Exception as e:
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="INTERNAL_ERROR", error_message=str(e))
+                    fallback_text = f"{item['title']}\n\n{item.get('description', '')}".strip()
+                    if is_scraper_error_page(fallback_text) or len(fallback_text) < 100:
                         results["skipped"] += 1
                         continue
-                    article_text = fallback
+                    article_text = fallback_text
+                    scraper_status = "DEGRADED"
 
                 if len(article_text) < 100:
                     article_text = f"{item['title']}\n\n{article_text}"
 
                 if is_scraper_error_page(article_text) or len(article_text) < 100:
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message="Combined content failed validation")
                     results["skipped"] += 1
                     continue
 
                 if is_junk_content(article_text, item["title"]):
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SKIPPED_JUNK")
                     results["skipped"] += 1
                     continue
 
                 # Summarize
-                llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
+                try:
+                    llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
+                except Exception as llm_err:
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="LLM_ERROR", error_message=str(llm_err))
+                    results["skipped"] += 1
+                    continue
                 
                 if is_scraper_error_page(llm_res["title"]) or is_scraper_error_page(llm_res["summary"][:100]):
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="LLM_REJECT_CONTENT", error_message="LLM output contains error patterns")
                     results["skipped"] += 1
                     continue
 
@@ -634,6 +729,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 allowed_types = ["hard_news", "analysis"]
                 if llm_res["type"] not in allowed_types:
+                    # Skip silently or log as LOW_SIGNAL
                     results["skipped"] += 1
                     continue
 
@@ -641,26 +737,50 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 
                 # Check for semantic duplicate using the same connection
                 if await is_duplicate(conn, embedding):
+                    # We don't always need to log duplicates as they are noisy, but let's do it for tracking
+                    # await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item["source"], error_type="DUPLICATE")
                     results["skipped"] += 1
                     continue
 
                 # Insert using the same connection
                 try:
+                    # Convert embedding to string for pgvector compatibility
+                    # Argument $9 is the embedding vector
+                    embedding_str = f"[{','.join(map(str, embedding))}]"
+                    
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
-                            published_at, categories, subcategory, embedding, content_hash, summary_model
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            published_at, categories, subcategory, embedding, content_hash, summary_model, country_code
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                         ON CONFLICT (original_url) DO NOTHING
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
                     item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    embedding, content_hash, get_model_name(LLM_PROVIDER))
+                    embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code)
                     
+                    # Log successful ingestion with details
+                    final_status = scraper_status
+                    if final_status == "SUCCESS" and not article_image_url:
+                        final_status = "SUCCESS_NO_IMAGE"
+                    
+                    await log_ingestion_event(
+                        conn, item["link"], final_status, 
+                        source_name=item["source"], 
+                        error_type="SCRAPER_DEG" if final_status == "DEGRADED" else None,
+                        error_message=scraper_error_msg if final_status == "DEGRADED" else None,
+                        has_text=True, 
+                        has_image=article_image_url is not None,
+                        extracted_image_url=article_image_url,
+                        content_preview=article_text[:500],
+                        resolved_url=scraper_result.get("url")
+                    )
+
                     results["ingested"] += 1
                     print(f"[processFeed] Success! {llm_res['title'][:40]}...")
                 except Exception as db_err:
                     print(f"[processFeed] DB Insert Error: {db_err}")
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="DB_INSERT_ERROR", error_message=str(db_err))
                     results["errors"] += 1
 
             except Exception as item_err:
@@ -686,18 +806,24 @@ async def orchestrate():
     # 5. Orchestration Sequential Bottleneck: Use controlled concurrency
     semaphore = asyncio.Semaphore(4) # Limit to 4 concurrent feeds to avoid overloading LLM/DB
 
-    async def safe_process(feed):
+    async def safe_process(url, cat, bias, country=None):
         if SHOULD_STOP_INGESTION:
             return
         async with semaphore:
-            print(f"[Orchestrator] Processing: {feed['feedUrl']}")
+            print(f"[Orchestrator] Processing: {url} (Country: {country})")
             try:
-                await process_feed(feed["feedUrl"], feed["defaultCategory"], feed["categoryBias"], db_pool)
+                await process_feed(url, cat, bias, db_pool, country_code=country)
             except Exception as e:
-                print(f"[Orchestrator] Error processing feed {feed['feedUrl']}: {e}")
+                print(f"[Orchestrator] Error processing feed {url}: {e}")
 
-    # Create tasks for all feeds
-    tasks = [safe_process(feed) for feed in FEEDS]
+    # Create tasks for all global feeds
+    tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"]) for f in FEEDS]
+    
+    # Add tasks for supported local regions
+    for region in SUPPORTED_LOCAL_REGIONS:
+        rss_url = build_google_news_rss_url(region["code"], region["lang"])
+        tasks.append(safe_process(rss_url, "local", "strong", country=region["code"]))
+    
     await asyncio.gather(*tasks)
 
     print("[Orchestrator] Orchestration complete")
@@ -716,4 +842,47 @@ async def add_source_feed_to_queue(feed_url: str, category_hint: str = None):
     # Default category to 'world' if not provided
     cat = category_hint or 'world'
     await process_feed(feed_url, cat, "neutral", db_pool)
+
+async def fetch_local_news_on_demand(country_code: str, db_pool):
+    """
+    Fetches local news for a specific country if not updated recently.
+    Called by the feed API.
+    """
+    country_code = country_code.upper()
+    async with db_pool.acquire() as conn:
+        # Check if we fetched recently (within last 1 hour)
+        last_sync = await conn.fetchrow(
+            "SELECT last_fetched_at FROM local_news_sync WHERE country_code = $1", 
+            country_code
+        )
+        
+        should_fetch = True
+        if last_sync:
+            # Check elapsed time
+            elapsed = datetime.now(timezone.utc) - last_sync["last_fetched_at"]
+            if elapsed.total_seconds() < 3600:
+                should_fetch = False
+        
+        if not should_fetch:
+            # print(f"[LocalIngest] Recently fetched for {country_code}. skipping.")
+            return
+            
+        print(f"[LocalIngest] Triggering on-demand fetch for {country_code}...")
+        rss_url = build_google_news_rss_url(country_code)
+        
+        # Limit to 10 items for local news to avoid bloat
+        # We handle this inside process_feed or parse_rss? parse_rss already limits to 10.
+        try:
+            # Upsert sync status
+            await conn.execute('''
+                INSERT INTO local_news_sync (country_code, last_fetched_at)
+                VALUES ($1, CURRENT_TIMESTAMP)
+                ON CONFLICT (country_code) DO UPDATE SET last_fetched_at = EXCLUDED.last_fetched_at
+            ''', country_code)
+            
+            # Use BackgroundTasks if possible, but for simplicity here we just wait or start task
+            # Actually we'll call this in a way that doesn't block the UI.
+            await process_feed(rss_url, "local", "strong", db_pool, country_code=country_code)
+        except Exception as e:
+            print(f"[LocalIngest] Error during on-demand fetch for {country_code}: {e}")
 
