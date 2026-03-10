@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS articles (
   source_name       TEXT NOT NULL,
   source_favicon_url TEXT,
   published_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   categories        TEXT[] NOT NULL DEFAULT '{world}',
   subcategory       TEXT,
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
@@ -36,15 +37,19 @@ CREATE INDEX IF NOT EXISTS articles_embedding_idx
 CREATE INDEX IF NOT EXISTS articles_published_at_idx
   ON articles (published_at DESC);
 
--- 5. Content hash index for fast lookup
+-- 5. Insertion recency index
+CREATE INDEX IF NOT EXISTS articles_created_at_idx
+  ON articles (created_at DESC);
+
+-- 6. Content hash index for fast lookup
 CREATE INDEX IF NOT EXISTS articles_content_hash_idx
   ON articles (content_hash);
 
--- 6. GIN index for category filtering
+-- 7. GIN index for category filtering
 CREATE INDEX IF NOT EXISTS articles_categories_idx
   ON articles USING GIN (categories);
 
--- 7. Database Function for vector similarity search
+-- 8. Database Function for vector similarity search
 CREATE OR REPLACE FUNCTION match_recent_articles(
   query_embedding vector(768),
   similarity_threshold float,
@@ -68,7 +73,7 @@ BEGIN
 END;
 $$;
 
--- 8. Row Level Security
+-- 9. Row Level Security
 ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
 
 -- Allow anon users to SELECT (read-only public feed)

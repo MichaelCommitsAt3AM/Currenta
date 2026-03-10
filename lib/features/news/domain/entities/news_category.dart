@@ -1,6 +1,7 @@
 // lib/features/news/domain/entities/news_category.dart
 
 enum NewsCategory {
+  local,
   politics,
   tech,
   science,
@@ -9,14 +10,21 @@ enum NewsCategory {
   entertainment,
   health,
   world,
-  environment,
-  local;
+  environment;
 
   static const supportedCountries = ['KE'];
 
   bool isSupported(String? countryCode) {
     if (this != NewsCategory.local) return true;
-    return supportedCountries.contains(countryCode?.toUpperCase());
+    final code = countryCode?.toUpperCase();
+    if (supportedCountries.contains(code)) return true;
+
+    // Fallback: If country code is missing/generic, check if timezone matches Kenya (UTC+3)
+    // This handles users in Kenya who have their phone set to en_US/en_GB.
+    if (code == null || code.isEmpty || code == 'US' || code == 'GB') {
+      if (DateTime.now().timeZoneOffset.inHours == 3) return true;
+    }
+    return false;
   }
 
   String get displayName => switch (this) {

@@ -41,8 +41,13 @@ class NewsRemoteDataSource {
         // Auto-detect country from system locale for localized news
         final detectedCountry =
             WidgetsBinding.instance.platformDispatcher.locale.countryCode;
-        if (detectedCountry != null) {
-          queryParams['country'] = detectedCountry;
+        
+        if (detectedCountry != null && detectedCountry.isNotEmpty && 
+            detectedCountry.toUpperCase() != 'US' && detectedCountry.toUpperCase() != 'GB') {
+          queryParams['country'] = detectedCountry.toUpperCase();
+        } else if (DateTime.now().timeZoneOffset.inHours == 3) {
+          // Fallback for Kenya
+          queryParams['country'] = 'KE';
         }
       }
 
@@ -88,7 +93,7 @@ class NewsRemoteDataSource {
           queryParameters: {'article_id': articleId}, options: options);
     } catch (e) {
       // Slurp error — view tracking is non-critical for the user
-      print('[Remote] Failed to track view for $articleId: $e');
+      debugPrint('[Remote] Failed to track view for $articleId: $e');
     }
   }
   /// Records that the user has favorited this article.
@@ -106,7 +111,7 @@ class NewsRemoteDataSource {
       await _dio.post(url,
           queryParameters: {'article_id': articleId}, options: options);
     } catch (e) {
-      print('[Remote] Failed to toggle favorite for $articleId: $e');
+      debugPrint('[Remote] Failed to toggle favorite for $articleId: $e');
       rethrow;
     }
   }

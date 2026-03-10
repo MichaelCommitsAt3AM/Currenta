@@ -54,6 +54,9 @@ abstract class NewsArticle with _$NewsArticle {
     /// When the article was published
     @JsonKey(name: 'published_at') required DateTime publishedAt,
 
+    /// When the article was added to our system
+    @JsonKey(name: 'created_at') required DateTime createdAt,
+
     /// News categories (multi-label). First element is primary display category.
     @JsonKey(
       name: 'categories',

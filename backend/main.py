@@ -1,11 +1,16 @@
 import os
+import logging
+import logging.config
 from dotenv import load_dotenv
 
 # Load environment variables before any other local imports
 load_dotenv()
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 import asyncpg
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -15,67 +20,168 @@ from .services.scheduler import start_scheduler, stop_scheduler
 from .core.security import limiter
 from .api import feed, ingest, chat
 
+import asyncio
+
+# ---------------------------------------------------------------------------
+# Logging — configure once at startup so all modules use structured output
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Security headers middleware — applied to every response
+# ---------------------------------------------------------------------------
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+
 # Global database pool
 db_pool = None
-
-import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_pool
-    # Diagnostics: Check env loading
-    loaded_keys = [k for k in ["DATABASE_URL", "SUPABASE_URL", "ADMIN_API_KEY"] if os.environ.get(k)]
-    print(f"Lifespan startup: Loaded keys: {loaded_keys}")
 
-    # Initialize the database connection pool using asyncpg
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
         try:
-            print("Connecting to PostgreSQL...")
-            # Added a timeout to prevent hanging the entire app startup
-            # statement_cache_size=0 is REQUIRED for pgbouncer (Supabase) in transaction mode
+            logger.info("Connecting to PostgreSQL...")
+            # min_size/max_size tuned for Supabase PgBouncer in transaction mode.
+            # statement_cache_size=0 is REQUIRED for pgbouncer transaction mode.
             db_pool = await asyncio.wait_for(
                 asyncpg.create_pool(
-                    dsn=database_url, 
+                    dsn=database_url,
                     ssl='require',
-                    statement_cache_size=0
+                    statement_cache_size=0,
+                    min_size=2,
+                    max_size=8,
                 ),
                 timeout=10.0
             )
             app.state.db_pool = db_pool
-            print("Connected to PostgreSQL using asyncpg pool.")
+            logger.info("Connected to PostgreSQL (pool min=2, max=8).")
         except asyncio.TimeoutError:
-            print("ERROR: Connection to PostgreSQL timed out after 10s. Check your DATABASE_URL and network.")
+            logger.error("Connection to PostgreSQL timed out after 10s. Check DATABASE_URL and network.")
         except Exception as e:
-            print(f"ERROR: Failed to connect to database: {e}")
+            logger.error("Failed to connect to database: %s", e)
     else:
-        print("WARNING: DATABASE_URL not set in environment.")
-    
-    # Start the background scheduler
+        logger.warning("DATABASE_URL is not set — database features will be unavailable.")
+
     start_scheduler()
-    
+
     yield
-    
-    # Clean up the pool and background task
+
     stop_scheduler()
     if db_pool:
         await db_pool.close()
-        print("Closed PostgreSQL pool.")
+        logger.info("Closed PostgreSQL pool.")
 
 app = FastAPI(title="Currenta Backend", lifespan=lifespan)
-# This allows FastAPI to recognize the correctly forwarded protocol (HTTPS) and host from ngrok
+
+# --- Middleware stack (order matters: outermost = last added) ---
+
+# 1. Trust forwarded headers from reverse proxy / ngrok
 app.add_middleware(ProxyHeadersMiddleware)
 
-# Add slowapi limiter to the app state and register the exception handler
+# 2. Security response headers on every reply
+app.add_middleware(SecurityHeadersMiddleware)
+
+# 3. CORS — mobile-only API, so no browser origin is needed.
+#    Restrict to your production domain when you have one.
+#    For a pure mobile API you can keep allow_origins=[] (no browser CORS needed)
+#    but explicit configuration is required to avoid framework defaults.
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,  # Set ALLOWED_ORIGINS env var in prod; empty = block browser callers
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+)
+
+# --- Rate limiting ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Include the routers for our different API namespaces
+# --- Routers ---
 app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+
 
 @app.get("/")
 async def root():
     return {"status": "online", "service": "Currenta Backend Server"}
 
+
+@app.get("/health")
+async def health_check():
+    """
+    Real dependency health check. Probes each downstream system and returns
+    a structured report. HTTP 503 is returned if any critical component fails,
+    so load balancers and uptime monitors can act on it correctly.
+
+    Components checked:
+      - database  : runs SELECT 1 through an actual pool connection (latency reported)
+      - gemini    : verifies GEMINI_API_KEY was loaded and a client was created
+      - scheduler : confirms the APScheduler background job is running
+    """
+    import time
+    from .api.chat import _genai_client
+    from .services.scheduler import scheduler
+
+    report: dict = {}
+    overall_ok = True
+
+    # ── 1. PostgreSQL — live round-trip query ─────────────────────────────────
+    pool = getattr(app.state, "db_pool", None)
+    if pool:
+        try:
+            t0 = time.monotonic()
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
+            report["database"] = {"status": "ok", "latency_ms": latency_ms}
+        except Exception as e:
+            logger.error("Health check — DB probe failed: %s", e)
+            report["database"] = {"status": "error", "detail": "Query failed"}
+            overall_ok = False
+    else:
+        report["database"] = {"status": "error", "detail": "Pool not initialised"}
+        overall_ok = False
+
+    # ── 2. Gemini (google-genai) — config check only, no live API call ───────
+    # A live API call would add unnecessary latency and cost to every probe.
+    if _genai_client is not None:
+        report["gemini"] = {"status": "ok"}
+    else:
+        # Gemini absent = chat feature degraded, but feed/ingest still work.
+        report["gemini"] = {"status": "unconfigured", "detail": "GEMINI_API_KEY not set"}
+
+    # ── 3. APScheduler ───────────────────────────────────────────────────────
+    jobs = scheduler.get_jobs()
+    report["scheduler"] = {
+        "status": "ok" if scheduler.running else "stopped",
+        "job_count": len(jobs),
+        "jobs": [j.name for j in jobs],
+    }
+    if not scheduler.running:
+        overall_ok = False
+
+    return JSONResponse(
+        status_code=200 if overall_ok else 503,
+        content={
+            "status": "healthy" if overall_ok else "degraded",
+            "components": report,
+        },
+    )

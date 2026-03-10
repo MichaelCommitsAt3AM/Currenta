@@ -152,7 +152,7 @@ Rules:
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
    - opinion/review/listicle/sponsored/irrelevant: Low-signal fluff for a news app.
-     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
+     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
 6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
 
 Example of a 64-word summary (Use this density as a template):
@@ -197,6 +197,12 @@ def is_scraper_error_page(text: str) -> bool:
         "cookie consent",
         "browser not supported",
         "upgrade your browser",
+        "get full access for",
+        "ksh299/week",
+        "uncover the stories others won",
+        "subscribe now for exclusive access",
+        "join thousands daily",
+        "the standard e-paper",
     ]
     return any(signal in lower for signal in error_signals)
 
@@ -227,7 +233,8 @@ def is_junk_content(text: str, title: str) -> bool:
         "score update", "live update", "game tracker", "live blog", "play-by-play",
         "half-time report", "halftime report", "mid-game", "scoring summary", "live scoring",
         "things to know", "stories you missed", "daily news digest", "today's top stories",
-        "books in brief", "book review", "summaries of books", "best books of", "reading list"
+        "books in brief", "book review", "summaries of books", "best books of", "reading list",
+        "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants"
     ]
     if any(signal in combined for signal in hard_signals):
         return True
@@ -374,7 +381,7 @@ def parse_llm_response(raw_str: str) -> dict:
         }
 
 async def embed_text(text: str) -> list[float]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(
             f"{LOCAL_LLM_BASE_URL}/embeddings",
             headers={"Content-Type": "application/json", "ngrok-skip-browser-warning": "true"},
@@ -383,7 +390,6 @@ async def embed_text(text: str) -> list[float]:
         res.raise_for_status()
         data = res.json()
         embedding = data["data"][0]["embedding"]
-        # Ensure we return a list of floats
         return [float(x) for x in embedding]
 
 async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
@@ -470,7 +476,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "discount code", "voucher", "archive page", "daily summary", "roundup", "newsletter",
         "score update", "game tracker", "live blog", "play-by-play", "score summary",
         "news in brief", "daily briefing", "around the web", "what we're reading", "recap",
-        "books in brief", "book review", "summaries of books"
+        "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity"
     ]
     
     parsed_items = []
@@ -644,8 +650,9 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 article_image_url = None
                 
                 try:
-                    # Scrape internally
-                    scraper_result = scrape_article_sync(item["link"])
+                    # Run the synchronous scraper in a thread pool to avoid blocking
+                    # the async event loop — curl_cffi.requests.get() is blocking I/O.
+                    scraper_result = await asyncio.to_thread(scrape_article_sync, item["link"])
                     scraper_error_msg = scraper_result.get("error")
                     scraper_text_is_error = False
 
@@ -751,8 +758,8 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
-                            published_at, categories, subcategory, embedding, content_hash, summary_model, country_code
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                            published_at, categories, subcategory, embedding, content_hash, summary_model, country_code, created_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
                         ON CONFLICT (original_url) DO NOTHING
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],

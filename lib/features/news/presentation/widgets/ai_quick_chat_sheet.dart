@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../domain/entities/news_article.dart';
 import '../screens/ai_chat_screen.dart';
+import '../../../../theme/theme.dart';
 
 class AiQuickChatSheet extends StatefulWidget {
   final NewsArticle article;
@@ -15,8 +16,8 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
   final TextEditingController _controller = TextEditingController();
 
   static const List<String> _suggestedPrompts = [
+    'Context of this story',
     'Explain in simple terms',
-    'What led to this story?',
     'Key takeaways',
     'Why is this important?',
   ];
@@ -42,18 +43,30 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final primaryCategory = widget.article.categories.isNotEmpty
+        ? widget.article.categories.first
+        : null;
+    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+    final bgColor = Color.lerp(const Color(0xFF0A0C14), catColor, 0.12)!;
+
     return Container(
       padding: EdgeInsets.fromLTRB(
-        24, 
-        16, 
-        24, 
-        MediaQuery.paddingOf(context).bottom + 
-        MediaQuery.viewInsetsOf(context).bottom + 
         24,
+        16,
+        24,
+        MediaQuery.paddingOf(context).bottom +
+            MediaQuery.viewInsetsOf(context).bottom +
+            24,
       ),
-      decoration: const BoxDecoration(
-        color: Color(0xFF1A1E2E),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.1),
+            width: 1,
+          ),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -71,11 +84,12 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
             ),
           ),
           const SizedBox(height: 24),
-          
+
           // Header
           Row(
             children: [
-              const Icon(Icons.auto_awesome, color: Color(0xFF6C63FF), size: 28),
+              const Icon(Icons.auto_awesome,
+                  color: Color(0xFF6C63FF), size: 28),
               const SizedBox(width: 12),
               const Text(
                 'Article Assistant',
@@ -104,10 +118,12 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
           Wrap(
             spacing: 8,
             runSpacing: 12,
-            children: _suggestedPrompts.map((prompt) => _PromptChip(
-              label: prompt,
-              onTap: () => _navigateToChat(prompt),
-            )).toList(),
+            children: _suggestedPrompts
+                .map((prompt) => _PromptChip(
+                      label: prompt,
+                      onTap: () => _navigateToChat(prompt),
+                    ))
+                .toList(),
           ),
           const SizedBox(height: 32),
 
@@ -128,14 +144,16 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                     decoration: InputDecoration(
                       hintText: 'Type a question...',
-                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
+                      hintStyle:
+                          TextStyle(color: Colors.white.withValues(alpha: 0.3)),
                       border: InputBorder.none,
                     ),
                     onSubmitted: (_) => _navigateToChat(),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF6C63FF)),
+                  icon: const Icon(Icons.arrow_forward_rounded,
+                      color: Color(0xFF6C63FF)),
                   onPressed: () => _navigateToChat(),
                 ),
               ],
@@ -162,7 +180,8 @@ class _PromptChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(100),
-          border: Border.all(color: const Color(0xFF6C63FF).withValues(alpha: 0.3)),
+          border:
+              Border.all(color: const Color(0xFF6C63FF).withValues(alpha: 0.3)),
         ),
         child: Text(
           label,

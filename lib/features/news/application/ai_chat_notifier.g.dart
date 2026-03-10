@@ -6,7 +6,7 @@ part of 'ai_chat_notifier.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$aiChatNotifierHash() => r'7e4e2326dcb4ca5d5869dac6f1db3bcae79787b4';
+String _$aiChatNotifierHash() => r'f65c1cc12b30d9d885fb6c1e483c6fc38ed61afc';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -30,10 +30,10 @@ class _SystemHash {
 }
 
 abstract class _$AiChatNotifier
-    extends BuildlessAutoDisposeNotifier<List<ChatMessage>> {
+    extends BuildlessAutoDisposeNotifier<AiChatState> {
   late final String articleId;
 
-  List<ChatMessage> build(
+  AiChatState build(
     String articleId,
   );
 }
@@ -43,7 +43,7 @@ abstract class _$AiChatNotifier
 const aiChatNotifierProvider = AiChatNotifierFamily();
 
 /// See also [AiChatNotifier].
-class AiChatNotifierFamily extends Family<List<ChatMessage>> {
+class AiChatNotifierFamily extends Family<AiChatState> {
   /// See also [AiChatNotifier].
   const AiChatNotifierFamily();
 
@@ -82,7 +82,7 @@ class AiChatNotifierFamily extends Family<List<ChatMessage>> {
 
 /// See also [AiChatNotifier].
 class AiChatNotifierProvider
-    extends AutoDisposeNotifierProviderImpl<AiChatNotifier, List<ChatMessage>> {
+    extends AutoDisposeNotifierProviderImpl<AiChatNotifier, AiChatState> {
   /// See also [AiChatNotifier].
   AiChatNotifierProvider(
     String articleId,
@@ -113,7 +113,7 @@ class AiChatNotifierProvider
   final String articleId;
 
   @override
-  List<ChatMessage> runNotifierBuild(
+  AiChatState runNotifierBuild(
     covariant AiChatNotifier notifier,
   ) {
     return notifier.build(
@@ -138,7 +138,7 @@ class AiChatNotifierProvider
   }
 
   @override
-  AutoDisposeNotifierProviderElement<AiChatNotifier, List<ChatMessage>>
+  AutoDisposeNotifierProviderElement<AiChatNotifier, AiChatState>
       createElement() {
     return _AiChatNotifierProviderElement(this);
   }
@@ -159,13 +159,14 @@ class AiChatNotifierProvider
 
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
-mixin AiChatNotifierRef on AutoDisposeNotifierProviderRef<List<ChatMessage>> {
+mixin AiChatNotifierRef on AutoDisposeNotifierProviderRef<AiChatState> {
   /// The parameter `articleId` of this provider.
   String get articleId;
 }
 
-class _AiChatNotifierProviderElement extends AutoDisposeNotifierProviderElement<
-    AiChatNotifier, List<ChatMessage>> with AiChatNotifierRef {
+class _AiChatNotifierProviderElement
+    extends AutoDisposeNotifierProviderElement<AiChatNotifier, AiChatState>
+    with AiChatNotifierRef {
   _AiChatNotifierProviderElement(super.provider);
 
   @override

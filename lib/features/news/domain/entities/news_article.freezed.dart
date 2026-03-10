@@ -43,6 +43,10 @@ mixin _$NewsArticle {
   @JsonKey(name: 'published_at')
   DateTime get publishedAt;
 
+  /// When the article was added to our system
+  @JsonKey(name: 'created_at')
+  DateTime get createdAt;
+
   /// News categories (multi-label). First element is primary display category.
   @JsonKey(
       name: 'categories',
@@ -102,6 +106,8 @@ mixin _$NewsArticle {
                 other.sourceFaviconUrl == sourceFaviconUrl) &&
             (identical(other.publishedAt, publishedAt) ||
                 other.publishedAt == publishedAt) &&
+            (identical(other.createdAt, createdAt) ||
+                other.createdAt == createdAt) &&
             const DeepCollectionEquality()
                 .equals(other.categories, categories) &&
             (identical(other.isPaywalled, isPaywalled) ||
@@ -129,6 +135,7 @@ mixin _$NewsArticle {
       sourceName,
       sourceFaviconUrl,
       publishedAt,
+      createdAt,
       const DeepCollectionEquality().hash(categories),
       isPaywalled,
       isLiked,
@@ -139,7 +146,7 @@ mixin _$NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
   }
 }
 
@@ -158,6 +165,7 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
+      @JsonKey(name: 'created_at') DateTime createdAt,
       @JsonKey(
           name: 'categories',
           fromJson: _categoriesFromJson,
@@ -191,6 +199,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
+    Object? createdAt = null,
     Object? categories = null,
     Object? isPaywalled = null,
     Object? isLiked = null,
@@ -231,6 +240,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
       publishedAt: null == publishedAt
           ? _self.publishedAt
           : publishedAt // ignore: cast_nullable_to_non_nullable
+              as DateTime,
+      createdAt: null == createdAt
+          ? _self.createdAt
+          : createdAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
       categories: null == categories
           ? _self.categories
@@ -366,6 +379,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
+            @JsonKey(name: 'created_at') DateTime createdAt,
             @JsonKey(
                 name: 'categories',
                 fromJson: _categoriesFromJson,
@@ -392,6 +406,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
+            _that.createdAt,
             _that.categories,
             _that.isPaywalled,
             _that.isLiked,
@@ -428,6 +443,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
+            @JsonKey(name: 'created_at') DateTime createdAt,
             @JsonKey(
                 name: 'categories',
                 fromJson: _categoriesFromJson,
@@ -453,6 +469,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
+            _that.createdAt,
             _that.categories,
             _that.isPaywalled,
             _that.isLiked,
@@ -488,6 +505,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'source_name') String sourceName,
             @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
             @JsonKey(name: 'published_at') DateTime publishedAt,
+            @JsonKey(name: 'created_at') DateTime createdAt,
             @JsonKey(
                 name: 'categories',
                 fromJson: _categoriesFromJson,
@@ -513,6 +531,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.sourceName,
             _that.sourceFaviconUrl,
             _that.publishedAt,
+            _that.createdAt,
             _that.categories,
             _that.isPaywalled,
             _that.isLiked,
@@ -538,6 +557,7 @@ class _NewsArticle implements NewsArticle {
       @JsonKey(name: 'source_name') required this.sourceName,
       @JsonKey(name: 'source_favicon_url') this.sourceFaviconUrl,
       @JsonKey(name: 'published_at') required this.publishedAt,
+      @JsonKey(name: 'created_at') required this.createdAt,
       @JsonKey(
           name: 'categories',
           fromJson: _categoriesFromJson,
@@ -589,6 +609,11 @@ class _NewsArticle implements NewsArticle {
   @override
   @JsonKey(name: 'published_at')
   final DateTime publishedAt;
+
+  /// When the article was added to our system
+  @override
+  @JsonKey(name: 'created_at')
+  final DateTime createdAt;
 
   /// News categories (multi-label). First element is primary display category.
   final List<NewsCategory> _categories;
@@ -668,6 +693,8 @@ class _NewsArticle implements NewsArticle {
                 other.sourceFaviconUrl == sourceFaviconUrl) &&
             (identical(other.publishedAt, publishedAt) ||
                 other.publishedAt == publishedAt) &&
+            (identical(other.createdAt, createdAt) ||
+                other.createdAt == createdAt) &&
             const DeepCollectionEquality()
                 .equals(other._categories, _categories) &&
             (identical(other.isPaywalled, isPaywalled) ||
@@ -695,6 +722,7 @@ class _NewsArticle implements NewsArticle {
       sourceName,
       sourceFaviconUrl,
       publishedAt,
+      createdAt,
       const DeepCollectionEquality().hash(_categories),
       isPaywalled,
       isLiked,
@@ -705,7 +733,7 @@ class _NewsArticle implements NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
   }
 }
 
@@ -726,6 +754,7 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       @JsonKey(name: 'source_name') String sourceName,
       @JsonKey(name: 'source_favicon_url') String? sourceFaviconUrl,
       @JsonKey(name: 'published_at') DateTime publishedAt,
+      @JsonKey(name: 'created_at') DateTime createdAt,
       @JsonKey(
           name: 'categories',
           fromJson: _categoriesFromJson,
@@ -759,6 +788,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? sourceName = null,
     Object? sourceFaviconUrl = freezed,
     Object? publishedAt = null,
+    Object? createdAt = null,
     Object? categories = null,
     Object? isPaywalled = null,
     Object? isLiked = null,
@@ -799,6 +829,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
       publishedAt: null == publishedAt
           ? _self.publishedAt
           : publishedAt // ignore: cast_nullable_to_non_nullable
+              as DateTime,
+      createdAt: null == createdAt
+          ? _self.createdAt
+          : createdAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
       categories: null == categories
           ? _self._categories

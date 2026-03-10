@@ -55,6 +55,14 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<DateTime> publishedAt = GeneratedColumn<DateTime>(
       'published_at', aliasedName, false,
       type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
   @override
   late final GeneratedColumnWithTypeConverter<List<NewsCategory>, String>
       categories = GeneratedColumn<String>('categories', aliasedName, false,
@@ -117,6 +125,7 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         sourceName,
         sourceFaviconUrl,
         publishedAt,
+        createdAt,
         categories,
         isPaywalled,
         isLiked,
@@ -186,6 +195,10 @@ class $NewsArticlesTableTable extends NewsArticlesTable
     } else if (isInserting) {
       context.missing(_publishedAtMeta);
     }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
     if (data.containsKey('is_paywalled')) {
       context.handle(
           _isPaywalledMeta,
@@ -237,6 +250,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           DriftSqlType.string, data['${effectivePrefix}source_favicon_url']),
       publishedAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}published_at'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       categories: $NewsArticlesTableTable.$convertercategories.fromSql(
           attachedDatabase.typeMapping.read(
               DriftSqlType.string, data['${effectivePrefix}categories'])!),
@@ -272,6 +287,7 @@ class NewsArticlesTableData extends DataClass
   final String sourceName;
   final String? sourceFaviconUrl;
   final DateTime publishedAt;
+  final DateTime createdAt;
 
   /// Stored as a JSON-encoded list, e.g. '["tech","politics"]'
   final List<NewsCategory> categories;
@@ -289,6 +305,7 @@ class NewsArticlesTableData extends DataClass
       required this.sourceName,
       this.sourceFaviconUrl,
       required this.publishedAt,
+      required this.createdAt,
       required this.categories,
       required this.isPaywalled,
       required this.isLiked,
@@ -310,6 +327,7 @@ class NewsArticlesTableData extends DataClass
       map['source_favicon_url'] = Variable<String>(sourceFaviconUrl);
     }
     map['published_at'] = Variable<DateTime>(publishedAt);
+    map['created_at'] = Variable<DateTime>(createdAt);
     {
       map['categories'] = Variable<String>(
           $NewsArticlesTableTable.$convertercategories.toSql(categories));
@@ -338,6 +356,7 @@ class NewsArticlesTableData extends DataClass
           ? const Value.absent()
           : Value(sourceFaviconUrl),
       publishedAt: Value(publishedAt),
+      createdAt: Value(createdAt),
       categories: Value(categories),
       isPaywalled: Value(isPaywalled),
       isLiked: Value(isLiked),
@@ -361,6 +380,7 @@ class NewsArticlesTableData extends DataClass
       sourceName: serializer.fromJson<String>(json['sourceName']),
       sourceFaviconUrl: serializer.fromJson<String?>(json['sourceFaviconUrl']),
       publishedAt: serializer.fromJson<DateTime>(json['publishedAt']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       categories: serializer.fromJson<List<NewsCategory>>(json['categories']),
       isPaywalled: serializer.fromJson<bool>(json['isPaywalled']),
       isLiked: serializer.fromJson<bool>(json['isLiked']),
@@ -381,6 +401,7 @@ class NewsArticlesTableData extends DataClass
       'sourceName': serializer.toJson<String>(sourceName),
       'sourceFaviconUrl': serializer.toJson<String?>(sourceFaviconUrl),
       'publishedAt': serializer.toJson<DateTime>(publishedAt),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
       'categories': serializer.toJson<List<NewsCategory>>(categories),
       'isPaywalled': serializer.toJson<bool>(isPaywalled),
       'isLiked': serializer.toJson<bool>(isLiked),
@@ -399,6 +420,7 @@ class NewsArticlesTableData extends DataClass
           String? sourceName,
           Value<String?> sourceFaviconUrl = const Value.absent(),
           DateTime? publishedAt,
+          DateTime? createdAt,
           List<NewsCategory>? categories,
           bool? isPaywalled,
           bool? isLiked,
@@ -416,6 +438,7 @@ class NewsArticlesTableData extends DataClass
             ? sourceFaviconUrl.value
             : this.sourceFaviconUrl,
         publishedAt: publishedAt ?? this.publishedAt,
+        createdAt: createdAt ?? this.createdAt,
         categories: categories ?? this.categories,
         isPaywalled: isPaywalled ?? this.isPaywalled,
         isLiked: isLiked ?? this.isLiked,
@@ -438,6 +461,7 @@ class NewsArticlesTableData extends DataClass
           : this.sourceFaviconUrl,
       publishedAt:
           data.publishedAt.present ? data.publishedAt.value : this.publishedAt,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       categories:
           data.categories.present ? data.categories.value : this.categories,
       isPaywalled:
@@ -462,6 +486,7 @@ class NewsArticlesTableData extends DataClass
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
+          ..write('createdAt: $createdAt, ')
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('isLiked: $isLiked, ')
@@ -482,6 +507,7 @@ class NewsArticlesTableData extends DataClass
       sourceName,
       sourceFaviconUrl,
       publishedAt,
+      createdAt,
       categories,
       isPaywalled,
       isLiked,
@@ -500,6 +526,7 @@ class NewsArticlesTableData extends DataClass
           other.sourceName == this.sourceName &&
           other.sourceFaviconUrl == this.sourceFaviconUrl &&
           other.publishedAt == this.publishedAt &&
+          other.createdAt == this.createdAt &&
           other.categories == this.categories &&
           other.isPaywalled == this.isPaywalled &&
           other.isLiked == this.isLiked &&
@@ -518,6 +545,7 @@ class NewsArticlesTableCompanion
   final Value<String> sourceName;
   final Value<String?> sourceFaviconUrl;
   final Value<DateTime> publishedAt;
+  final Value<DateTime> createdAt;
   final Value<List<NewsCategory>> categories;
   final Value<bool> isPaywalled;
   final Value<bool> isLiked;
@@ -534,6 +562,7 @@ class NewsArticlesTableCompanion
     this.sourceName = const Value.absent(),
     this.sourceFaviconUrl = const Value.absent(),
     this.publishedAt = const Value.absent(),
+    this.createdAt = const Value.absent(),
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.isLiked = const Value.absent(),
@@ -551,6 +580,7 @@ class NewsArticlesTableCompanion
     required String sourceName,
     this.sourceFaviconUrl = const Value.absent(),
     required DateTime publishedAt,
+    this.createdAt = const Value.absent(),
     this.categories = const Value.absent(),
     this.isPaywalled = const Value.absent(),
     this.isLiked = const Value.absent(),
@@ -573,6 +603,7 @@ class NewsArticlesTableCompanion
     Expression<String>? sourceName,
     Expression<String>? sourceFaviconUrl,
     Expression<DateTime>? publishedAt,
+    Expression<DateTime>? createdAt,
     Expression<String>? categories,
     Expression<bool>? isPaywalled,
     Expression<bool>? isLiked,
@@ -590,6 +621,7 @@ class NewsArticlesTableCompanion
       if (sourceName != null) 'source_name': sourceName,
       if (sourceFaviconUrl != null) 'source_favicon_url': sourceFaviconUrl,
       if (publishedAt != null) 'published_at': publishedAt,
+      if (createdAt != null) 'created_at': createdAt,
       if (categories != null) 'categories': categories,
       if (isPaywalled != null) 'is_paywalled': isPaywalled,
       if (isLiked != null) 'is_liked': isLiked,
@@ -609,6 +641,7 @@ class NewsArticlesTableCompanion
       Value<String>? sourceName,
       Value<String?>? sourceFaviconUrl,
       Value<DateTime>? publishedAt,
+      Value<DateTime>? createdAt,
       Value<List<NewsCategory>>? categories,
       Value<bool>? isPaywalled,
       Value<bool>? isLiked,
@@ -625,6 +658,7 @@ class NewsArticlesTableCompanion
       sourceName: sourceName ?? this.sourceName,
       sourceFaviconUrl: sourceFaviconUrl ?? this.sourceFaviconUrl,
       publishedAt: publishedAt ?? this.publishedAt,
+      createdAt: createdAt ?? this.createdAt,
       categories: categories ?? this.categories,
       isPaywalled: isPaywalled ?? this.isPaywalled,
       isLiked: isLiked ?? this.isLiked,
@@ -662,6 +696,9 @@ class NewsArticlesTableCompanion
     if (publishedAt.present) {
       map['published_at'] = Variable<DateTime>(publishedAt.value);
     }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
     if (categories.present) {
       map['categories'] = Variable<String>(
           $NewsArticlesTableTable.$convertercategories.toSql(categories.value));
@@ -698,6 +735,7 @@ class NewsArticlesTableCompanion
           ..write('sourceName: $sourceName, ')
           ..write('sourceFaviconUrl: $sourceFaviconUrl, ')
           ..write('publishedAt: $publishedAt, ')
+          ..write('createdAt: $createdAt, ')
           ..write('categories: $categories, ')
           ..write('isPaywalled: $isPaywalled, ')
           ..write('isLiked: $isLiked, ')
@@ -929,6 +967,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   required String sourceName,
   Value<String?> sourceFaviconUrl,
   required DateTime publishedAt,
+  Value<DateTime> createdAt,
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<bool> isLiked,
@@ -947,6 +986,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<String> sourceName,
   Value<String?> sourceFaviconUrl,
   Value<DateTime> publishedAt,
+  Value<DateTime> createdAt,
   Value<List<NewsCategory>> categories,
   Value<bool> isPaywalled,
   Value<bool> isLiked,
@@ -989,6 +1029,9 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
 
   ColumnWithTypeConverterFilters<List<NewsCategory>, List<NewsCategory>, String>
       get categories => $composableBuilder(
@@ -1045,6 +1088,9 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<String> get categories => $composableBuilder(
       column: $table.categories, builder: (column) => ColumnOrderings(column));
 
@@ -1096,6 +1142,9 @@ class $$NewsArticlesTableTableAnnotationComposer
 
   GeneratedColumn<DateTime> get publishedAt => $composableBuilder(
       column: $table.publishedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
   GeneratedColumnWithTypeConverter<List<NewsCategory>, String> get categories =>
       $composableBuilder(
@@ -1154,6 +1203,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<String> sourceName = const Value.absent(),
             Value<String?> sourceFaviconUrl = const Value.absent(),
             Value<DateTime> publishedAt = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<bool> isLiked = const Value.absent(),
@@ -1171,6 +1221,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,
+            createdAt: createdAt,
             categories: categories,
             isPaywalled: isPaywalled,
             isLiked: isLiked,
@@ -1188,6 +1239,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             required String sourceName,
             Value<String?> sourceFaviconUrl = const Value.absent(),
             required DateTime publishedAt,
+            Value<DateTime> createdAt = const Value.absent(),
             Value<List<NewsCategory>> categories = const Value.absent(),
             Value<bool> isPaywalled = const Value.absent(),
             Value<bool> isLiked = const Value.absent(),
@@ -1205,6 +1257,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             sourceName: sourceName,
             sourceFaviconUrl: sourceFaviconUrl,
             publishedAt: publishedAt,
+            createdAt: createdAt,
             categories: categories,
             isPaywalled: isPaywalled,
             isLiked: isLiked,

@@ -20,8 +20,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   final ScrollController _scrollController = ScrollController();
 
   static const List<String> _suggestedPrompts = [
+    'Context of this story',
     'Explain in simple terms',
-    'What led to this story?',
     'Key takeaways',
     'Why is this important?',
   ];
@@ -59,22 +59,29 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     final message = text ?? _controller.text;
     if (message.isEmpty) return;
 
-    ref.read(aiChatNotifierProvider(widget.article.id).notifier).sendMessage(message);
+    ref
+        .read(aiChatNotifierProvider(widget.article.id).notifier)
+        .sendMessage(message);
     _controller.clear();
     _scrollToBottom();
   }
 
   @override
   Widget build(BuildContext context) {
-    final messages = ref.watch(aiChatNotifierProvider(widget.article.id));
-    final isLoading = ref.watch(aiChatNotifierProvider(widget.article.id).notifier).isLoading;
+    final chatState = ref.watch(aiChatNotifierProvider(widget.article.id));
+    final messages = chatState.messages;
+    final isLoading = chatState.isLoading;
 
     ref.listen(aiChatNotifierProvider(widget.article.id), (previous, next) {
-      if (next.isNotEmpty && (previous == null || previous.length != next.length || previous.last.content != next.last.content)) {
+      final prevMsgs = previous?.messages ?? [];
+      final nextMsgs = next.messages;
+      if (nextMsgs.isNotEmpty &&
+          (prevMsgs.length != nextMsgs.length ||
+              (prevMsgs.isNotEmpty &&
+                  prevMsgs.last.content != nextMsgs.last.content))) {
         _scrollToBottom();
       }
     });
-
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),
@@ -83,7 +90,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
         elevation: 0,
         titleSpacing: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
@@ -128,22 +136,28 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: messages.isEmpty ? 1 : messages.length,
+              itemCount: messages.isEmpty
+                  ? (isLoading ? 1 : 1)
+                  : messages.length + (isLoading ? 1 : 0),
               itemBuilder: (context, index) {
-                if (messages.isEmpty) {
+                if (messages.isEmpty && !isLoading) {
                   return _EmptyState(articleTitle: widget.article.title);
                 }
-                final msg = messages[index];
-                return _ChatBubble(message: msg);
+
+                if (isLoading && index == messages.length) {
+                  return const _TypingIndicator();
+                }
+
+                if (index < messages.length) {
+                  final msg = messages[index];
+                  return _ChatBubble(message: msg);
+                }
+
+                return const SizedBox.shrink();
               },
             ),
           ),
 
-          if (isLoading && (messages.isEmpty || messages.last.role != 'model' || messages.last.content.isEmpty))
-             const Padding(
-               padding: EdgeInsets.symmetric(vertical: 8),
-               child: _TypingIndicator(),
-             ),
 
 
           // ── Suggestions ────────────────────────────────────────────────
@@ -182,9 +196,7 @@ class _ChatBubble extends StatelessWidget {
           maxWidth: MediaQuery.sizeOf(context).width * 0.75,
         ),
         decoration: BoxDecoration(
-          color: isUser 
-            ? const Color(0xFF6C63FF) 
-            : const Color(0xFF1A1E2E),
+          color: isUser ? const Color(0xFF6C63FF) : const Color(0xFF1A1E2E),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -215,9 +227,9 @@ class _InputArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.fromLTRB(
-        16, 
-        8, 
-        16, 
+        16,
+        8,
+        16,
         MediaQuery.paddingOf(context).bottom + 16,
       ),
       decoration: BoxDecoration(
@@ -284,10 +296,12 @@ class _PromptsList extends StatelessWidget {
             child: ActionChip(
               label: Text(prompt),
               backgroundColor: const Color(0xFF1A1E2E),
-              labelStyle: const TextStyle(color: Color(0xFF6C63FF), fontSize: 13),
+              labelStyle:
+                  const TextStyle(color: Color(0xFF6C63FF), fontSize: 13),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(100),
-                side: BorderSide(color: const Color(0xFF6C63FF).withValues(alpha: 0.3)),
+                side: BorderSide(
+                    color: const Color(0xFF6C63FF).withValues(alpha: 0.3)),
               ),
               onPressed: () => onTap(prompt),
             ),
@@ -315,7 +329,8 @@ class _EmptyState extends StatelessWidget {
               color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.auto_awesome, size: 40, color: Color(0xFF6C63FF)),
+            child: const Icon(Icons.auto_awesome,
+                size: 40, color: Color(0xFF6C63FF)),
           ),
           const SizedBox(height: 24),
           const Text(
@@ -350,7 +365,7 @@ class _TypingIndicator extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(left: 16, bottom: 16),
+        margin: const EdgeInsets.only(bottom: 16),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: const BoxDecoration(
           color: Color(0xFF1A1E2E),
@@ -361,15 +376,19 @@ class _TypingIndicator extends StatelessWidget {
             bottomRight: Radius.circular(16),
           ),
         ),
-        child: SizedBox(
-          width: 30,
-          child: LinearProgressIndicator(
-            backgroundColor: Colors.transparent,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              const Color(0xFF6C63FF).withValues(alpha: 0.5),
-            ),
-            minHeight: 2,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (index) {
+            return Container(
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Color(0xFF6C63FF),
+                shape: BoxShape.circle,
+              ),
+            );
+          }),
         ),
       ),
     );

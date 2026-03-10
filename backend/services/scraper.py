@@ -6,6 +6,7 @@ import base64
 from bs4 import BeautifulSoup
 import httpx
 from googlenewsdecoder import gnewsdecoder
+import json
 
 def process_image(img_url: str) -> str | None:
     """Downloads, resizes, and iteratively compresses to target ~150KB."""
@@ -52,8 +53,6 @@ def process_image(img_url: str) -> str | None:
         print(f"[Image] Failed to process {img_url}: {e}")
         return None
 
-import json
-
 def extract_meta_image(html: str) -> str | None:
     """Fallback manual extraction for hero images with support for JSON-LD and site-specific patterns."""
     try:
@@ -72,7 +71,9 @@ def extract_meta_image(html: str) -> str | None:
         # Priority 3: JSON-LD (Schema.org) - Very reliable for news sites
         for script in soup.find_all("script", type="application/ld+json"):
             try:
-                data = json.loads(script.string)
+                content = script.get_text()
+                if not content: continue
+                data = json.loads(content)
                 if isinstance(data, list):
                     for entry in data:
                         if "image" in entry:
@@ -107,12 +108,44 @@ def extract_meta_image(html: str) -> str | None:
         for sel in selectors:
             found = soup.select_one(sel)
             if found:
-                res = found.get("data-src") or found.get("src")
-                if res and res.startswith("http"): return res
+                found_src = found.get("data-src") or found.get("src")
+                if found_src and found_src.startswith("http"): return found_src
 
         return None
     except Exception as e:
         print(f"[Scraper] Image extraction error: {e}")
+        return None
+
+def extract_ld_json_content(html: str) -> dict | None:
+    """Extracts article title and body from JSON-LD metadata as a fallback."""
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        for script in soup.find_all("script", type="application/ld+json"):
+            content = script.get_text()
+            if not content: continue
+            try:
+                data = json.loads(content)
+                items = data if isinstance(data, list) else [data]
+                if isinstance(data, dict) and "@graph" in data:
+                    items.extend(data["@graph"])
+
+                for item in items:
+                    if not isinstance(item, dict): continue
+                    
+                    if item.get("@type") in ["NewsArticle", "Article", "BlogPosting", "WebPage"]:
+                        # Standard Media and others often use articleBody
+                        body = item.get("articleBody") or item.get("description") or item.get("text")
+                        title = item.get("headline") or item.get("name")
+                        
+                        if body and len(body) > 250:
+                            clean_body = BeautifulSoup(body, "html.parser").get_text(separator="\n").strip()
+                            clean_title = BeautifulSoup(title, "html.parser").get_text().strip() if title else None
+                            return {"text": clean_body, "title": clean_title}
+            except:
+                continue
+        return None
+    except Exception as e:
+        print(f"[Scraper] JSON-LD content extraction error: {e}")
         return None
 
 def resolve_google_news_url(url: str) -> str:
@@ -180,20 +213,35 @@ def scrape_article_sync(url: str):
         extraction_result = bare_extraction(response.text, url=url)
         
         if not extraction_result:
-            return {"error": "Could not extract content (empty result)", "url": url, "original_url": original_url}
-
-        # Normalize to dict
-        if hasattr(extraction_result, "as_dict"):
-            result = extraction_result.as_dict()
-        elif isinstance(extraction_result, dict):
-            result = extraction_result
+            # Fallback check before returning error
+            ld_res = extract_ld_json_content(response.text)
+            if ld_res:
+                print(f"[Scraper] Trafilatura failed (None), fell back to JSON-LD content for {url}")
+                result = {"text": ld_res["text"], "title": ld_res.get("title"), "image": None}
+            else:
+                return {"error": "Could not extract content (empty result)", "url": url, "original_url": original_url}
         else:
-            result = {
-                "text": getattr(extraction_result, "text", None),
-                "image": getattr(extraction_result, "image", None),
-                "title": getattr(extraction_result, "title", None),
-            }
-        
+            # Normalize to dict
+            if hasattr(extraction_result, "as_dict"):
+                result = extraction_result.as_dict()
+            elif isinstance(extraction_result, dict):
+                result = extraction_result
+            else:
+                result = {
+                    "text": getattr(extraction_result, "text", None),
+                    "image": getattr(extraction_result, "image", None),
+                    "title": getattr(extraction_result, "title", None),
+                }
+            
+            if not result.get('text') or len(result.get('text')) < 400:
+                # Fallback: JSON-LD extraction
+                ld_res = extract_ld_json_content(response.text)
+                if ld_res:
+                    print(f"[Scraper] Trafilatura failed/short, fell back to JSON-LD content for {url}")
+                    if not result: result = {}
+                    result['text'] = ld_res["text"]
+                    if not result.get("title"): result["title"] = ld_res.get("title")
+
         if not result.get('text'):
             return {"error": "Could not extract text content", "url": url, "original_url": original_url}
 

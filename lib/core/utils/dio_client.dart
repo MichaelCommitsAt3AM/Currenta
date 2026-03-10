@@ -2,6 +2,7 @@
 // Singleton Dio client with structured logging + error interceptors.
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../errors/app_exception.dart';
 
 class DioClient {
@@ -28,23 +29,24 @@ class DioClient {
 class _LoggingInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    // ignore: avoid_print
-    print('[DIO →] ${options.method} ${options.uri}');
+    if (kDebugMode) debugPrint('[DIO →] ${options.method} ${options.uri}');
     handler.next(options);
   }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    // ignore: avoid_print
-    print('[DIO ←] ${response.statusCode} ${response.requestOptions.uri}');
+    if (kDebugMode) {
+      debugPrint('[DIO ←] ${response.statusCode} ${response.requestOptions.uri}');
+    }
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    // ignore: avoid_print
-    print(
-        '[DIO ✗] ${err.response?.statusCode} ${err.requestOptions.uri}: ${err.message}');
+    if (kDebugMode) {
+      debugPrint(
+          '[DIO ✗] ${err.response?.statusCode} ${err.requestOptions.uri}: ${err.message}');
+    }
     handler.next(err);
   }
 }

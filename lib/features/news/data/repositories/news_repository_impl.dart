@@ -1,6 +1,7 @@
 // lib/features/news/data/repositories/news_repository_impl.dart
 // Cache-First strategy: serve local data immediately, then refresh from remote.
 
+import 'package:flutter/foundation.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
 import '../../domain/repositories/news_repository.dart';
@@ -102,8 +103,7 @@ class NewsRepositoryImpl implements NewsRepository {
     );
     try {
       final deleted = await _dao.deleteArticlesOlderThan(threshold);
-      // ignore: avoid_print
-      print(
+      debugPrint(
           '[Cache] Deleted $deleted stale articles (older than ${AppConfig.cacheMaxAgeHours}h).');
     } catch (e) {
       throw CacheException();

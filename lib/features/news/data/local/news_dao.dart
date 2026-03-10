@@ -235,6 +235,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         sourceName: sourceName,
         sourceFaviconUrl: sourceFaviconUrl,
         publishedAt: publishedAt,
+        createdAt: createdAt,
         categories: categories, // already decoded by CategoryListConverter
         isPaywalled: isPaywalled,
         isLiked: isLiked,
@@ -255,6 +256,7 @@ extension NewsArticleDboMapper on NewsArticle {
         sourceName: Value(sourceName),
         sourceFaviconUrl: Value(sourceFaviconUrl),
         publishedAt: Value(publishedAt),
+        createdAt: Value(createdAt),
         // Encode List<NewsCategory> → JSON string via the TypeConverter-aware Value
         categories: Value(categories),
         isPaywalled: Value(isPaywalled),

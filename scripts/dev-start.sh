@@ -155,7 +155,7 @@ BACKEND_PORT=8000
 BACKEND_READY=false
 
 # Check if Backend is already running
-if curl -sf "http://localhost:${BACKEND_PORT}/" >/dev/null 2>&1; then
+if curl -sf "http://localhost:${BACKEND_PORT}/health" > /dev/null 2>&1; then
   ok "Backend Service is already running on port ${BACKEND_PORT}"
   BACKEND_READY=true
 else
@@ -168,17 +168,26 @@ else
   info "Backend PID $(cat "${PROJECT_ROOT}/.backend.pid") — logs: .backend.log"
 
   info "Waiting for Backend Service to be ready..."
-  for i in $(seq 1 15); do
-    if curl -sf "http://localhost:${BACKEND_PORT}/" >/dev/null 2>&1; then
+  HEALTH_JSON=""
+  for i in $(seq 1 20); do
+    # Use /health so we know DB + scheduler are actually up, not just uvicorn
+    HTTP_CODE=$(curl -s -o /tmp/.currenta_health.json -w "%{http_code}" \
+      "http://localhost:${BACKEND_PORT}/health" 2>/dev/null || echo "000")
+    if [[ "${HTTP_CODE}" == "200" ]]; then
+      HEALTH_JSON=$(cat /tmp/.currenta_health.json 2>/dev/null || echo "")
       BACKEND_READY=true
       break
+    elif [[ "${HTTP_CODE}" == "503" ]]; then
+      # uvicorn is up but a dependency failed — capture and continue waiting
+      HEALTH_JSON=$(cat /tmp/.currenta_health.json 2>/dev/null || echo "")
     fi
     sleep 1
   done
 fi
 
 if [[ "${BACKEND_READY}" != "true" ]]; then
-  warn "Backend Service might not be ready. Check .backend.log."
+  warn "Backend Service did not become fully healthy. Check .backend.log."
+  [[ -n "${HEALTH_JSON:-}" ]] && echo -e "    Health report: ${HEALTH_JSON}"
 else
   ok "Backend Service ready on port ${BACKEND_PORT}"
 fi
@@ -262,6 +271,7 @@ echo ""
 echo -e "  ${BOLD}App Details:${RESET}"
 echo -e "    📁  Config:    lib/core/config/app_config.dart"
 echo -e "    🌐  Base URL:  ${BACKEND_NGROK_URL}"
+echo -e "    💊  Health:    http://localhost:${BACKEND_PORT}/health"
 echo ""
 echo -e "  To stop all services:  ${BOLD}bash scripts/dev-stop.sh${RESET}"
 echo ""

@@ -48,6 +48,8 @@ dependencies:
   path: ^1.9.1
   flutter_custom_tabs: ^2.5.0
   google_sign_in: ^7.2.0
+  firebase_core: ^4.5.0
+  firebase_crashlytics: ^5.0.8
 
 dev_dependencies:
   flutter_test:

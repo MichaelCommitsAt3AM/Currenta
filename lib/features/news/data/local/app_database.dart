@@ -47,6 +47,8 @@ class NewsArticlesTable extends Table {
   TextColumn get sourceFaviconUrl =>
       text().named('source_favicon_url').nullable()();
   DateTimeColumn get publishedAt => dateTime().named('published_at')();
+  DateTimeColumn get createdAt =>
+      dateTime().named('created_at').withDefault(currentDateAndTime)();
 
   /// Stored as a JSON-encoded list, e.g. '["tech","politics"]'
   TextColumn get categories => text()
@@ -86,7 +88,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -103,6 +105,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 5) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.isFavorited);
+          }
+          if (from < 6) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.createdAt);
           }
         },
       );
