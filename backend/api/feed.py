@@ -79,6 +79,9 @@ async def get_feed(
             
             if not categories_to_fetch:
                 categories_to_fetch.append("all")
+            
+            # Normalize categories (lowercase and trimmed) to match Redis keys and DB storage
+            categories_to_fetch = [str(c).strip().lower() for c in categories_to_fetch]
                 
             # 2. Fetch viewed articles for user
             if user_id:
@@ -96,61 +99,97 @@ async def get_feed(
             # 3. Fetch from Redis
             country_key = country or 'all'
             articles_by_cat = {}
+            missing_categories = []
+            
             if redis_client:
                 import asyncio
+                # Use normalized lowercase keys
                 keys = [f"feed:v2:{country_key}:{cat}" for cat in categories_to_fetch]
                 try:
                     cached_results = await asyncio.gather(*[redis_client.get(k) for k in keys])
                     for cat, cached in zip(categories_to_fetch, cached_results):
                         if cached:
-                            articles_by_cat[cat] = json.loads(cached)
+                            try:
+                                articles_by_cat[cat] = json.loads(cached)
+                            except Exception as e:
+                                logger.warning("Failed to parse cached JSON for %s: %s", cat, e)
+                                missing_categories.append(cat)
+                        else:
+                            missing_categories.append(cat)
                 except Exception as e:
                     logger.warning("Redis fetch error: %s", e)
+                    missing_categories = categories_to_fetch.copy()
+            else:
+                missing_categories = categories_to_fetch.copy()
             
-            # 4. Fallback to DB for missing categories
+            # 4. Fallback to DB for missing categories (BATCH FETCH)
             all_articles = []
+            # Add cached ones first
             for cat in categories_to_fetch:
                 if cat in articles_by_cat:
                     all_articles.extend(articles_by_cat[cat])
-                else:
+            
+            if missing_categories:
+                # Filter out 'all' from categories list for SQL matching; 'all' is handled separately
+                named_categories = [c for c in missing_categories if c != "all"]
+                
+                # Fetch naming categories in one go if any
+                if named_categories or "all" in missing_categories:
                     where_clauses = []
                     params = []
-                    if cat != "all":
-                        if cat == "local" and country_key != 'all':
-                            where_clauses.append(f"${len(params)+1} = ANY(categories) AND country_code = ${len(params)+2}")
-                            params.extend([cat, country_key])
-                        else:
-                            where_clauses.append(f"${len(params)+1} = ANY(categories)")
-                            params.append(cat)
+                    
+                    if "all" not in missing_categories:
+                        # Only specific categories
+                        where_clauses.append("categories && $1::text[]")
+                        params.append(named_categories)
+                        if country_key != 'all':
+                            # Optionally filter by country if provided, but usually global feeds
+                            # are what fill these categories. 
+                            pass 
                     
                     where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                     
-                    # Limit to 200 per category for memory safety and speed. 
-                    # If multiple categories are chosen, the combined pool is larger.
-                    query = f"""
+                    # Increased limit slightly since we are fetching multiple categories in one go
+                    batch_query = f"""
                         SELECT {ARTICLE_COLUMNS}
                         FROM articles
                         {where_sql}
                         ORDER BY published_at DESC
-                        LIMIT 200
+                        LIMIT 500
                     """
-                    records = await conn.fetch(query, *params)
-                    result = []
+                    records = await conn.fetch(batch_query, *params)
+                    
+                    # Group records by category to store back in Redis
+                    temp_results = {cat: [] for cat in missing_categories}
+                    
                     for record in records:
                         r = dict(record)
                         r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
                         r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
                         r['id'] = str(r['id']) if r.get('id') else None
-                        result.append(r)
-                    
-                    all_articles.extend(result)
-                    
+                        
+                        # Add to overall results
+                        all_articles.append(r)
+                        
+                        # Add to individual category buckets for Redis storage
+                        # An article can be in multiple categories
+                        if "all" in missing_categories:
+                            temp_results["all"].append(r)
+                            
+                        article_cats = r.get('categories', [])
+                        for cat in named_categories:
+                            if cat in article_cats:
+                                if len(temp_results[cat]) < 200: # Keep Redis caches lean
+                                    temp_results[cat].append(r)
+
                     # Store back in Redis
                     if redis_client:
-                        try:
-                            await redis_client.set(f"feed:v2:{country_key}:{cat}", json.dumps(result), ex=600)
-                        except Exception as e:
-                            logger.warning("Redis cache write error: %s", e)
+                        for cat, cat_articles in temp_results.items():
+                            if cat_articles:
+                                try:
+                                    await redis_client.set(f"feed:v2:{country_key}:{cat}", json.dumps(cat_articles), ex=600)
+                                except Exception as e:
+                                    logger.warning("Redis cache write error for %s: %s", cat, e)
 
         # 5. Deduplicate, filter viewed, filter before, sort
         seen = set()

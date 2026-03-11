@@ -140,6 +140,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
             data: (feed) {
+              // If we are mid-category-switch (state is data but category hasn't updated yet),
+              // show shimmer to avoid displaying the old category's feed.
+              if (feed.selectedCategory != _selectedCategory) {
+                return const ShimmerFeed();
+              }
+
               if (feed.articles.isEmpty && !feed.isLoadingMore) {
                 return EmptyStateScreen(
                   onRetry: () =>
@@ -192,17 +198,21 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             builder: (context) => _CategoryBar(
               selectedCategory: _selectedCategory,
               onCategoryChanged: (cat) {
+                if (_selectedCategory == cat) return;
+                
                 setState(() {
                   _selectedCategory = cat;
                   _currentIndex = 0; // Reset index tracker
                 });
+
+                // Set notifier to loading state immediately to trigger shimmer
                 ref
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
-                _pageController.jumpToPage(0);
-
-                // No longer pre-fetching URLs here to save user data.
-                // Warming is already handled globally or on first load.
+                
+                if (_pageController.hasClients) {
+                  _pageController.jumpToPage(0);
+                }
               },
               onRefresh: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
@@ -384,7 +394,7 @@ class _CategoryBar extends StatelessWidget {
                   physics: const BouncingScrollPhysics(),
                   children: [
                     _FilterChip(
-                      label: '🌐 All',
+                      label: '✨ For You',
                       isSelected: selectedCategory == null,
                       onTap: () => onCategoryChanged(null),
                     ),

@@ -2,14 +2,13 @@ from curl_cffi import requests
 from trafilatura import bare_extraction
 from PIL import Image
 import io
-import base64
 from bs4 import BeautifulSoup
 import httpx
 from googlenewsdecoder import gnewsdecoder
 import json
 
-def process_image(img_url: str) -> str | None:
-    """Downloads, resizes, and iteratively compresses to target ~150KB."""
+def process_image(img_url: str) -> bytes | None:
+    """Downloads, resizes, and iteratively compresses to target ~150KB. Returns raw bytes."""
     try:
         # 1. Fetch bytes
         res = requests.get(img_url, impersonate="chrome120", timeout=10)
@@ -47,10 +46,39 @@ def process_image(img_url: str) -> str | None:
             
             quality = quality - step
             
-        # 5. Encode to Base64
-        return base64.b64encode(final_buffer.getvalue()).decode("utf-8")
+        # 5. Return raw bytes
+        return final_buffer.getvalue()
     except Exception as e:
         print(f"[Image] Failed to process {img_url}: {e}")
+        return None
+
+def extract_meta_title(html: str) -> str | None:
+    """Fallback manual extraction for article titles."""
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Priority 1: Open Graph Title
+        og_title = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "og:title"})
+        if og_title and og_title.get("content"):
+            return og_title["content"]
+            
+        # Priority 2: Twitter Title
+        twitter_title = soup.find("meta", property="twitter:title") or soup.find("meta", attrs={"name": "twitter:title"})
+        if twitter_title and twitter_title.get("content"):
+            return twitter_title["content"]
+
+        # Priority 3: <title> tag (clean it up)
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
+            # Common patterns to remove: " | TechCrunch", " - Reuters", etc.
+            for separator in [" | ", " - ", " : ", " » "]:
+                if separator in title:
+                    title = title.split(separator)[0]
+            return title
+
+        return None
+    except Exception as e:
+        print(f"[Scraper] Title extraction error: {e}")
         return None
 
 def extract_meta_image(html: str) -> str | None:
@@ -216,7 +244,7 @@ def resolve_google_news_url(url: str) -> str:
 def scrape_article_sync(url: str):
     """
     Synchronous scraper using curl_cffi and trafilatura.
-    Returns text, image_url, and compressed image_base64.
+    Returns text, image_url, and compressed image_bytes.
     """
     try:
         original_url = url
@@ -293,16 +321,20 @@ def scrape_article_sync(url: str):
         if not result.get('text'):
             return {"error": "Could not extract text content", "url": url, "original_url": original_url}
 
-        # 3. Handle Image Compression
+        # 3. Handle Title Fallback
+        if not result.get('title'):
+            result['title'] = extract_meta_title(response.text)
+
+        # 4. Handle Image Compression
         image_url = result.get('image')
         
         # Fallback: manual meta-tag extraction if Trafilatura missed it
         if not image_url:
             image_url = extract_meta_image(response.text)
 
-        image_base64 = None
+        image_bytes = None
         if image_url:
-            image_base64 = process_image(image_url)
+            image_bytes = process_image(image_url)
 
         # 4. Final detection
         is_paywalled = detect_paywall_html(response.text)
@@ -310,7 +342,7 @@ def scrape_article_sync(url: str):
         return {
             "text": result.get('text'),
             "image_url": image_url,
-            "image_base64": image_base64,
+            "image_bytes": image_bytes,
             "title": result.get('title'),
             "url": url,
             "original_url": original_url,
@@ -319,3 +351,36 @@ def scrape_article_sync(url: str):
 
     except Exception as e:
         return {"error": str(e), "url": url, "original_url": original_url}
+
+def discover_techcrunch_articles(limit: int = 10) -> list[dict]:
+    """
+    Discovers latest TechCrunch articles via WP JSON API.
+    Provides a cleaner alternative to RSS.
+    """
+    url = f"https://techcrunch.com/wp-json/wp/v2/posts?per_page={limit}"
+    try:
+        # Use httpx for a simple JSON fetch
+        with httpx.Client(timeout=10.0) as client:
+            res = client.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"})
+            if res.status_code != 200:
+                print(f"[Scraper] TechCrunch API failed (Status {res.status_code})")
+                return []
+            
+            data = res.json()
+            articles = []
+            for post in data:
+                title = post.get("title", {}).get("rendered", "")
+                # Clean HTML entities from title
+                clean_title = BeautifulSoup(title, "html.parser").get_text()
+                
+                articles.append({
+                    "title": clean_title,
+                    "link": post.get("link"),
+                    "pubDate": post.get("date_gmt") + "Z" if post.get("date_gmt") else None,
+                    "source": "TechCrunch",
+                    "description": BeautifulSoup(post.get("excerpt", {}).get("rendered", ""), "html.parser").get_text(strip=True)
+                })
+            return articles
+    except Exception as e:
+        print(f"[Scraper] TechCrunch discovery error: {e}")
+        return []

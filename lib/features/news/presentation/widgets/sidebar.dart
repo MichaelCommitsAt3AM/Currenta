@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../screens/favorites_screen.dart';
+import '../screens/settings_screen.dart';
 
 class Sidebar extends ConsumerWidget {
   final Color catColor;
@@ -140,21 +141,14 @@ class Sidebar extends ConsumerWidget {
                 label: 'Settings',
                 color: Colors.white.withValues(alpha: 0.7),
                 onTap: () {
-                  // TODO: Implement settings screen later
-                  Navigator.pop(context);
+                  Navigator.pop(context); // Close drawer first
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                  );
                 },
               ),
               
-              if (authState.isAuthenticated)
-                _SidebarTile(
-                  icon: Icons.logout_rounded,
-                  label: 'Sign Out',
-                  color: Colors.redAccent.withValues(alpha: 0.8),
-                  onTap: () {
-                    ref.read(authNotifierProvider.notifier).signOut();
-                    Navigator.pop(context);
-                  },
-                ),
               
               const SizedBox(height: 12),
               Padding(

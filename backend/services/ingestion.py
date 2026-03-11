@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 import httpx
 from supabase import create_client, Client
-from .scraper import scrape_article_sync
+from .scraper import scrape_article_sync, discover_techcrunch_articles
 from dateutil import parser as date_parser
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -65,7 +65,7 @@ FEEDS = [
     # Tech
     { "feedUrl": "https://www.techmeme.com/feed.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "neutral" },
-    { "feedUrl": "https://techcrunch.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://techcrunch.com/latest/", "defaultCategory": "tech", "categoryBias": "strong", "method": "site_tc" },
     { "feedUrl": "https://www.wired.com/feed/rss", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://feeds.arstechnica.com/arstechnica/index", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://www.engadget.com/rss.xml", "defaultCategory": "tech", "categoryBias": "neutral" },
@@ -261,7 +261,8 @@ def is_junk_content(text: str, title: str) -> bool:
         "things to know", "stories you missed", "daily news digest", "today's top stories",
         "books in brief", "book review", "summaries of books", "best books of", "reading list",
         "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants",
-        "chart rewind", "historical chart", "this day in history", "on this day", "flashback", "throwback"
+        "chart rewind", "historical chart", "this day in history", "on this day", "flashback", "throwback",
+        "watch live", "streaming live", "video highlights", "video clip", "video-clips"
     ]
     if any(signal in combined for signal in hard_signals):
         return True
@@ -433,13 +434,11 @@ async def embed_text(text: str) -> list[float]:
         embedding = data["data"][0]["embedding"]
         return [float(x) for x in embedding]
 
-async def upload_image_sync(base64_data: str, file_name: str) -> str | None:
+async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
     if not supabase_client:
         print("[Image-Storage] CRITICAL: Supabase client not initialized. Cannot upload.")
         return None
     try:
-        import base64
-        image_bytes = base64.b64decode(base64_data)
         file_path = f"covers/{file_name}.jpg"
         # print(f"[Image-Storage] Attempting upload of {file_path} ({len(image_bytes)/1024:.1f}KB)...")
         
@@ -522,7 +521,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "score update", "game tracker", "live blog", "play-by-play", "score summary",
         "news in brief", "daily briefing", "around the web", "what we're reading", "recap",
         "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity",
-        "chart rewind", "historical chart", "this day in history", "on this day"
+        "chart rewind", "historical chart", "this day in history", "on this day",
+        "watch live", "streaming live", "video-clips", "video highlights"
     ]
     
     parsed_items = []
@@ -579,7 +579,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
                 continue
         
         # 3. Common non-article paths
-        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/"]
+        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/", "/video-clips/"]
         if any(p in link.lower() for p in non_article_paths):
             print(f"[parseRss] Skipping Non-article Path: {link}")
             continue
@@ -653,12 +653,16 @@ async def log_ingestion_event(conn, url, status, source_name=None, error_type=No
     except Exception as e:
         print(f"[Logger] Failed to write to ingestion_logs: {e}")
 
-async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None):
+async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss"):
     results = {"ingested": 0, "skipped": 0, "errors": 0}
     try:
-        items = await parse_rss(feed_url)
+        if method == "site_tc":
+            # Run the synchronous discovery in a thread pool
+            items = await asyncio.to_thread(discover_techcrunch_articles, 10)
+        else:
+            items = await parse_rss(feed_url)
     except Exception as e:
-        print(f"[processFeed] RSS parse error for {feed_url}: {e}")
+        print(f"[processFeed] Discovery error for {feed_url} ({method}): {e}")
         return results
 
     if not items:
@@ -727,9 +731,9 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         article_text = result_text
                         scraper_status = "SUCCESS"
 
-                    if not scraper_text_is_error and scraper_result.get("image_base64"):
+                    if not scraper_text_is_error and scraper_result.get("image_bytes"):
                         image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                        persistent_url = await upload_image_sync(scraper_result["image_base64"], image_file_name)
+                        persistent_url = await upload_image_sync(scraper_result["image_bytes"], image_file_name)
                         article_image_url = persistent_url or scraper_result.get("image_url")
                     else:
                         article_image_url = scraper_result.get("image_url") if not scraper_error_msg else None
@@ -738,10 +742,10 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     if not article_image_url and item.get("imageUrl"):
                         article_image_url = item.get("imageUrl")
                         from .scraper import process_image
-                        image_base64 = process_image(article_image_url)
-                        if image_base64:
+                        image_bytes_fallback = process_image(article_image_url)
+                        if image_bytes_fallback:
                             image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                            persistent_url = await upload_image_sync(image_base64, image_file_name)
+                            persistent_url = await upload_image_sync(image_bytes_fallback, image_file_name)
                             if persistent_url:
                                 article_image_url = persistent_url
 
@@ -917,18 +921,18 @@ async def orchestrate():
     # 5. Orchestration Sequential Bottleneck: Use controlled concurrency
     semaphore = asyncio.Semaphore(4) # Limit to 4 concurrent feeds to avoid overloading LLM/DB
 
-    async def safe_process(url, cat, bias, country=None):
+    async def safe_process(url, cat, bias, country=None, method="rss"):
         if SHOULD_STOP_INGESTION:
             return
         async with semaphore:
-            print(f"[Orchestrator] Processing: {url} (Country: {country})")
+            print(f"[Orchestrator] Processing: {url} (Method: {method})")
             try:
-                await process_feed(url, cat, bias, db_pool, country_code=country)
+                await process_feed(url, cat, bias, db_pool, country_code=country, method=method)
             except Exception as e:
                 print(f"[Orchestrator] Error processing feed {url}: {e}")
 
     # Create tasks for all global feeds
-    tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"]) for f in FEEDS]
+    tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"], method=f.get("method", "rss")) for f in FEEDS]
     
     # Add tasks for supported local regions
     for region in SUPPORTED_LOCAL_REGIONS:
