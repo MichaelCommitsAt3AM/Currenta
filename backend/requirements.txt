@@ -17,3 +17,4 @@ google-genai==1.66.0
 googlenewsdecoder==0.1.7
 python-dateutil==2.9.0.post0
 lxml==6.0.2
+redis==5.2.1

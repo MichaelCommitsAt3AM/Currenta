@@ -101,7 +101,8 @@ FEEDS = [
     { "feedUrl": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://www.healthline.com/rss/all-news.xml", "defaultCategory": "health", "categoryBias": "strong" },
+    { "feedUrl": "https://medicalxpress.com/rss-feed/health-news/", "defaultCategory": "health", "categoryBias": "strong" },
+    { "feedUrl": "https://kffhealthnews.org/feed/", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://www.mayoclinic.org/rss/all-news-topics.xml", "defaultCategory": "health", "categoryBias": "strong" },
     # Google News
     { "feedUrl": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
@@ -130,7 +131,7 @@ def build_google_news_rss_url(country_code: str = "US", language_code: str = "en
 
 SUMMARIZATION_PROMPT = """You are a factual news summarizer and multi-label classifier.
 1. Generate a strict, non-clickbait title.
-2. Generate a concise 5Ws summary of EXACTLY 64 words.
+2. Generate a concise 5Ws summary of strictly between 60 and 68 words in exactly 3–4 sentences, each sentence roughly 15–20 words.
 3. Identify ALL applicable categories for this article (an article can belong to more than one).
 4. Determine the content "type" (hard_news, analysis, opinion, review, listicle, sponsored, irrelevant).
 
@@ -144,7 +145,7 @@ Return the result as a raw JSON object only (no preamble):
 }
 
 Rules:
-1. "summary" MUST be exactly 64 words. Count carefully. Use the example below as a guide for length.
+1. "summary" MUST be EXACTLY 65 words (tolerance: 60-70 words), written in exactly 3-4 sentences, each roughly 15-20 words. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
 3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
 4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
@@ -152,8 +153,10 @@ Rules:
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
    - opinion/review/listicle/sponsored/irrelevant: Low-signal fluff for a news app.
-     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
+     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, HISTORICAL RETROSPECTIVES (e.g., "On this day in history", "Chart Rewind"), and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
 6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
+7. **Historical Content**: Historical retrospectives, "today in history", or "chart rewinds" (looking back at old charts/events) MUST be classified as "type": "irrelevant".
+8. **Negative Constraint**: Do NOT open with meta-phrases like "The article reports that...", "According to the article...", "This article covers...", or similar. Start directly with the news.
 
 Example of a 64-word summary (Use this density as a template):
 "Following a significant technological breakthrough, researchers at the leading national laboratory successfully demonstrated a new quantum computing architecture. This innovative approach utilizes stable silicon-based qubits, drastically reducing error rates compared to previous superconducting models. The team believes this advancement paves the logical path towards commercially viable quantum systems within five years, potentially revolutionizing cryptography, materials science, and complex financial modeling worldwide starting today."
@@ -165,6 +168,61 @@ def generate_content_hash(link: str, title: str) -> str:
     s = link + title
     return hashlib.sha256(s.encode('utf-8')).hexdigest()
 
+PAYWALL_SIGNALS = [
+    "subscribe to read",
+    "subscribe to continue",
+    "create a free account to read",
+    "sign in to read",
+    "this content is for subscribers",
+    "get full access for",
+    "ksh299/week",
+    "uncover the stories others won",
+    "subscribe now for exclusive access",
+    "join thousands daily",
+    "the standard e-paper",
+    "register to read",
+    "start your free trial",
+    "only for subscribers",
+    "premium content",
+    "support quality journalism",
+    "read the full story with a",
+    "keep reading with a",
+    "exclusive for members",
+    "membership required",
+    "start reading for free",
+    "limited free articles",
+    "reached your free article limit",
+    "daily allowance of free articles",
+]
+
+TECHNICAL_ERROR_SIGNALS = [
+    "javascript disabled",
+    "javascript is disabled",
+    "javascript must be enabled",
+    "please enable javascript",
+    "requires javascript",
+    "browser extension blocking",
+    "browser extension is preventing",
+    "a required part of the site couldn",
+    "this site requires javascript",
+    "you need to enable javascript",
+    "technical issue prevents",
+    "site loading due to",
+    "blocking video player",
+    "disable the extension",
+    "403 forbidden",
+    "access denied",
+    "cookie consent",
+    "browser not supported",
+    "upgrade your browser",
+]
+
+def detect_paywall(text: str) -> bool:
+    if not text:
+        return False
+    lower = text.lower()
+    return any(signal in lower for signal in PAYWALL_SIGNALS)
+
 def is_scraper_error_page(text: str) -> bool:
     if not text:
         return True
@@ -172,39 +230,7 @@ def is_scraper_error_page(text: str) -> bool:
     if len(text.strip()) < 10:
         return True
     lower = text.lower()
-    error_signals = [
-        "javascript disabled",
-        "javascript is disabled",
-        "javascript must be enabled",
-        "please enable javascript",
-        "requires javascript",
-        "browser extension blocking",
-        "browser extension is preventing",
-        "a required part of the site couldn",
-        "this site requires javascript",
-        "you need to enable javascript",
-        "technical issue prevents",
-        "site loading due to",
-        "blocking video player",
-        "disable the extension",
-        "403 forbidden",
-        "access denied",
-        "subscribe to read",
-        "subscribe to continue",
-        "create a free account to read",
-        "sign in to read",
-        "this content is for subscribers",
-        "cookie consent",
-        "browser not supported",
-        "upgrade your browser",
-        "get full access for",
-        "ksh299/week",
-        "uncover the stories others won",
-        "subscribe now for exclusive access",
-        "join thousands daily",
-        "the standard e-paper",
-    ]
-    return any(signal in lower for signal in error_signals)
+    return any(signal in lower for signal in (PAYWALL_SIGNALS + TECHNICAL_ERROR_SIGNALS))
 
 def is_junk_content(text: str, title: str) -> bool:
     """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
@@ -234,7 +260,8 @@ def is_junk_content(text: str, title: str) -> bool:
         "half-time report", "halftime report", "mid-game", "scoring summary", "live scoring",
         "things to know", "stories you missed", "daily news digest", "today's top stories",
         "books in brief", "book review", "summaries of books", "best books of", "reading list",
-        "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants"
+        "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants",
+        "chart rewind", "historical chart", "this day in history", "on this day", "flashback", "throwback"
     ]
     if any(signal in combined for signal in hard_signals):
         return True
@@ -264,7 +291,7 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
     full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}\n\nArticle:\n{text}"
     raw_content = ""
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         if provider == "gemini":
             res = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
@@ -303,7 +330,7 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
                     "messages": [{"role": "user", "content": full_prompt}],
                     "format": "json",
                     "max_tokens": 500,
-                    "temperature": 0.1,
+                    "temperature": 0.3,
                     "stream": False
                 }
             )
@@ -312,6 +339,19 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
             raw_content = data["choices"][0]["message"]["content"].strip()
 
     return parse_llm_response(raw_content)
+
+def _trim_to_word_limit(text: str, limit: int) -> str:
+    """Trim summary to at most `limit` words, cutting at the last complete sentence."""
+    words = text.split()
+    if len(words) <= limit:
+        return text
+    truncated = " ".join(words[:limit])
+    # Try to cut at the last sentence boundary within the truncated text
+    for punct in (".", "!", "?"):
+        last = truncated.rfind(punct)
+        if last != -1:
+            return truncated[:last + 1]
+    return truncated
 
 def parse_llm_response(raw_str: str) -> dict:
     # 4. LLM Failure Handling: Add robust parsing layer
@@ -347,6 +387,7 @@ def parse_llm_response(raw_str: str) -> dict:
     try:
         title = parsed.get("title", "News Update").replace("**", "").strip('"')
         summary = parsed.get("summary", raw_str).replace("**", "").strip('"')
+        summary = _trim_to_word_limit(summary, 68)
         
         raw_categories = parsed.get("categories", [])
         if not raw_categories and isinstance(parsed.get("category"), str):
@@ -381,7 +422,7 @@ def parse_llm_response(raw_str: str) -> dict:
         }
 
 async def embed_text(text: str) -> list[float]:
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         res = await client.post(
             f"{LOCAL_LLM_BASE_URL}/embeddings",
             headers={"Content-Type": "application/json", "ngrok-skip-browser-warning": "true"},
@@ -442,11 +483,11 @@ async def parse_rss(feed_url: str) -> list[dict]:
     feed = soup.find('feed')
     
     if channel and channel.title:
-        channel_title = channel.title.text
+        channel_title = channel.title.text.strip()
     elif feed and feed.title:
-        channel_title = feed.title.text
+        channel_title = feed.title.text.strip()
     elif soup.title:
-        channel_title = soup.title.text
+        channel_title = soup.title.text.strip()
     else:
         channel_title = "Unknown Source"
     
@@ -463,6 +504,10 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "BBC News": "BBC",
         "Reuters: Top News": "Reuters",
         "Google News": "Google News",
+        "Medical Xpress - Health News": "Medical Xpress",
+        "Medical Xpress": "Medical Xpress",
+        "KFF Health News": "KFF Health News",
+        "CBS Sports Headlines": "CBS Sports",
     }
     channel_display_name = source_mapping.get(channel_title, channel_title)
     
@@ -476,7 +521,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "discount code", "voucher", "archive page", "daily summary", "roundup", "newsletter",
         "score update", "game tracker", "live blog", "play-by-play", "score summary",
         "news in brief", "daily briefing", "around the web", "what we're reading", "recap",
-        "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity"
+        "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity",
+        "chart rewind", "historical chart", "this day in history", "on this day"
     ]
     
     parsed_items = []
@@ -489,7 +535,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
         if item_source and item_source.text:
             source_name = item_source.text.strip()
 
-        title = item.title.text if item.title else ""
+        title = item.title.text.strip() if item.title else ""
         link = ""
         if item.link:
             link = item.link.get_text(strip=True)
@@ -655,14 +701,18 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     scraper_result = await asyncio.to_thread(scrape_article_sync, item["link"])
                     scraper_error_msg = scraper_result.get("error")
                     scraper_text_is_error = False
+                    is_paywalled = False
 
                     if scraper_error_msg:
                         print(f"[processFeed] Scraper Error for {item['link']}: {scraper_error_msg}")
                         scraper_text_is_error = True
                         result_text = item.get("description", "")
                     else:
-                        scraper_text_is_error = is_scraper_error_page(scraper_result.get("text", ""))
-                        result_text = scraper_result.get("text", "")
+                        scraped_text = scraper_result.get("text", "")
+                        # Use the flag from scraper (HTML-based) OR our text-based detection
+                        is_paywalled = scraper_result.get("is_paywalled", False) or detect_paywall(scraped_text)
+                        scraper_text_is_error = is_scraper_error_page(scraped_text)
+                        result_text = scraped_text
 
                     if scraper_text_is_error:
                         print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
@@ -704,10 +754,10 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     article_text = fallback_text
                     scraper_status = "DEGRADED"
 
-                if len(article_text) < 100:
+                if len(article_text) < 350:
                     article_text = f"{item['title']}\n\n{article_text}"
 
-                if is_scraper_error_page(article_text) or len(article_text) < 100:
+                if is_scraper_error_page(article_text) or len(article_text) < 350:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message="Combined content failed validation")
                     results["skipped"] += 1
                     continue
@@ -721,6 +771,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 try:
                     llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
                 except Exception as llm_err:
+                    print(f"[processFeed] LLM ERROR for {item['link']}: {llm_err}")
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="LLM_ERROR", error_message=str(llm_err))
                     results["skipped"] += 1
                     continue
@@ -755,22 +806,25 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     # Argument $9 is the embedding vector
                     embedding_str = f"[{','.join(map(str, embedding))}]"
                     
+                    # Determine ingestion method for analysis
+                    ingestion_method = "scraper" if scraper_status == "SUCCESS" else "rss"
+                    
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
-                            published_at, categories, subcategory, embedding, content_hash, summary_model, country_code, created_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+                            published_at, categories, subcategory, embedding, content_hash, 
+                            summary_model, country_code, is_paywalled, ingestion_method, created_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
                         ON CONFLICT (original_url) DO NOTHING
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
                     item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code)
+                    embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method)
                     
                     # Log successful ingestion with details
                     final_status = scraper_status
                     if final_status == "SUCCESS" and not article_image_url:
                         final_status = "SUCCESS_NO_IMAGE"
-                    
                     await log_ingestion_event(
                         conn, item["link"], final_status, 
                         source_name=item["source"], 
@@ -784,17 +838,67 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     )
 
                     results["ingested"] += 1
-                    print(f"[processFeed] Success! {llm_res['title'][:40]}...")
+                    print(f"[processFeed] Success! {llm_res['title'][:40]}... (Paywalled: {is_paywalled})")
                 except Exception as db_err:
                     print(f"[processFeed] DB Insert Error: {db_err}")
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="DB_INSERT_ERROR", error_message=str(db_err))
-                    results["errors"] += 1
 
             except Exception as item_err:
                 print(f"[processFeed] Item processing error: {item_err}")
                 results["errors"] += 1
 
+        # --- Cache Warming ---
+        # After successfully ingesting items, we proactively refresh the category caches.
+        if results["ingested"] > 0:
+            # We don't block ingestion on warming, just spawn it
+            asyncio.create_task(warm_category_cache(category, country_code, db_pool))
+
     return results
+
+async def warm_category_cache(category: str, country_code: Optional[str], db_pool):
+    """
+    Proactively fetches the latest articles for a category and updates Redis.
+    This ensures the 'first user' always hits a warm cache.
+    """
+    from ..api.feed import ARTICLE_COLUMNS
+    import json
+    
+    country_key = country_code or 'all'
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+    
+    try:
+        async with db_pool.acquire() as conn:
+            where_clauses = []
+            params = []
+            if category != "all":
+                if category == "local" and country_key != 'all':
+                    where_clauses.append(f"'{category}' = ANY(categories) AND country_code = $1")
+                    params.append(country_key)
+                else:
+                    where_clauses.append(f"$1 = ANY(categories)")
+                    params.append(category)
+            
+            where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            query = f"SELECT {ARTICLE_COLUMNS} FROM articles {where_sql} ORDER BY published_at DESC LIMIT 200"
+            
+            records = await conn.fetch(query, *params)
+            result = []
+            for record in records:
+                r = dict(record)
+                r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
+                r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+                r['id'] = str(r['id']) if r.get('id') else None
+                result.append(r)
+
+            # Connect to Redis briefly to update
+            import redis.asyncio as redis_lib
+            r_client = redis_lib.from_url(redis_url, decode_responses=True)
+            await r_client.set(f"feed:v2:{country_key}:{category}", json.dumps(result), ex=600)
+            await r_client.close()
+            # print(f"[Cache-Warming] Updated cache for {country_key}:{category}")
+            
+    except Exception as e:
+        print(f"[Cache-Warming] Failed for {category}: {e}")
 
 async def orchestrate():
     """

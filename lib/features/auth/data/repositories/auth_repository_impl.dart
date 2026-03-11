@@ -102,7 +102,10 @@ class AuthRepositoryImpl implements AuthRepository {
       // 4. PREVENT CONFLICT: Sign out of any local anonymous session before upgrading
       // to the Google session. This is safer for some Supabase edge cases.
       final currentSession = _supabase.auth.currentSession;
-      if (currentSession != null && currentSession.user.isAnonymous) {
+      final oldUid = currentSession?.user.id;
+      final isAnonymous = currentSession?.user.isAnonymous ?? false;
+
+      if (isAnonymous) {
         debugPrint('[Auth] Clearing existing anonymous session...');
         await _supabase.auth.signOut(scope: SignOutScope.local);
       }
@@ -113,6 +116,23 @@ class AuthRepositoryImpl implements AuthRepository {
         provider: OAuthProvider.google,
         idToken: idToken,
       );
+      
+      final newUid = response.user?.id;
+      
+      // 6. Migrate Data if transitioning from Anonymous
+      if (isAnonymous && oldUid != null && newUid != null && oldUid != newUid) {
+        debugPrint('[Auth] Upgrading account: Migrating data from $oldUid to $newUid');
+        try {
+          await _supabase.rpc('migrate_user_data', params: {
+            'old_uid': oldUid,
+            'new_uid': newUid,
+          });
+        } catch (e) {
+          debugPrint('[Auth] Warning: Data migration failed: $e');
+          // We don't throw here because they are successfully signed in,
+          // but logging is important for debugging.
+        }
+      }
       
       debugPrint('[Auth] Supabase response received. User: ${response.user?.email}');
       debugPrint('[Auth] --- Native Google Sign-In Success ---');
@@ -151,6 +171,27 @@ class AuthRepositoryImpl implements AuthRepository {
       throw ServerException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
+    }
+  }
+  @override
+  Future<void> saveUserInterests(List<String> categories) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) {
+      throw const ServerException('Must be authenticated to save interests');
+    }
+
+    try {
+      final dataToInsert = categories.map((cat) => {
+        'user_id': uid,
+        'category': cat,
+      }).toList();
+
+      // We use upsert to cleanly handle re-selections or updates
+      await _supabase
+          .from('user_interests')
+          .upsert(dataToInsert, onConflict: 'user_id, category');
+    } catch (e) {
+      throw ServerException('Failed to save interests: $e');
     }
   }
 }

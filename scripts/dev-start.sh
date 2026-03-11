@@ -58,12 +58,10 @@ command -v jq     >/dev/null 2>&1 || warn "jq not found — ngrok URL extraction
 
 [[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
 
-# Ensure python backend requirements are installed
-if [[ -d "${PROJECT_ROOT}/backend" ]]; then
-  info "Checking Backend dependencies..."
-  if [[ ! -d "${PROJECT_ROOT}/venv" ]]; then
-    warn "Virtual env not found for backend. Please run 'python3 -m venv venv && source venv/bin/activate && pip install -r backend/requirements.txt'"
-  fi
+# Ensure Docker is available
+info "Checking Docker Status..."
+if ! docker compose version >/dev/null 2>&1; then
+  warn "Docker Compose not found. Please ensure Docker is installed."
 fi
 
 ok "All dependencies found"
@@ -159,14 +157,9 @@ if curl -sf "http://localhost:${BACKEND_PORT}/health" > /dev/null 2>&1; then
   ok "Backend Service is already running on port ${BACKEND_PORT}"
   BACKEND_READY=true
 else
-  info "Starting FastAPI Backend in background..."
-  # Use the root venv and run from project root to ensure module resolution
-  source "${PROJECT_ROOT}/venv/bin/activate"
-  PYTHONPATH="${PROJECT_ROOT}" nohup uvicorn backend.main:app --port ${BACKEND_PORT} --host 0.0.0.0 \
-    >"${PROJECT_ROOT}/.backend.log" 2>&1 &
-  echo $! >"${PROJECT_ROOT}/.backend.pid"
-  info "Backend PID $(cat "${PROJECT_ROOT}/.backend.pid") — logs: .backend.log"
-
+  info "Starting Backend via Docker Compose..."
+  docker compose up -d api redis
+  
   info "Waiting for Backend Service to be ready..."
   HEALTH_JSON=""
   for i in $(seq 1 20); do
@@ -186,7 +179,7 @@ else
 fi
 
 if [[ "${BACKEND_READY}" != "true" ]]; then
-  warn "Backend Service did not become fully healthy. Check .backend.log."
+  warn "Backend Service did not become fully healthy. Check Docker logs: 'docker compose logs api'"
   [[ -n "${HEALTH_JSON:-}" ]] && echo -e "    Health report: ${HEALTH_JSON}"
 else
   ok "Backend Service ready on port ${BACKEND_PORT}"
@@ -272,6 +265,7 @@ echo -e "  ${BOLD}App Details:${RESET}"
 echo -e "    📁  Config:    lib/core/config/app_config.dart"
 echo -e "    🌐  Base URL:  ${BACKEND_NGROK_URL}"
 echo -e "    💊  Health:    http://localhost:${BACKEND_PORT}/health"
+echo -e "    📝  Logs:      docker compose logs -f api"
 echo ""
 echo -e "  To stop all services:  ${BOLD}bash scripts/dev-stop.sh${RESET}"
 echo ""

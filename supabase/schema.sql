@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS articles (
   categories        TEXT[] NOT NULL DEFAULT '{world}',
   subcategory       TEXT,
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
+  ingestion_method  TEXT, -- 'scraper' or 'rss' (for analysis)
   cluster_id        UUID,
   content_hash      TEXT,
   summary_model     TEXT,

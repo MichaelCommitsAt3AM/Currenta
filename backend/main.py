@@ -15,6 +15,7 @@ import asyncpg
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+import redis.asyncio as redis
 
 from .services.scheduler import start_scheduler, stop_scheduler
 from .core.security import limiter
@@ -44,12 +45,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Global database pool
+# Global database pool and Redis client
 db_pool = None
+redis_client = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_pool
+    global db_pool, redis_client
 
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
@@ -76,6 +78,18 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("DATABASE_URL is not set — database features will be unavailable.")
 
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+    try:
+        logger.info(f"Connecting to Redis at {redis_url}...")
+        redis_client = redis.from_url(redis_url, decode_responses=True)
+        # Test connection
+        await redis_client.ping()
+        app.state.redis_client = redis_client
+        logger.info("Connected to Redis.")
+    except Exception as e:
+        logger.error("Failed to connect to Redis: %s", e)
+        app.state.redis_client = None
+
     start_scheduler()
 
     yield
@@ -84,6 +98,9 @@ async def lifespan(app: FastAPI):
     if db_pool:
         await db_pool.close()
         logger.info("Closed PostgreSQL pool.")
+    if redis_client:
+        await redis_client.close()
+        logger.info("Closed Redis connection.")
 
 app = FastAPI(title="Currenta Backend", lifespan=lifespan)
 
@@ -160,6 +177,22 @@ async def health_check():
         report["database"] = {"status": "error", "detail": "Pool not initialised"}
         overall_ok = False
 
+    # ── 1.5. Redis ────────────────────────────────────────────────────────────
+    redis_cli = getattr(app.state, "redis_client", None)
+    if redis_cli:
+        try:
+            t0 = time.monotonic()
+            await redis_cli.ping()
+            latency_ms = round((time.monotonic() - t0) * 1000, 1)
+            report["redis"] = {"status": "ok", "latency_ms": latency_ms}
+        except Exception as e:
+            logger.error("Health check — Redis probe failed: %s", e)
+            report["redis"] = {"status": "error", "detail": "Ping failed"}
+            overall_ok = False
+    else:
+        report["redis"] = {"status": "unconfigured", "detail": "REDIS_URL not set or connection failed"}
+        overall_ok = False
+        
     # ── 2. Gemini (google-genai) — config check only, no live API call ───────
     # A live API call would add unnecessary latency and cost to every probe.
     if _genai_client is not None:

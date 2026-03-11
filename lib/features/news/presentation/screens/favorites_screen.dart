@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/favorites_notifier.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
-import '../../../../theme/theme.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 

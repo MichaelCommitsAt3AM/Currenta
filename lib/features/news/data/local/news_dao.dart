@@ -213,13 +213,16 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     return res.isNotEmpty;
   }
 
-  // ── Cache Cleanup ─────────────────────────────────────────────
-
   /// Deletes all articles with publishedAt before [threshold].
   Future<int> deleteArticlesOlderThan(DateTime threshold) {
     return (delete(newsArticlesTable)
           ..where((t) => t.publishedAt.isSmallerThanValue(threshold)))
         .go();
+  }
+
+  /// Clears the entire articles cache.
+  Future<void> deleteAllArticles() async {
+    await delete(newsArticlesTable).go();
   }
 }
 

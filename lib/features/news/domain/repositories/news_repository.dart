@@ -38,6 +38,9 @@ abstract class NewsRepository {
   /// Removes articles older than the configured cache max age from local DB.
   Future<void> clearOldCache();
 
+  /// Completely clears the local articles cache.
+  Future<void> clearCache();
+
   /// Pre-fetches the top [count] articles for offline availability.
   Future<void> prefetchTopArticles({int count = 20});
 

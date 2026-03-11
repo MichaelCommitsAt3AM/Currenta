@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, Backgroun
 from uuid import UUID
 import asyncpg
 from typing import Optional
+import json
 from ..core.security import limiter, verify_supabase_jwt, User
 from ..services.ingestion import fetch_local_news_on_demand
 
@@ -44,6 +45,7 @@ async def get_feed(
     """
     Returns the newest articles, skipping ones the user has already viewed.
     Supports cursor-based pagination via 'before' parameter.
+    Uses Redis category-level caching for high performance.
     """
     # --- Input validation ---
     if category and category not in VALID_CATEGORIES:
@@ -56,45 +58,132 @@ async def get_feed(
 
     try:
         user_id = user.id if user else None
-
+        redis_client = getattr(request.app.state, "redis_client", None)
+        
+        categories_to_fetch = []
+        viewed_ids = set()
+        
         async with db_pool.acquire() as conn:
-            where_clauses = []
-            params = []
-
+            # 1. Determine categories
             if category:
-                if category == "local" and country:
-                    where_clauses.append(f"$1 = ANY(categories) AND country_code = $2")
-                    params.extend([category, country])
-                else:
-                    where_clauses.append(f"$1 = ANY(categories)")
-                    params.append(category)
-
-            if before:
-                p_idx = len(params) + 1
-                where_clauses.append(f"published_at < ${p_idx}")
-                params.append(before)
-
+                categories_to_fetch.append(category)
+            elif user_id:
+                try:
+                    interest_records = await conn.fetch(
+                        "SELECT category FROM user_interests WHERE user_id = $1", 
+                        user_id
+                    )
+                    categories_to_fetch = [r['category'] for r in interest_records]
+                except Exception as e:
+                    logger.warning("Failed to fetch user interests: %s", e)
+            
+            if not categories_to_fetch:
+                categories_to_fetch.append("all")
+                
+            # 2. Fetch viewed articles for user
             if user_id:
-                p_idx = len(params) + 1
-                where_clauses.append(f"id NOT IN (SELECT article_id FROM article_views WHERE user_id = ${p_idx}::uuid)")
-                params.append(user_id)
+                try:
+                    # Fetching all views is fast since it's an indexed UUID key,
+                    # but if it grows too large, a limit could be applied here.
+                    view_records = await conn.fetch(
+                        "SELECT article_id FROM article_views WHERE user_id = $1::uuid", 
+                        user_id
+                    )
+                    viewed_ids = {str(r['article_id']) for r in view_records}
+                except Exception as e:
+                    logger.warning("Failed to fetch viewed articles: %s", e)
 
-            where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            # 3. Fetch from Redis
+            country_key = country or 'all'
+            articles_by_cat = {}
+            if redis_client:
+                import asyncio
+                keys = [f"feed:v2:{country_key}:{cat}" for cat in categories_to_fetch]
+                try:
+                    cached_results = await asyncio.gather(*[redis_client.get(k) for k in keys])
+                    for cat, cached in zip(categories_to_fetch, cached_results):
+                        if cached:
+                            articles_by_cat[cat] = json.loads(cached)
+                except Exception as e:
+                    logger.warning("Redis fetch error: %s", e)
+            
+            # 4. Fallback to DB for missing categories
+            all_articles = []
+            for cat in categories_to_fetch:
+                if cat in articles_by_cat:
+                    all_articles.extend(articles_by_cat[cat])
+                else:
+                    where_clauses = []
+                    params = []
+                    if cat != "all":
+                        if cat == "local" and country_key != 'all':
+                            where_clauses.append(f"${len(params)+1} = ANY(categories) AND country_code = ${len(params)+2}")
+                            params.extend([cat, country_key])
+                        else:
+                            where_clauses.append(f"${len(params)+1} = ANY(categories)")
+                            params.append(cat)
+                    
+                    where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+                    
+                    # Limit to 200 per category for memory safety and speed. 
+                    # If multiple categories are chosen, the combined pool is larger.
+                    query = f"""
+                        SELECT {ARTICLE_COLUMNS}
+                        FROM articles
+                        {where_sql}
+                        ORDER BY published_at DESC
+                        LIMIT 200
+                    """
+                    records = await conn.fetch(query, *params)
+                    result = []
+                    for record in records:
+                        r = dict(record)
+                        r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
+                        r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+                        r['id'] = str(r['id']) if r.get('id') else None
+                        result.append(r)
+                    
+                    all_articles.extend(result)
+                    
+                    # Store back in Redis
+                    if redis_client:
+                        try:
+                            await redis_client.set(f"feed:v2:{country_key}:{cat}", json.dumps(result), ex=600)
+                        except Exception as e:
+                            logger.warning("Redis cache write error: %s", e)
 
-            l_idx = len(params) + 1
-            o_idx = len(params) + 2
-            params.extend([limit, offset])
+        # 5. Deduplicate, filter viewed, filter before, sort
+        seen = set()
+        unique_filtered = []
+        for a in all_articles:
+            aid = a['id']
+            if aid in seen:
+                continue
+            if aid in viewed_ids:
+                continue
+            if before and a.get('published_at'):
+                # String comparison works for ISO-8601 timestamps
+                if a['published_at'] >= before:
+                    continue
+            
+            seen.add(aid)
+            unique_filtered.append(a)
+            
+        unique_filtered.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+        
+        # 6. Apply pagination
+        final_result = unique_filtered[offset:offset+limit]
 
-            query = f"""
-                SELECT {ARTICLE_COLUMNS}
-                FROM articles
-                {where_sql}
-                ORDER BY published_at DESC
-                LIMIT ${l_idx} OFFSET ${o_idx}
-            """
-
-            records = await conn.fetch(query, *params)
-            return [dict(record) for record in records]
+        # 7. Metrics Logging (Observability)
+        logger.info(
+            f"Feed request: categories={len(categories_to_fetch)} "
+            f"redis_hits={len(articles_by_cat)} "
+            f"merged={len(all_articles)} "
+            f"filtered_out={len(all_articles) - len(unique_filtered)} "
+            f"returned={len(final_result)}"
+        )
+        
+        return final_result
 
     except HTTPException:
         raise

@@ -61,20 +61,12 @@ else
   info "No background ollama PID file found (systemd-managed Ollama is left running)"
 fi
 
-# ── Backend Service ─────────────────────────────────────────────────────────────
-BACKEND_PID_FILE="${PROJECT_ROOT}/.backend.pid"
-if [[ -f "${BACKEND_PID_FILE}" ]]; then
-  BACKEND_PID=$(cat "${BACKEND_PID_FILE}")
-  if kill "${BACKEND_PID}" 2>/dev/null; then
-    ok "Stopped FastAPI Backend (PID ${BACKEND_PID})"
-  else
-    warn "Backend Service PID ${BACKEND_PID} was not running"
-  fi
-  rm -f "${BACKEND_PID_FILE}"
-elif pgrep -f "uvicorn backend.main:app" >/dev/null 2>&1; then
-  pkill -f "uvicorn backend.main:app" && ok "Stopped Backend Service" || warn "Could not stop Backend Service"
+# ── Backend & Redis (Docker) ──────────────────────────────────────────────────
+info "Stopping Backend and Redis via Docker Compose..."
+if docker compose ps >/dev/null 2>&1; then
+  docker compose down && ok "Stopped Docker services" || warn "Failed to stop Docker services"
 else
-  info "Backend Service was not running"
+  info "Backend services were not running in Docker"
 fi
 
 # Cleanup log files

@@ -274,15 +274,49 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Incorporates pending articles into the main feed and clears the count.
   /// This is usually triggered by a 'New Stories' button in the UI.
+  ///
+  /// CRITICAL: To prevent the user from seeing articles they already scrolled past,
+  /// we truncate the 'old' feed to only include articles that haven't been viewed yet.
   void applyPendingArticles() {
     final current = state.valueOrNull;
     if (current == null || current.pendingArticles.isEmpty) return;
 
+    // Filter out articles the user has already seen to keep the feed fresh
+    final unviewedOldArticles =
+        current.articles.where((a) => !a.isViewed).toList();
+
+    // Deduplicate against pending articles just in case of overlap
+    final pendingIds = current.pendingArticles.map((a) => a.id).toSet();
+    final uniqueUnviewedOld =
+        unviewedOldArticles.where((a) => !pendingIds.contains(a.id)).toList();
+
     state = AsyncData(current.copyWith(
-      articles: [...current.pendingArticles, ...current.articles],
+      articles: [...current.pendingArticles, ...uniqueUnviewedOld],
       pendingArticles: [],
       newArticlesCount: 0,
     ));
+  }
+
+  /// Explicitly marks an article as viewed in memory and persists to DB.
+  /// This ensures that [applyPendingArticles] can correctly filter out seen articles.
+  Future<void> markArticleAsViewed(String articleId) async {
+    final current = state.valueOrNull;
+    if (current == null) return;
+
+    // 1. Update in-memory state immediately
+    final updatedArticles = current.articles.map((a) {
+      if (a.id == articleId) return a.copyWith(isViewed: true);
+      return a;
+    }).toList();
+
+    state = AsyncData(current.copyWith(articles: updatedArticles));
+
+    // 2. Persist to Repository
+    try {
+      await _repo.markAsViewed(articleId);
+    } catch (e) {
+      debugPrint('[Feed] failed to mark article $articleId as viewed: $e');
+    }
   }
 
   // ── Private ─────────────────────────────────────────────────────

@@ -148,6 +148,54 @@ def extract_ld_json_content(html: str) -> dict | None:
         print(f"[Scraper] JSON-LD content extraction error: {e}")
         return None
 
+def detect_paywall_html(html: str) -> bool:
+    """Detects paywalls using meta tags and JSON-LD schema metadata."""
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # 1. Schema.org isAccessibleForFree (very common in news)
+        # Check meta tags first
+        meta_free = soup.find("meta", attrs={"itemprop": "isAccessibleForFree"}) or \
+                    soup.find("meta", property="isAccessibleForFree") or \
+                    soup.find("meta", attrs={"name": "isAccessibleForFree"})
+        if meta_free and meta_free.get("content", "").lower() == "false":
+            return True
+
+        # 2. JSON-LD isAccessibleForFree
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(script.get_text())
+                items = data if isinstance(data, list) else [data]
+                if isinstance(data, dict) and "@graph" in data:
+                    items.extend(data["@graph"])
+                
+                for item in items:
+                    if not isinstance(item, dict): continue
+                    if str(item.get("isAccessibleForFree")).lower() == "false":
+                        return True
+                    # Some sites hide it in hasPart
+                    has_part = item.get("hasPart")
+                    if isinstance(has_part, dict):
+                        if str(has_part.get("isAccessibleForFree")).lower() == "false":
+                            return True
+                    elif isinstance(has_part, list):
+                        for part in has_part:
+                            if isinstance(part, dict) and str(part.get("isAccessibleForFree")).lower() == "false":
+                                return True
+            except:
+                continue
+
+        # 3. Known meta-tag patterns
+        # article:premium, news_keywords containing 'premium', etc.
+        premium = soup.find("meta", property="article:premium") or \
+                  soup.find("meta", attrs={"name": "premium"})
+        if premium and premium.get("content", "").lower() in ("true", "yes", "1"):
+            return True
+            
+        return False
+    except:
+        return False
+
 def resolve_google_news_url(url: str) -> str:
     """Decodes Google News wrapper URLs using googlenewsdecoder."""
     if "news.google.com/rss/articles/" not in url:
@@ -256,13 +304,17 @@ def scrape_article_sync(url: str):
         if image_url:
             image_base64 = process_image(image_url)
 
+        # 4. Final detection
+        is_paywalled = detect_paywall_html(response.text)
+
         return {
             "text": result.get('text'),
             "image_url": image_url,
             "image_base64": image_base64,
             "title": result.get('title'),
             "url": url,
-            "original_url": original_url
+            "original_url": original_url,
+            "is_paywalled": is_paywalled
         }
 
     except Exception as e:

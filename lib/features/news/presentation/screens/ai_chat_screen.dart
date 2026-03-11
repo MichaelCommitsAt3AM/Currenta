@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../application/ai_chat_notifier.dart';
@@ -115,7 +115,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                     ),
                   ),
                   Text(
-                    widget.article.sourceName,
+                    widget.article.sourceName.trim(),
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.5),
                       fontSize: 12,
@@ -187,31 +187,138 @@ class _ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
 
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-        ),
-        decoration: BoxDecoration(
-          color: isUser ? const Color(0xFF6C63FF) : const Color(0xFF1A1E2E),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
+    if (isUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.sizeOf(context).width * 0.75,
+          ),
+          decoration: const BoxDecoration(
+            color: Color(0xFF6C63FF),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+              bottomLeft: Radius.circular(20),
+              bottomRight: Radius.circular(4),
+            ),
+          ),
+          child: Text(
+            message.content,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              height: 1.4,
+            ),
           ),
         ),
-        child: Text(
-          message.content,
-          style: TextStyle(
-            color: isUser ? Colors.white : const Color(0xFFF0F2FF),
-            fontSize: 15,
-            height: 1.4,
+      );
+    }
+
+    // AI Response - Full Screen style like ChatGPT
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 14,
+                  color: Color(0xFF6C63FF),
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Assistant',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
-        ),
+          const SizedBox(height: 12),
+          MarkdownBody(
+            data: message.content,
+            selectable: true,
+            styleSheet: MarkdownStyleSheet(
+              blockSpacing: 16,
+              p: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 16,
+                height: 1.6,
+                letterSpacing: 0.2,
+              ),
+              h1: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                height: 1.4,
+              ),
+              h2: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                height: 1.4,
+              ),
+              h3: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                height: 1.4,
+              ),
+              listBullet: const TextStyle(
+                color: Color(0xFF6C63FF),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              listIndent: 24,
+              blockquote: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontStyle: FontStyle.italic,
+              ),
+              blockquotePadding: const EdgeInsets.all(12),
+              blockquoteDecoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                border: const Border(
+                  left: BorderSide(color: Color(0xFF6C63FF), width: 3),
+                ),
+              ),
+              code: TextStyle(
+                backgroundColor: Colors.white.withValues(alpha: 0.1),
+                fontFamily: 'monospace',
+                fontSize: 14,
+                color: const Color(0xFF6C63FF),
+              ),
+              codeblockPadding: const EdgeInsets.all(12),
+              codeblockDecoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              horizontalRuleDecoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    width: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -362,34 +469,53 @@ class _TypingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1E2E),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-            bottomLeft: Radius.circular(4),
-            bottomRight: Radius.circular(16),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (index) {
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2),
-              width: 6,
-              height: 6,
-              decoration: const BoxDecoration(
-                color: Color(0xFF6C63FF),
-                shape: BoxShape.circle,
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 14,
+                  color: Color(0xFF6C63FF),
+                ),
               ),
-            );
-          }),
-        ),
+              const SizedBox(width: 8),
+              const Text(
+                'Assistant is thinking...',
+                style: TextStyle(
+                  color: Color(0xFF6C63FF),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (index) {
+              return Container(
+                margin: const EdgeInsets.only(right: 4),
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
+                  shape: BoxShape.circle,
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }

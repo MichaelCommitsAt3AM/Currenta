@@ -77,9 +77,11 @@ class AiChatNotifier extends _$AiChatNotifier {
         ),
       );
 
-      // Add an initial empty model message to stream into.
+      // Add an initial empty model message to stream into and clear the
+      // loading flag so the typing indicator is replaced by the bubble.
       state = state.copyWith(
         messages: [...state.messages, ChatMessage(role: 'model', content: '')],
+        isLoading: false,
       );
 
       final lineStream = utf8.decoder

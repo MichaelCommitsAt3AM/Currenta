@@ -69,7 +69,9 @@ def _build_system_instruction(article: dict) -> str:
         f"2. NARRATIVE: Explain the story's context like a journalist. Connect external facts back to the specific actors "
         f"and events mentioned in the article above.\n"
         f"3. NO FLUFF: Do not engage in coding, general advice, or unrelated creative tasks. Your domain is strictly news context.\n"
-        f"4. FACTUALITY: If search results are unavailable or inconclusive, state that clearly."
+        f"4. FACTUALITY: If search results are unavailable or inconclusive, state that clearly.\n"
+        f"5. CONCISENESS: Your responses MUST be short and concise. Aim for 1-2 short paragraphs or a few bullet points. "
+        f"Avoid long-winded output unless the user explicitly asks for a deep dive or long explanation."
     )
 
 
@@ -154,7 +156,7 @@ async def chat_with_article(
 
         # 5. Create an async chat session with grounding + system instruction
         chat_session = _genai_client.aio.chats.create(
-            model="gemini-2.5-flash-lite-preview-06-17",
+            model="gemini-2.5-flash-lite",
             config=genai_types.GenerateContentConfig(
                 system_instruction=_build_system_instruction(article),
                 tools=[_GOOGLE_SEARCH_TOOL],

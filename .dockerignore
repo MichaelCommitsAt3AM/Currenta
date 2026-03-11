@@ -1,0 +1,31 @@
+# Ignore all Flutter/Mobile related stuff
+android/
+ios/
+build/
+.dart_tool/
+.flutter-plugins/
+.flutter-plugins-dependencies
+assets/
+lib/
+test/
+
+# Ignore development files
+venv/
+node_modules/
+.git/
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore environment/logs
+.env
+*.log
+.ngrok.log
+.ollama.log
+.uvicorn.log
+.ngrok.pid
+.ollama.pid
+/tmp/

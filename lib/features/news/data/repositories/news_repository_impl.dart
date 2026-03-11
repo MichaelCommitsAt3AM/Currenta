@@ -110,6 +110,15 @@ class NewsRepositoryImpl implements NewsRepository {
     }
   }
 
+  @override
+  Future<void> clearCache() async {
+    try {
+      await _dao.deleteAllArticles();
+    } catch (e) {
+      throw CacheException();
+    }
+  }
+
   // ── Background Prefetch ───────────────────────────────────────
 
   @override

@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
-import '../../../../core/providers/providers.dart';
 import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
 import '../widgets/sidebar.dart';
@@ -104,7 +103,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       // Only track if we haven't tracked it this session
       if (!_viewedIdsInSession.contains(article.id)) {
         _viewedIdsInSession.add(article.id);
-        ref.read(newsRepositoryProvider).markAsViewed(article.id);
+        ref
+            .read(newsFeedNotifierProvider.notifier)
+            .markArticleAsViewed(article.id);
       }
     }
   }

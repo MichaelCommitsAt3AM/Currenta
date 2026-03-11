@@ -13,7 +13,6 @@ const _kBgCacheCleanTaskName = 'currenta_cache_clean';
 Future<void> registerBackgroundTasks() async {
   await Workmanager().initialize(
     _backgroundCallbackDispatcher,
-    isInDebugMode: false,
   );
 
   // ── Prefetch top articles every N hours ──────────────────────

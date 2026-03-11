@@ -25,4 +25,7 @@ abstract class AuthRepository {
 
   /// Signs the user out.
   Future<void> signOut();
+
+  /// Saves the user's selected interests to the database.
+  Future<void> saveUserInterests(List<String> categories);
 }

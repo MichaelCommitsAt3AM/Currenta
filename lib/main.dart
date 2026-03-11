@@ -7,9 +7,12 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'firebase_options.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/config/app_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'theme/theme.dart';
 import 'features/news/application/background_fetch_service.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
+import 'features/auth/presentation/screens/onboarding_screen.dart';
 
 // ── Crash Reporting Shim ─────────────────────────────────────────────────────
 void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
@@ -80,18 +83,24 @@ Future<void> main() async {
     await supabase.auth.signInAnonymously();
   }
 
+  // ── Initial Route Check ───────────────────────────────────────
+  final prefs = await SharedPreferences.getInstance();
+  final hasCompletedOnboarding = prefs.getBool('has_completed_onboarding') ?? false;
+
   // ── Background Tasks ──────────────────────────────────────────
   await registerBackgroundTasks();
 
   runApp(
-    const ProviderScope(
-      child: CurrentaApp(),
+    ProviderScope(
+      child: CurrentaApp(initialScreen: hasCompletedOnboarding ? const FeedScreen() : const OnboardingScreen()),
     ),
   );
 }
 
 class CurrentaApp extends StatelessWidget {
-  const CurrentaApp({super.key});
+  const CurrentaApp({super.key, required this.initialScreen});
+
+  final Widget initialScreen;
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +108,7 @@ class CurrentaApp extends StatelessWidget {
       title: 'Currenta',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
-      home: const FeedScreen(),
+      home: initialScreen,
     );
   }
 }

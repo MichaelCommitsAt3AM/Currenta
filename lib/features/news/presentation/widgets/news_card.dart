@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:auto_size_text/auto_size_text.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 import '../../application/news_feed_notifier.dart';
@@ -331,7 +332,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                     ),
 
                   // ── Title ──────────────────────────────────────────
-                  Text(
+                  AutoSizeText(
                     widget.article.title,
                     style: const TextStyle(
                       color: Colors.white,
@@ -341,6 +342,8 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                       letterSpacing: -0.3,
                     ),
                     maxLines: 3,
+                    minFontSize: 14,
+                    stepGranularity: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
 
@@ -362,72 +365,78 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                      ),
                    ),
  
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 2),
 
                   // ── Source Row (tap to open article in default browser) ──
                   GestureDetector(
                     onTap: () =>
                         _openOriginal(context, widget.article.originalUrl),
-                    child: Row(
-                      children: [
-                        if (widget.article.sourceFaviconUrl != null)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: CachedNetworkImage(
-                                imageUrl: widget.article.sourceFaviconUrl!,
-                                width: 20,
-                                height: 20,
-                                placeholder: (context, url) => Container(
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        children: [
+                          if (widget.article.sourceFaviconUrl != null)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: CachedNetworkImage(
+                                  imageUrl: widget.article.sourceFaviconUrl!,
                                   width: 20,
                                   height: 20,
-                                  color: Colors.white.withValues(alpha: 0.05),
+                                  placeholder: (context, url) => Container(
+                                    width: 20,
+                                    height: 20,
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                  ),
+                                  errorWidget: (context, url, _) =>
+                                      const SizedBox.shrink(),
                                 ),
-                                errorWidget: (context, url, _) =>
-                                    const SizedBox.shrink(),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 20,
+                              height: 20,
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: catColor.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  widget.article.sourceName.trim().isNotEmpty 
+                                      ? widget.article.sourceName.trim()[0] 
+                                      : '?',
+                                  style: TextStyle(
+                                      color: catColor,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ),
-                          )
-                        else
-                          Container(
-                            width: 20,
-                            height: 20,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: catColor.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Center(
-                              child: Text(
-                                widget.article.sourceName[0],
-                                style: TextStyle(
-                                    color: catColor,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold),
+                          Expanded(
+                            child: Text(
+                              widget.article.sourceName.trim(),
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        Expanded(
-                          child: Text(
-                            widget.article.sourceName,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.open_in_new_rounded,
-                            size: 14, color: catColor.withValues(alpha: 0.6)),
-                      ],
+                          const SizedBox(width: 8),
+                          Icon(Icons.open_in_new_rounded,
+                              size: 14, color: catColor.withValues(alpha: 0.6)),
+                        ],
+                      ),
                     ),
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
 
                   // ── Footer Actions ───────────────────────────────
                   Row(
