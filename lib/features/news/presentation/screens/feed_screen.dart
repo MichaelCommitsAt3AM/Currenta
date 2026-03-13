@@ -3,7 +3,9 @@
 // swipe down (upward gesture) advances to the next story.
 // Loads the next batch of 10 articles when the user is within 5 pages of the end.
 
+import 'dart:async';
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/news_feed_notifier.dart';
@@ -11,6 +13,7 @@ import '../../domain/entities/news_category.dart';
 import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
 import '../widgets/sidebar.dart';
+import '../../../auth/application/auth_notifier.dart';
 import '../widgets/ai_quick_chat_sheet.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
@@ -30,6 +33,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   int _currentIndex = 0;
   final Set<String> _viewedIdsInSession = {};
   bool _hasWarmedUpBrowser = false;
+  Timer? _viewTimer;
 
   @override
   void initState() {
@@ -49,6 +53,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   void dispose() {
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
+    _viewTimer?.cancel();
     super.dispose();
   }
 
@@ -101,15 +106,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   void _trackPageView(int index) {
+    _viewTimer?.cancel();
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed != null && index < feed.articles.length) {
       final article = feed.articles[index];
       // Only track if we haven't tracked it this session
       if (!_viewedIdsInSession.contains(article.id)) {
-        _viewedIdsInSession.add(article.id);
-        ref
-            .read(newsFeedNotifierProvider.notifier)
-            .markArticleAsViewed(article.id);
+        _viewTimer = Timer(const Duration(seconds: 2), () {
+          if (!mounted) return;
+          _viewedIdsInSession.add(article.id);
+          ref
+              .read(newsFeedNotifierProvider.notifier)
+              .markArticleAsViewed(article.id);
+        });
       }
     }
   }
@@ -354,7 +363,7 @@ class _LoadingMorePage extends StatelessWidget {
 
 // ── Category filter bar ───────────────────────────────────────────────────────
 
-class _CategoryBar extends StatelessWidget {
+class _CategoryBar extends ConsumerWidget {
   const _CategoryBar({
     required this.selectedCategory,
     required this.onCategoryChanged,
@@ -368,7 +377,7 @@ class _CategoryBar extends StatelessWidget {
   final VoidCallback onOpenDrawer;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final topPadding = MediaQuery.paddingOf(context).top;
 
     return Container(
@@ -422,10 +431,9 @@ class _CategoryBar extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     ...NewsCategory.values
-                        .where((cat) => cat.isSupported(View.of(context)
-                            .platformDispatcher
-                            .locale
-                            .countryCode))
+                        .where((cat) => cat.isSupported(
+                          ref.watch(authNotifierProvider).preferredCountry ?? 
+                          View.of(context).platformDispatcher.locale.countryCode))
                         .map((cat) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: _FilterChip(

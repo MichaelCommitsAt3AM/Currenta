@@ -33,7 +33,6 @@ dependencies:
   # ── UI / Images ─────────────────────────────────────────────────
   cached_network_image: ^3.4.1
   shimmer: ^3.0.0
-  google_fonts: ^6.2.1
   animations: ^2.0.11
 
   # ── Background Tasks ────────────────────────────────────────────
@@ -74,18 +73,36 @@ flutter:
   assets:
     - assets/icons/
     - assets/fonts/
-    - assets/images/
-    - assets/animations/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/inter/Inter-Variable.ttf
+        - asset: assets/fonts/inter/Inter-Italic-Variable.ttf
+          style: italic
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/outfit/Outfit-Variable.ttf
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/icons/app_logo.jpg"
+  image_path: "assets/icons/launcher_icon.png"
   min_sdk_android: 21
 
+
+
 flutter_native_splash:
-  color: "#FFFFFF"
-  image: "assets/icons/app_logo.jpg"
+  color: "#0A0C14"
+  image: "assets/icons/app_logo_new.png"
   android: true
   ios: true
   fullscreen: true
+  
+  # Android 12+ Support
+  android_12:
+    image: "assets/icons/app_logo_new.png"
+    color: "#0A0C14"
+    icon_background_color: "#0A0C14"
+
+
+

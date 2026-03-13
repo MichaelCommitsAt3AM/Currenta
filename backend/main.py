@@ -18,6 +18,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import redis.asyncio as redis
 
 from .services.scheduler import start_scheduler, stop_scheduler
+from .core.logging_config import setup_logging
 from .core.security import limiter
 from .api import feed, ingest, chat
 from .version import VERSION
@@ -27,10 +28,7 @@ import asyncio
 # ---------------------------------------------------------------------------
 # Logging — configure once at startup so all modules use structured output
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

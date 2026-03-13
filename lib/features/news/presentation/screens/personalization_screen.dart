@@ -17,6 +17,7 @@ class PersonalizationScreen extends ConsumerStatefulWidget {
 class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   final Set<NewsCategory> _selectedCategories = {};
   final Set<NewsSubCategory> _selectedSubCategories = {};
+  String? _selectedCountry;
   bool _isLoading = true;
   bool _isSaving = false;
 
@@ -31,6 +32,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       final repository = ref.read(authRepositoryProvider);
       final interests = await repository.getUserInterests();
       final subInterests = await repository.getUserSubInterests();
+      final preferredCountry = await repository.getPreferredCountry();
       
       if (mounted) {
         setState(() {
@@ -49,6 +51,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                 _selectedSubCategories.add(subCategory);
              } catch (_) {}
           }
+          _selectedCountry = preferredCountry;
           _isLoading = false;
         });
       }
@@ -121,7 +124,15 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         }
       }
       
+      // Save Country Preference
+      if (_selectedCountry != null) {
+        await repository.savePreferredCountry(_selectedCountry!);
+      }
+      
       if (mounted) {
+        // Refresh the global country preference
+        ref.read(authNotifierProvider.notifier).refreshPreferredCountry();
+        
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Interests updated successfully')),
@@ -201,11 +212,55 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
               const Padding(
                 padding: EdgeInsets.fromLTRB(24, 8, 24, 24),
                 child: Text(
-                  'Choose at least 3 topics and fine-tune with sub-categories to personalize your feed.',
+                  'Choose your preferred region for local news and select at least 3 topics to personalize your feed.',
                   style: TextStyle(
                     color: Colors.white70,
                     fontSize: 15,
                     height: 1.5,
+                  ),
+                ),
+              ),
+
+              // Country Selection
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Local News Region',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      child: Row(
+                        children: [
+                          // "Auto" or "Detect" option
+                          _buildCountryChip(null, 'Detect'),
+                          ...NewsCategory.supportedCountries.map((code) => 
+                            _buildCountryChip(code, NewsCategory.getCountryName(code)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const Padding(
+                padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
+                child: Text(
+                  'Topics',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -376,6 +431,47 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
               ),
             ],
           ),
+    );
+  }
+
+  Widget _buildCountryChip(String? code, String label) {
+    final isSelected = _selectedCountry == code;
+    final emoji = code != null ? NewsCategory.getCountryEmoji(code) : '📍';
+    
+    return GestureDetector(
+      onTap: () => setState(() => _selectedCountry = code),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected 
+              ? const Color(0xFF6C63FF).withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected 
+                ? const Color(0xFF6C63FF)
+                : Colors.white.withValues(alpha: 0.1),
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white70,
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

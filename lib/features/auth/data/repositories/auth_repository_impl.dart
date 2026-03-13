@@ -29,6 +29,24 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  String? get displayName {
+    final user = _supabase.auth.currentUser;
+    if (user != null && !user.isAnonymous) {
+      return user.userMetadata?['full_name'] as String?;
+    }
+    return null;
+  }
+
+  @override
+  String? get avatarUrl {
+    final user = _supabase.auth.currentUser;
+    if (user != null && !user.isAnonymous) {
+      return user.userMetadata?['avatar_url'] as String?;
+    }
+    return null;
+  }
+
+  @override
   Future<void> signInWithEmail({
     required String email,
     required String password,
@@ -286,6 +304,44 @@ class AuthRepositoryImpl implements AuthRepository {
           .eq('user_id', uid);
     } catch (e) {
       debugPrint('[Auth] Error clearing sub-interests: $e');
+    }
+  }
+
+  @override
+  Future<void> savePreferredCountry(String countryCode) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) {
+      throw const ServerException('Must be authenticated to save country preference');
+    }
+
+    try {
+      await _supabase.from('user_profiles').upsert({
+        'user_id': uid,
+        'preferred_country': countryCode,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('[Auth] Error saving preferred country: $e');
+      throw ServerException('Failed to save country preference: $e');
+    }
+  }
+
+  @override
+  Future<String?> getPreferredCountry() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return null;
+
+    try {
+      final response = await _supabase
+          .from('user_profiles')
+          .select('preferred_country')
+          .eq('user_id', uid)
+          .maybeSingle();
+      
+      return response?['preferred_country'] as String?;
+    } catch (e) {
+      debugPrint('[Auth] Error fetching preferred country: $e');
+      return null;
     }
   }
 

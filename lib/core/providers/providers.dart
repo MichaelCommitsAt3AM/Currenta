@@ -47,6 +47,7 @@ final newsRepositoryProvider = Provider<NewsRepository>((ref) {
   return NewsRepositoryImpl(
     database: ref.watch(appDatabaseProvider),
     remote: ref.watch(newsRemoteDataSourceProvider),
+    auth: ref.watch(authRepositoryProvider),
   );
 });
 

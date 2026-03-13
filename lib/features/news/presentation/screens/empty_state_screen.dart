@@ -1,7 +1,6 @@
 // lib/features/news/presentation/screens/empty_state_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class EmptyStateScreen extends StatefulWidget {
   const EmptyStateScreen({
@@ -86,10 +85,11 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
 
             Text(
               widget.title,
-              style: GoogleFonts.inter(
+              style: const TextStyle(
+                fontFamily: 'Inter',
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFFF0F2FF),
+                color: Color(0xFFF0F2FF),
               ),
             ),
 
@@ -98,9 +98,10 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
             Text(
               widget.message,
               textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
+              style: const TextStyle(
+                fontFamily: 'Inter',
                 fontSize: 14,
-                color: const Color(0xFF8890B5),
+                color: Color(0xFF8890B5),
                 height: 1.6,
               ),
             ),
@@ -122,7 +123,8 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
-                textStyle: GoogleFonts.inter(
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),

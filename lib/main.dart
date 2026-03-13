@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'firebase_options.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/config/app_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,40 +30,33 @@ void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
 }
 
 Future<void> main() async {
+  // ── Error Handling ────────────────────────────────────────────────────────
+  
   // Catch all errors thrown synchronously in Flutter framework callbacks
-  // (e.g. build, layout, paint). In release builds this prevents white screens.
   FlutterError.onError = (FlutterErrorDetails details) {
     _reportError(details.exception, details.stack ?? StackTrace.current);
-    // Re-present the error in debug mode (keeps the red screen behaviour).
     FlutterError.presentError(details);
-    
-    // Route fatal errors directly to Crashlytics
     FirebaseCrashlytics.instance.recordFlutterFatalError(details);
   };
 
   // Catch all async / isolate errors not caught by FlutterError.onError.
-  // Return true to mark the error as handled (prevents process termination).
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     _reportError(error, stack, fatal: true);
     return true;
   };
 
   // ── Silence debugPrint in Production ───────────────────────────────────────
-  // debugPrint still writes to logcat in release mode by default. This overrides
-  // it to be a no-op in release, ensuring zero console output in production.
   if (kReleaseMode) {
     debugPrint = (String? message, {int? wrapWidth}) {};
   }
 
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   
-  // ── Firebase Initialization ────────────────────────────────────────────────
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // ── Splash Screen ──────────────────────────────────────────────────────────
+  // Preserve the native splash screen until critical initializations are done.
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
   
-  // ── System UI ────────────────────────────────────────────────
-  // Enable drawing behind status and navigation bars for a seamless immersive look
+  // ── System UI ──────────────────────────────────────────────────────────────
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -70,31 +65,55 @@ Future<void> main() async {
     systemNavigationBarIconBrightness: Brightness.light,
   ));
 
-  // ── Supabase x──────────────────────────────────────────────────
-  await Supabase.initialize(
-    url: AppConfig.supabaseUrl,
-    anonKey: AppConfig.supabaseAnonKey,
-  );
+  // ── Parallel Initialization ────────────────────────────────────────────────
+  // Grouping core heavy-hitters to initialize concurrently.
+  final initResults = await Future.wait([
+    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+    Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      anonKey: AppConfig.supabaseAnonKey,
+    ),
+    SharedPreferences.getInstance(),
+  ]);
 
-  // Sign in anonymously if no session exists to track 'seen' state
-  final supabase = Supabase.instance.client;
-  if (supabase.auth.currentSession == null) {
-    debugPrint('[Auth] No session found. Signing in anonymously...');
-    await supabase.auth.signInAnonymously();
-  }
-
-  // ── Initial Route Check ───────────────────────────────────────
-  final prefs = await SharedPreferences.getInstance();
+  final prefs = initResults[2] as SharedPreferences;
   final hasCompletedOnboarding = prefs.getBool('has_completed_onboarding') ?? false;
 
-  // ── Background Tasks ──────────────────────────────────────────
-  await registerBackgroundTasks();
+  // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
+  // These tasks don't need to block the first frame.
+  unawaited(_initializeDeferredTasks());
 
   runApp(
     ProviderScope(
-      child: CurrentaApp(initialScreen: hasCompletedOnboarding ? const FeedScreen() : const OnboardingScreen()),
+      child: CurrentaApp(
+        initialScreen: hasCompletedOnboarding 
+            ? const FeedScreen() 
+            : const OnboardingScreen(),
+      ),
     ),
   );
+
+  // ── Remove Splash ─────────────────────────────────────────────────────────
+  // Now that the first frame is ready, we remove the splash screen.
+  FlutterNativeSplash.remove();
+}
+
+/// Tasks that can run after the app has started or in the background
+/// to improve the 'Time to Interactive'.
+Future<void> _initializeDeferredTasks() async {
+  try {
+    // 1. Register background tasks
+    await registerBackgroundTasks();
+
+    // 2. Sign in anonymously if no session exists to track 'seen' state
+    final supabase = Supabase.instance.client;
+    if (supabase.auth.currentSession == null) {
+      debugPrint('[Auth] No session found. Signing in anonymously (deferred)...');
+      await supabase.auth.signInAnonymously();
+    }
+  } catch (e) {
+    debugPrint('[Init] Deferred initialization failed: $e');
+  }
 }
 
 class CurrentaApp extends StatelessWidget {

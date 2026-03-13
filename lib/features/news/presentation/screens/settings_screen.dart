@@ -16,6 +16,8 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authNotifierProvider);
+    final isAuthenticated = authState.isAuthenticated;
     final isAnon = Supabase.instance.client.auth.currentSession?.user.isAnonymous ?? true;
     final userEmail = Supabase.instance.client.auth.currentSession?.user.email;
 
@@ -60,14 +62,16 @@ class SettingsScreen extends ConsumerWidget {
                 isDestructive: false,
                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
               ),
-              const _Divider(),
-              _SettingsTile(
-                icon: Icons.logout_rounded,
-                title: 'Log Out',
-                subtitle: 'Sign out of your account',
-                isDestructive: true,
-                onTap: () => _showLogoutConfirmation(context, ref),
-              ),
+              if (isAuthenticated) ...[
+                const _Divider(),
+                _SettingsTile(
+                  icon: Icons.logout_rounded,
+                  title: 'Log Out',
+                  subtitle: 'Sign out of your account',
+                  isDestructive: true,
+                  onTap: () => _showLogoutConfirmation(context, ref),
+                ),
+              ],
             ],
           ),
 

@@ -1,7 +1,6 @@
 // lib/features/news/presentation/screens/error_state_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class ErrorStateScreen extends StatelessWidget {
   const ErrorStateScreen({
@@ -40,10 +39,11 @@ class ErrorStateScreen extends StatelessWidget {
             const SizedBox(height: 24),
             Text(
               'Something went wrong',
-              style: GoogleFonts.inter(
+              style: const TextStyle(
+                fontFamily: 'Inter',
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFFF0F2FF),
+                color: Color(0xFFF0F2FF),
               ),
             ),
             const SizedBox(height: 10),
@@ -52,9 +52,10 @@ class ErrorStateScreen extends StatelessWidget {
                   ? '${error.toString().substring(0, 120)}…'
                   : error.toString(),
               textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
+              style: const TextStyle(
+                fontFamily: 'Inter',
                 fontSize: 13,
-                color: const Color(0xFF8890B5),
+                color: Color(0xFF8890B5),
                 height: 1.5,
               ),
             ),
@@ -75,8 +76,11 @@ class ErrorStateScreen extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                textStyle: GoogleFonts.inter(
-                    fontWeight: FontWeight.w600, fontSize: 14),
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
               ),
             ),
           ],

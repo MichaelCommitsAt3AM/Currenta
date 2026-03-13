@@ -10,7 +10,55 @@ enum NewsCategory {
   world,
   environment;
 
-  static const supportedCountries = ['KE'];
+  static const supportedCountries = [
+    'KE', // Kenya
+    'NG', // Nigeria
+    'ZA', // South Africa
+    'GB', // United Kingdom
+    'IN', // India
+    'CA', // Canada
+    'AU', // Australia
+    'DE', // Germany
+    'FR', // France
+    'JP', // Japan
+    'BR', // Brazil
+  ];
+
+  static String getCountryName(String code) {
+    return switch (code.toUpperCase()) {
+      'KE' => 'Kenya',
+      'NG' => 'Nigeria',
+      'ZA' => 'South Africa',
+      'GB' => 'United Kingdom',
+      'IN' => 'India',
+      'CA' => 'Canada',
+      'AU' => 'Australia',
+      'DE' => 'Germany',
+      'FR' => 'France',
+      'JP' => 'Japan',
+      'BR' => 'Brazil',
+      'US' => 'United States',
+      _ => 'Global',
+    };
+  }
+
+  static String getCountryEmoji(String code) {
+    return switch (code.toUpperCase()) {
+      'KE' => '🇰🇪',
+      'NG' => '🇳🇬',
+      'ZA' => '🇿🇦',
+      'GB' => '🇬🇧',
+      'IN' => '🇮🇳',
+      'CA' => '🇨🇦',
+      'AU' => '🇦🇺',
+      'DE' => '🇩🇪',
+      'FR' => '🇫🇷',
+      'JP' => '🇯🇵',
+      'BR' => '🇧🇷',
+      'US' => '🇺🇸',
+      _ => '🌐',
+    };
+  }
 
   bool isSupported(String? countryCode) {
     if (this != NewsCategory.local) return true;

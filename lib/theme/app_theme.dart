@@ -2,7 +2,6 @@
 // Dark-first premium design system for Currenta.
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   AppTheme._();
@@ -29,25 +28,29 @@ class AppTheme {
           onSurface: _textPrimary,
         ),
         textTheme:
-            GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
-          displayLarge: GoogleFonts.inter(
+            ThemeData.dark().textTheme.apply(fontFamily: 'Inter').copyWith(
+          displayLarge: const TextStyle(
+            fontFamily: 'Inter',
             color: _textPrimary,
             fontWeight: FontWeight.w700,
             fontSize: 28,
           ),
-          titleLarge: GoogleFonts.inter(
+          titleLarge: const TextStyle(
+            fontFamily: 'Inter',
             color: _textPrimary,
             fontWeight: FontWeight.w600,
             fontSize: 18,
             height: 1.3,
           ),
-          bodyMedium: GoogleFonts.inter(
+          bodyMedium: const TextStyle(
+            fontFamily: 'Inter',
             color: _textSecondary,
             fontWeight: FontWeight.w400,
             fontSize: 14,
             height: 1.6,
           ),
-          labelSmall: GoogleFonts.inter(
+          labelSmall: const TextStyle(
+            fontFamily: 'Inter',
             color: _textSecondary,
             fontWeight: FontWeight.w500,
             fontSize: 11,
@@ -68,7 +71,8 @@ class AppTheme {
           backgroundColor: _bgDeep,
           elevation: 0,
           scrolledUnderElevation: 0,
-          titleTextStyle: GoogleFonts.inter(
+          titleTextStyle: const TextStyle(
+            fontFamily: 'Inter',
             color: _textPrimary,
             fontWeight: FontWeight.w700,
             fontSize: 22,
@@ -78,7 +82,8 @@ class AppTheme {
         chipTheme: ChipThemeData(
           backgroundColor: _bgSurface,
           selectedColor: _accent.withValues(alpha: 0.2),
-          labelStyle: GoogleFonts.inter(
+          labelStyle: const TextStyle(
+            fontFamily: 'Inter',
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),

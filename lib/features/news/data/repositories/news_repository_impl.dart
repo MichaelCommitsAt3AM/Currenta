@@ -11,15 +11,20 @@ import '../remote/news_remote_datasource.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
 
+import '../../../auth/domain/repositories/auth_repository.dart';
+
 class NewsRepositoryImpl implements NewsRepository {
   NewsRepositoryImpl({
     required AppDatabase database,
     required NewsRemoteDataSource remote,
+    required AuthRepository auth,
   })  : _dao = NewsDao(database),
-        _remote = remote;
+        _remote = remote,
+        _auth = auth;
 
   final NewsDao _dao;
   final NewsRemoteDataSource _remote;
+  final AuthRepository _auth;
 
   // ── Watch (reactive stream from local DB) ──────────────────────
 
@@ -56,7 +61,8 @@ class NewsRepositoryImpl implements NewsRepository {
   @override
   Future<void> refreshFeed() async {
     try {
-      final remoteArticles = await _remote.fetchArticles();
+      final country = await _auth.getPreferredCountry();
+      final remoteArticles = await _remote.fetchArticles(country: country);
       final companions = remoteArticles.map((a) => a.toCompanion()).toList();
       await _dao.upsertArticles(companions);
     } on AppException {
@@ -77,8 +83,10 @@ class NewsRepositoryImpl implements NewsRepository {
     int limit = 30,
   }) async {
     try {
+      final country = await _auth.getPreferredCountry();
       final remoteArticles = await _remote.fetchArticles(
         category: category,
+        country: country,
         limit: limit,
         offset: remoteOffset,
         before: before,
@@ -125,7 +133,8 @@ class NewsRepositoryImpl implements NewsRepository {
   Future<void> prefetchTopArticles(
       {int count = AppConfig.backgroundPrefetchCount}) async {
     try {
-      final articles = await _remote.fetchArticles(limit: count);
+      final country = await _auth.getPreferredCountry();
+      final articles = await _remote.fetchArticles(limit: count, country: country);
       await _dao.upsertArticles(articles.map((a) => a.toCompanion()).toList());
     } on AppException {
       rethrow;

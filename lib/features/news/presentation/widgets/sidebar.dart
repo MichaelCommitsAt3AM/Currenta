@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
 
@@ -47,9 +48,52 @@ class Sidebar extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Branding Section ────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: accentColor.withValues(alpha: 0.2),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.asset(
+                          'assets/icons/app_logo.jpg',
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Currenta',
+                      style: const TextStyle(
+                        fontFamily: 'Outfit',
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
               // ── Header Section ──────────────────────────────────────────
               Padding(
-                padding: const EdgeInsets.all(24.0),
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -65,16 +109,33 @@ class Sidebar extends ConsumerWidget {
                         ),
                       ),
                       child: Center(
-                        child: Icon(
-                          Icons.person_outline_rounded,
-                          size: 32,
-                          color: accentColor,
-                        ),
+                        child: authState.avatarUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(32),
+                                child: Image.network(
+                                  authState.avatarUrl!,
+                                  width: 64,
+                                  height: 64,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => Icon(
+                                    Icons.person_outline_rounded,
+                                    size: 32,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              )
+                            : Icon(
+                                Icons.person_outline_rounded,
+                                size: 32,
+                                color: accentColor,
+                              ),
                       ),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      authState.isAuthenticated ? 'Welcome back!' : 'Currenta',
+                      authState.isAuthenticated 
+                          ? 'Hi ${authState.displayName ?? 'there'},' 
+                          : 'Welcome back',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 24,
@@ -101,14 +162,6 @@ class Sidebar extends ConsumerWidget {
               const SizedBox(height: 16),
 
               // ── Menu Items ─────────────────────────────────────────────
-              _SidebarTile(
-                icon: Icons.auto_awesome_outlined,
-                label: 'Premium Features',
-                color: accentColor,
-                onTap: () {
-                   Navigator.pop(context);
-                },
-              ),
 
               const Spacer(),
 

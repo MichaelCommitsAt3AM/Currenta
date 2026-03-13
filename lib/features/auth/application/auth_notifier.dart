@@ -12,6 +12,9 @@ class AuthState {
     this.isAuthenticated = false,
     this.needsOtp = false,
     this.pendingEmail,
+    this.preferredCountry,
+    this.displayName,
+    this.avatarUrl,
   });
 
   final bool isLoading;
@@ -19,6 +22,9 @@ class AuthState {
   final bool isAuthenticated;
   final bool needsOtp;
   final String? pendingEmail;
+  final String? preferredCountry;
+  final String? displayName;
+  final String? avatarUrl;
 
   AuthState copyWith({
     bool? isLoading,
@@ -26,6 +32,9 @@ class AuthState {
     bool? isAuthenticated,
     bool? needsOtp,
     String? pendingEmail,
+    String? Function()? preferredCountry,
+    String? Function()? displayName,
+    String? Function()? avatarUrl,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
@@ -33,6 +42,9 @@ class AuthState {
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       needsOtp: needsOtp ?? this.needsOtp,
       pendingEmail: pendingEmail ?? this.pendingEmail,
+      preferredCountry: preferredCountry != null ? preferredCountry() : this.preferredCountry,
+      displayName: displayName != null ? displayName() : this.displayName,
+      avatarUrl: avatarUrl != null ? avatarUrl() : this.avatarUrl,
     );
   }
 }
@@ -42,8 +54,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
       : _repository = repository,
         super(const AuthState()) {
     // Listen to Supabase auth state changes
-    _repository.authStateChanges.listen((isAuthenticated) {
-      state = state.copyWith(isAuthenticated: isAuthenticated);
+    _repository.authStateChanges.listen((isAuthenticated) async {
+      String? country;
+      String? name;
+      String? avatar;
+      if (isAuthenticated) {
+        country = await _repository.getPreferredCountry();
+        name = _repository.displayName;
+        avatar = _repository.avatarUrl;
+      }
+      state = state.copyWith(
+        isAuthenticated: isAuthenticated,
+        preferredCountry: () => country,
+        displayName: () => name,
+        avatarUrl: () => avatar,
+      );
     });
   }
 
@@ -141,6 +166,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   void resetOtpState() {
      state = state.copyWith(needsOtp: false, pendingEmail: null);
+  }
+
+  Future<void> refreshPreferredCountry() async {
+    if (state.isAuthenticated) {
+      final country = await _repository.getPreferredCountry();
+      state = state.copyWith(preferredCountry: () => country);
+    }
   }
 }
 

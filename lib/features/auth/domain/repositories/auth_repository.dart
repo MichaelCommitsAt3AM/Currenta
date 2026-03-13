@@ -7,6 +7,12 @@ abstract class AuthRepository {
   /// Returns the current user's ID, or null if not signed in.
   String? get currentUserId;
 
+  /// Returns the current user's display name, or null if not signed in or not found.
+  String? get displayName;
+
+  /// Returns the current user's avatar URL, or null if not signed in or not found.
+  String? get avatarUrl;
+
   /// Signs in with an email and password.
   Future<void> signInWithEmail({
     required String email,
@@ -53,6 +59,12 @@ abstract class AuthRepository {
     required String token,
     required String type,
   });
+
+  /// Saves the user's preferred country for local news.
+  Future<void> savePreferredCountry(String countryCode);
+
+  /// Fetches the user's preferred country.
+  Future<String?> getPreferredCountry();
 
   /// Sends a password reset email.
   Future<void> sendPasswordResetEmail(String email);

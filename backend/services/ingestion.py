@@ -1,6 +1,6 @@
 import os
 import re
-import json
+import orjson
 import asyncio
 import hashlib
 from typing import Optional, List
@@ -11,8 +11,11 @@ from supabase import create_client, Client
 from .scraper import scrape_article_sync, discover_techcrunch_articles
 from dateutil import parser as date_parser
 
+import logging
 from google import genai
 from google.genai import types as genai_types
+
+logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -54,9 +57,9 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
     try:
         supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     except Exception as e:
-        print(f"Failed to initialize Supabase client: {e}")
+        logger.error(f"Failed to initialize Supabase client: {e}")
 else:
-    print("WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. Image uploads and some RPCs will fail.")
+    logger.warning("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing. Image uploads and some RPCs will fail.")
 
 # ---------------------------------------------------------------------------
 # Control signals for background tasks
@@ -66,7 +69,7 @@ SHOULD_STOP_INGESTION = False
 def cancel_ingestion():
     global SHOULD_STOP_INGESTION
     SHOULD_STOP_INGESTION = True
-    print("[Ingestion] Cancellation signal received. Will stop at next opportunity.")
+    logger.info("Ingestion cancellation signal received. Will stop at next opportunity.")
 
 # ---------------------------------------------------------------------------
 # Feed registry — mirrors lib/core/config/news_sources.dart
@@ -96,6 +99,13 @@ FEEDS = [
     # Politics
     { "feedUrl": "https://www.politico.com/rss/politicopicks.xml", "defaultCategory": "politics", "categoryBias": "strong" },
     { "feedUrl": "https://thehill.com/homenews/feed/", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://api.axios.com/feed/politics", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://apnews.com/hub/politics.rss", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://www.theguardian.com/politics/rss", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://www.cnbc.com/id/10000113/device/rss/rss.html", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://feeds.npr.org/1014/rss.xml", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://www.vox.com/rss/policy-and-politics/index.xml", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://feeds.nbcnews.com/nbcnews/public/politics", "defaultCategory": "politics", "categoryBias": "strong" },
     { "feedUrl": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml", "defaultCategory": "politics", "categoryBias": "strong" },
     { "feedUrl": "https://www.huffpost.com/section/politics/feed", "defaultCategory": "politics", "categoryBias": "strong" },
     # Science
@@ -119,6 +129,12 @@ FEEDS = [
     { "feedUrl": "https://www.ft.com/news-feed.rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=40&id=100011491", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://finance.yahoo.com/news/rssindex", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://fortune.com/feed/", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "http://feeds.marketwatch.com/marketwatch/topstories/", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://www.businessinsider.com/rss", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://www.fastcompany.com/latest/rss", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://medicalxpress.com/rss-feed/health-news/", "defaultCategory": "health", "categoryBias": "strong" },
@@ -173,8 +189,8 @@ Rules:
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
    - opinion/review/listicle/sponsored/irrelevant: Low-signal fluff for a news app.
-     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, HISTORICAL RETROSPECTIVES (e.g., "On this day in history", "Chart Rewind"), and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
-6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
+     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", BUYING GUIDES, SHOPPING GUIDES, PRODUCT ROUNDUPS (e.g., "The Best Bluetooth Trackers"), JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, HISTORICAL RETROSPECTIVES (e.g., "On this day in history", "Chart Rewind"), and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
+6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", "buying guide", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
 7. **Historical Content**: Historical retrospectives, "today in history", or "chart rewinds" (looking back at old charts/events) MUST be classified as "type": "irrelevant".
 8. **Negative Constraint**: Do NOT open with meta-phrases like "The article reports that...", "According to the article...", "This article covers...", or similar. Start directly with the news.
 
@@ -288,7 +304,10 @@ def is_junk_content(text: str, title: str) -> bool:
         "books in brief", "book review", "summaries of books", "best books of", "reading list",
         "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants",
         "chart rewind", "historical chart", "this day in history", "on this day", "flashback", "throwback",
-        "watch live", "streaming live", "video highlights", "video clip", "video-clips"
+        "watch live", "streaming live", "video highlights", "video clip", "video-clips",
+        "buying guide", "gift guide", "shopping guide", "the best gadgets", "best phone", "best laptop",
+        "best tracker", "best earbud", "best headphone", "best camera", "we've tested", "our tests showed",
+        "best smart", "best of 202"
     ]
     if any(signal in combined for signal in hard_signals):
         return True
@@ -393,15 +412,15 @@ def parse_llm_response(raw_str: str) -> dict:
     parsed = None
     try:
         # Try full parse first
-        parsed = json.loads(clean_str)
-    except json.JSONDecodeError:
+        parsed = orjson.loads(clean_str)
+    except orjson.JSONDecodeError:
         # If that fails, try to find the main JSON block using balanced braces or first/last markers
         try:
             start_idx = clean_str.find('{')
             end_idx = clean_str.rfind('}')
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                 json_text = clean_str[start_idx:end_idx+1]
-                parsed = json.loads(json_text)
+                parsed = orjson.loads(json_text)
         except Exception:
             pass
 
@@ -557,7 +576,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "news in brief", "daily briefing", "around the web", "what we're reading", "recap",
         "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity",
         "chart rewind", "historical chart", "this day in history", "on this day",
-        "watch live", "streaming live", "video-clips", "video highlights"
+        "watch live", "streaming live", "video-clips", "video highlights",
+        "buying guide", "shopping guide", "the best ", "best gadgets", "best phones", "best laptops"
     ]
     
     parsed_items = []
@@ -888,30 +908,37 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     )
 
                     results["ingested"] += 1
-                    print(f"[processFeed] Success! {llm_res['title'][:40]}... (Paywalled: {is_paywalled})")
+                    logger.info(f"processFeed: Success! {llm_res['title'][:40]}... (Paywalled: {is_paywalled})")
                 except Exception as db_err:
-                    print(f"[processFeed] DB Insert Error: {db_err}")
+                    logger.error(f"processFeed: DB Insert Error: {db_err}")
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="DB_INSERT_ERROR", error_message=str(db_err))
 
             except Exception as item_err:
-                print(f"[processFeed] Item processing error: {item_err}")
+                logger.error(f"processFeed: Item processing error: {item_err}")
                 results["errors"] += 1
 
         # --- Cache Warming ---
         # After successfully ingesting items, we proactively refresh the category caches.
         if results["ingested"] > 0:
             # We don't block ingestion on warming, just spawn it
-            asyncio.create_task(warm_category_cache(category, country_code, db_pool))
+            # Try to get redis_client from app state or global
+            redis_client = None
+            try:
+                from ..main import app, redis_client as global_redis
+                redis_client = getattr(app.state, "redis_client", global_redis)
+            except (ImportError, AttributeError):
+                pass
+            
+            asyncio.create_task(warm_category_cache(category, country_code, db_pool, redis_client))
 
     return results
 
-async def warm_category_cache(category: str, country_code: Optional[str], db_pool):
+async def warm_category_cache(category: str, country_code: Optional[str], db_pool, redis_client=None):
     """
     Proactively fetches the latest articles for a category and updates Redis.
     This ensures the 'first user' always hits a warm cache.
     """
     from ..api.feed import ARTICLE_COLUMNS
-    import json
     
     country_key = country_code or 'all'
     redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
@@ -940,11 +967,14 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
                 r['id'] = str(r['id']) if r.get('id') else None
                 result.append(r)
 
-            # Connect to Redis briefly to update
-            import redis.asyncio as redis_lib
-            r_client = redis_lib.from_url(redis_url, decode_responses=True)
-            await r_client.set(f"feed:v2:{country_key}:{category}", json.dumps(result), ex=600)
-            await r_client.close()
+            # Use shared Redis client if provided, else create a short-lived one
+            if redis_client:
+                await redis_client.set(f"feed:v2:{country_key}:{category}", orjson.dumps(result), ex=10800)
+            else:
+                import redis.asyncio as redis_lib
+                r_client = redis_lib.from_url(redis_url, decode_responses=True)
+                await r_client.set(f"feed:v2:{country_key}:{category}", orjson.dumps(result), ex=10800)
+                await r_client.close()
             # print(f"[Cache-Warming] Updated cache for {country_key}:{category}")
             
     except Exception as e:
@@ -956,10 +986,10 @@ async def orchestrate():
     """
     from ..main import db_pool
     if not db_pool:
-        print("[Orchestrator] Database pool not ready.")
+        logger.error("Orchestrator: Database pool not ready.")
         return
 
-    print(f"[Orchestrator] Starting orchestration for {len(FEEDS)} feeds")
+    logger.info(f"Orchestrator: Starting orchestration for {len(FEEDS)} feeds")
     
     global SHOULD_STOP_INGESTION
     SHOULD_STOP_INGESTION = False
@@ -971,11 +1001,11 @@ async def orchestrate():
         if SHOULD_STOP_INGESTION:
             return
         async with semaphore:
-            print(f"[Orchestrator] Processing: {url} (Method: {method})")
+            logger.info(f"Orchestrator: Processing: {url} (Method: {method})")
             try:
                 await process_feed(url, cat, bias, db_pool, country_code=country, method=method)
             except Exception as e:
-                print(f"[Orchestrator] Error processing feed {url}: {e}")
+                logger.error(f"Orchestrator: Error processing feed {url}: {e}")
 
     # Create tasks for all global feeds
     tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"], method=f.get("method", "rss")) for f in FEEDS]
@@ -987,7 +1017,7 @@ async def orchestrate():
     
     await asyncio.gather(*tasks)
 
-    print("[Orchestrator] Orchestration complete")
+    logger.info("Orchestrator: Orchestration complete")
 
 # Used by the scheduler which runs run_coroutine_threadsafe. 
 async def orchestrate_sync_wrapper():
@@ -1025,10 +1055,9 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
                 should_fetch = False
         
         if not should_fetch:
-            # print(f"[LocalIngest] Recently fetched for {country_code}. skipping.")
             return
             
-        print(f"[LocalIngest] Triggering on-demand fetch for {country_code}...")
+        logger.info(f"LocalIngest: Triggering on-demand fetch for {country_code}...")
         rss_url = build_google_news_rss_url(country_code)
         
         # Limit to 10 items for local news to avoid bloat
@@ -1045,5 +1074,5 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
             # Actually we'll call this in a way that doesn't block the UI.
             await process_feed(rss_url, "local", "strong", db_pool, country_code=country_code)
         except Exception as e:
-            print(f"[LocalIngest] Error during on-demand fetch for {country_code}: {e}")
+            logger.error(f"LocalIngest: Error during on-demand fetch for {country_code}: {e}")
 

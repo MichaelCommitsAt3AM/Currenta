@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Request, Backgroun
 from uuid import UUID
 import asyncpg
 from typing import Optional
-import json
+import orjson
 from ..core.security import limiter, verify_supabase_jwt, User
 from ..services.ingestion import fetch_local_news_on_demand
 
@@ -110,7 +110,7 @@ async def get_feed(
                     for cat, cached in zip(categories_to_fetch, cached_results):
                         if cached:
                             try:
-                                articles_by_cat[cat] = json.loads(cached)
+                                articles_by_cat[cat] = orjson.loads(cached)
                             except Exception as e:
                                 logger.warning("Failed to parse cached JSON for %s: %s", cat, e)
                                 missing_categories.append(cat)
@@ -187,7 +187,7 @@ async def get_feed(
                         for cat, cat_articles in temp_results.items():
                             if cat_articles:
                                 try:
-                                    await redis_client.set(f"feed:v2:{country_key}:{cat}", json.dumps(cat_articles), ex=600)
+                                    await redis_client.set(f"feed:v2:{country_key}:{cat}", orjson.dumps(cat_articles), ex=10800)
                                 except Exception as e:
                                     logger.warning("Redis cache write error for %s: %s", cat, e)
 
@@ -255,3 +255,44 @@ async def record_view(
     except Exception as e:
         logger.error("Error recording view: %s", e)
         raise HTTPException(status_code=500, detail="Failed to record view")
+
+@router.post("/favorite")
+@limiter.limit("60/minute")
+async def toggle_favorite(
+    request: Request,
+    article_id: UUID,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Toggles the favorite status of an article for the user.
+    If it exists, delete it; if not, insert it.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    try:
+        async with db_pool.acquire() as conn:
+            # We use a single query with a CTE or just check and swap.
+            # Simplified: check if exists, then delete or insert.
+            exists = await conn.fetchval(
+                "SELECT 1 FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+                user.id, str(article_id)
+            )
+            
+            if exists:
+                await conn.execute(
+                    "DELETE FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+                    user.id, str(article_id)
+                )
+                return {"status": "unfavorited"}
+            else:
+                await conn.execute(
+                    "INSERT INTO article_favorites (user_id, article_id) VALUES ($1, $2)",
+                    user.id, str(article_id)
+                )
+                return {"status": "favorited"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error toggling favorite: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to toggle favorite")
