@@ -194,4 +194,156 @@ class AuthRepositoryImpl implements AuthRepository {
       throw ServerException('Failed to save interests: $e');
     }
   }
+
+  @override
+  Future<List<String>> getUserInterests() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final response = await _supabase
+          .from('user_interests')
+          .select('category')
+          .eq('user_id', uid);
+      
+      return (response as List<dynamic>)
+          .map((item) => item['category'] as String)
+          .toList();
+    } catch (e) {
+      debugPrint('[Auth] Error fetching user interests: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<void> clearUserInterests() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await _supabase
+          .from('user_interests')
+          .delete()
+          .eq('user_id', uid);
+    } catch (e) {
+      throw ServerException('Failed to clear interests: $e');
+    }
+  }
+
+  @override
+  Future<void> saveUserSubInterests(List<String> subCategories) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) {
+      throw const ServerException('Must be authenticated to save sub-interests');
+    }
+
+    try {
+      if (subCategories.isEmpty) return;
+      
+      final dataToInsert = subCategories.map((sub) => {
+        'user_id': uid,
+        'sub_category': sub,
+      }).toList();
+
+      await _supabase
+          .from('user_sub_interests')
+          .upsert(dataToInsert, onConflict: 'user_id, sub_category');
+    } catch (e) {
+      // If table doesn't exist yet, we might want to fail silently or log it
+      debugPrint('[Auth] Error saving sub-interests: $e');
+    }
+  }
+
+  @override
+  Future<List<String>> getUserSubInterests() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final response = await _supabase
+          .from('user_sub_interests')
+          .select('sub_category')
+          .eq('user_id', uid);
+      
+      return (response as List<dynamic>)
+          .map((item) => item['sub_category'] as String)
+          .toList();
+    } catch (e) {
+      debugPrint('[Auth] Error fetching user sub-interests: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<void> clearUserSubInterests() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await _supabase
+          .from('user_sub_interests')
+          .delete()
+          .eq('user_id', uid);
+    } catch (e) {
+      debugPrint('[Auth] Error clearing sub-interests: $e');
+    }
+  }
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+    } on AuthException catch (e) {
+      throw ServerException(e.message);
+    } catch (e) {
+      throw ServerException('An unexpected error occurred: $e');
+    }
+  }
+
+  @override
+  Future<void> verifyOtp({
+    required String email,
+    required String token,
+    required String type,
+  }) async {
+    try {
+      final OtpType otpType;
+      switch (type) {
+        case 'signup':
+          otpType = OtpType.signup;
+          break;
+        case 'recovery':
+          otpType = OtpType.recovery;
+          break;
+        case 'email':
+          otpType = OtpType.email;
+          break;
+        default:
+          throw const ServerException('Invalid OTP type');
+      }
+
+      await _supabase.auth.verifyOTP(
+        email: email,
+        token: token,
+        type: otpType,
+      );
+    } on AuthException catch (e) {
+      throw ServerException(e.message);
+    } catch (e) {
+      throw ServerException('An unexpected error occurred: $e');
+    }
+  }
+
+  @override
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email);
+    } on AuthException catch (e) {
+      throw ServerException(e.message);
+    } catch (e) {
+      throw ServerException('An unexpected error occurred: $e');
+    }
+  }
 }

@@ -8,4 +8,6 @@ mixin _$NewsDaoMixin on DatabaseAccessor<AppDatabase> {
       attachedDatabase.newsArticlesTable;
   $ViewedArticlesTableTable get viewedArticlesTable =>
       attachedDatabase.viewedArticlesTable;
+  $ChatSessionsTableTable get chatSessionsTable =>
+      attachedDatabase.chatSessionsTable;
 }

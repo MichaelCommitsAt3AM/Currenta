@@ -23,12 +23,31 @@ MAX_HISTORY_DEPTH = 6
 MAX_INPUT_CHARS = 500
 DAILY_MESSAGE_LIMIT = 50
 
-# --- Gemini Client (new google-genai SDK) ---
-# A single client instance is safe to reuse across requests.
+# --- LLM Provider Selection ---
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").lower()
+
+# --- Gemini Client (Google AI Studio) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-_genai_client: genai.Client | None = None
+_gemini_client: genai.Client | None = None
 if GEMINI_API_KEY:
-    _genai_client = genai.Client(api_key=GEMINI_API_KEY)
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# --- Vertex AI Client (Google Cloud) ---
+VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT")
+VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
+_vertex_client: genai.Client | None = None
+if VERTEX_PROJECT:
+    _vertex_client = genai.Client(
+        vertexai=True,
+        project=VERTEX_PROJECT,
+        location=VERTEX_LOCATION
+    )
+
+def _get_active_client() -> genai.Client | None:
+    """Returns the client based on LLM_PROVIDER setting."""
+    if LLM_PROVIDER == "vertex":
+        return _vertex_client
+    return _gemini_client
 
 # The grounding tool using the new SDK's typed config
 _GOOGLE_SEARCH_TOOL = genai_types.Tool(google_search=genai_types.GoogleSearch())
@@ -70,8 +89,8 @@ def _build_system_instruction(article: dict) -> str:
         f"and events mentioned in the article above.\n"
         f"3. NO FLUFF: Do not engage in coding, general advice, or unrelated creative tasks. Your domain is strictly news context.\n"
         f"4. FACTUALITY: If search results are unavailable or inconclusive, state that clearly.\n"
-        f"5. CONCISENESS: Your responses MUST be short and concise. Aim for 1-2 short paragraphs or a few bullet points. "
-        f"Avoid long-winded output unless the user explicitly asks for a deep dive or long explanation."
+        f"5. CONCISENESS: Your responses MUST be extremely concise. Limit yourself to exactly ONE short paragraph or a few bullet points. "
+        f"Do not provide long-winded explanations even if the user asks for detail."
     )
 
 
@@ -90,8 +109,10 @@ async def chat_with_article(
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    if not _genai_client:
-        raise HTTPException(status_code=500, detail="Gemini API key not configured")
+    active_client = _get_active_client()
+    if not active_client:
+        provider_name = "Vertex AI" if LLM_PROVIDER == "vertex" else "Gemini (AI Studio)"
+        raise HTTPException(status_code=500, detail=f"{provider_name} is not configured (check env vars)")
 
     # 1. Enforce Input Length
     if not chat_req.messages:
@@ -155,7 +176,7 @@ async def chat_with_article(
             )
 
         # 5. Create an async chat session with grounding + system instruction
-        chat_session = _genai_client.aio.chats.create(
+        chat_session = active_client.aio.chats.create(
             model="gemini-2.5-flash-lite",
             config=genai_types.GenerateContentConfig(
                 system_instruction=_build_system_instruction(article),

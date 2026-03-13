@@ -32,6 +32,30 @@ class CategoryListConverter extends TypeConverter<List<NewsCategory>, String> {
       jsonEncode(value.map((c) => c.name).toList());
 }
 
+class SubCategoryListConverter extends TypeConverter<List<NewsSubCategory>, String> {
+  const SubCategoryListConverter();
+
+  @override
+  List<NewsSubCategory> fromSql(String fromDb) {
+    try {
+      final list = (jsonDecode(fromDb) as List<dynamic>);
+      return list
+          .map((e) => NewsSubCategory.values.firstWhere(
+                (c) => c.name == e.toString(),
+                // If it fails to find, we just skip it or return a default? 
+                // Since this is for personalization, skipping unknown might be best.
+              ))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  @override
+  String toSql(List<NewsSubCategory> value) =>
+      jsonEncode(value.map((c) => c.name).toList());
+}
+
 // ── Table Definitions ─────────────────────────────────────────────
 
 class NewsArticlesTable extends Table {
@@ -54,6 +78,11 @@ class NewsArticlesTable extends Table {
   TextColumn get categories => text()
       .map(const CategoryListConverter())
       .withDefault(const Constant('["world"]'))();
+
+  /// Fine-grained sub-categories
+  TextColumn get subCategories => text()
+      .map(const SubCategoryListConverter())
+      .withDefault(const Constant('[]'))();
 
   BoolColumn get isPaywalled =>
       boolean().named('is_paywalled').withDefault(const Constant(false))();
@@ -81,14 +110,43 @@ class ViewedArticlesTable extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+class ChatSessionsTable extends Table {
+  @override
+  String get tableName => 'chat_sessions';
+
+  TextColumn get id => text()();
+  TextColumn get articleId => text().named('article_id')();
+  TextColumn get articleTitle => text().named('article_title')();
+  DateTimeColumn get createdAt =>
+      dateTime().named('created_at').withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt =>
+      dateTime().named('updated_at').withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class ChatMessagesTable extends Table {
+  @override
+  String get tableName => 'chat_messages';
+
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get sessionId => text().named('session_id')();
+  TextColumn get role => text()();
+  TextColumn get content => text()();
+  DateTimeColumn get createdAt =>
+      dateTime().named('created_at').withDefault(currentDateAndTime)();
+}
+
 // ── Database ──────────────────────────────────────────────────────
 
-@DriftDatabase(tables: [NewsArticlesTable, ViewedArticlesTable])
+@DriftDatabase(
+    tables: [NewsArticlesTable, ViewedArticlesTable, ChatSessionsTable, ChatMessagesTable])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -108,6 +166,13 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 6) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.createdAt);
+          }
+          if (from < 7) {
+            await m.createTable(chatSessionsTable);
+            await m.createTable(chatMessagesTable);
+          }
+          if (from < 8) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.subCategories);
           }
         },
       );

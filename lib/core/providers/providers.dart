@@ -11,6 +11,8 @@ import '../../features/auth/data/repositories/auth_repository_impl.dart';
 import '../../features/auth/domain/repositories/auth_repository.dart';
 import '../../features/auth/data/repositories/onboarding_repository_impl.dart';
 import '../../features/auth/domain/repositories/onboarding_repository.dart';
+import '../../features/news/data/repositories/chat_repository_impl.dart';
+import '../../features/news/domain/repositories/chat_repository.dart';
 import '../utils/dio_client.dart';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -56,4 +58,8 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 
 final onboardingRepositoryProvider = Provider<OnboardingRepository>((ref) {
   return OnboardingRepositoryImpl();
+});
+
+final chatRepositoryProvider = Provider<ChatRepository>((ref) {
+  return ChatRepositoryImpl(db: ref.watch(appDatabaseProvider));
 });

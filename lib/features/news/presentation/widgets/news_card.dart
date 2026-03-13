@@ -12,6 +12,7 @@ import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/utils/browser_service.dart';
 import 'ai_quick_chat_sheet.dart';
+import '../../application/pending_activity_provider.dart';
 
 class NewsCard extends ConsumerStatefulWidget {
   const NewsCard({
@@ -80,6 +81,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
+      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.like, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -102,6 +104,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
+      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.like, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -123,6 +126,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
+      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.favorite, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -185,7 +189,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
               ),
               const SizedBox(height: 12),
               const Text(
-                'You need to be signed in to like or favorite stories. Join us to personalize your feed.',
+                'You need to be signed in to like, favorite, or chat with AI. Join us to personalize your experience.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF8890B5),
@@ -486,6 +490,12 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                       IconButton(
                         onPressed: () {
                           HapticFeedback.lightImpact();
+                          final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+                          if (!isAuth) {
+                            ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.chat, widget.article.id);
+                            _showAuthSheet();
+                            return;
+                          }
                           showModalBottomSheet(
                             context: context,
                             isScrollControlled: true,

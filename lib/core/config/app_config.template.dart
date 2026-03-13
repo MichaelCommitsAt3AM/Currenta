@@ -10,7 +10,7 @@ class AppConfig {
   static const String supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
 
   // ── LLM Provider ────────────────────────────────────────────────
-  /// One of: 'local' | 'gemini' | 'groq'
+  /// One of: 'local' | 'gemini' (AI Studio) | 'vertex' (Google Cloud) | 'groq'
   static const String llmProvider = 'local';
 
   /// Ollama / LM Studio base URL (used when llmProvider == 'local')
@@ -19,8 +19,14 @@ class AppConfig {
   /// Model name sent to local Ollama server
   static const String localLlmModel = 'llama';
 
-  /// Gemini API key (used when llmProvider == 'gemini')
+  /// Google AI Studio - Gemini API key (used when llmProvider == 'gemini')
   static const String geminiApiKey = 'YOUR_GEMINI_API_KEY';
+
+  /// Google Cloud Vertex AI - Project ID (used when llmProvider == 'vertex')
+  static const String vertexProject = 'YOUR_VERTEX_PROJECT_ID';
+
+  /// Google Cloud Vertex AI - Location (used when llmProvider == 'vertex')
+  static const String vertexLocation = 'us-central1';
 
   /// Groq API key (used when llmProvider == 'groq')
   static const String groqApiKey = 'YOUR_GROQ_API_KEY';

@@ -11,6 +11,9 @@ from supabase import create_client, Client
 from .scraper import scrape_article_sync, discover_techcrunch_articles
 from dateutil import parser as date_parser
 
+from google import genai
+from google.genai import types as genai_types
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -22,7 +25,23 @@ if not LOCAL_LLM_BASE_URL.endswith("/v1"):
 
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "llama3.1")
 LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "nomic-embed-text")
+
+# --- Google Gen-AI Clients (Unified SDK) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+_gemini_client: genai.Client | None = None
+if GEMINI_API_KEY:
+    _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT")
+VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
+_vertex_client: genai.Client | None = None
+if VERTEX_PROJECT:
+    _vertex_client = genai.Client(
+        vertexai=True,
+        project=VERTEX_PROJECT,
+        location=VERTEX_LOCATION
+    )
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 SIMILARITY_THRESHOLD = 0.92
@@ -59,7 +78,8 @@ FEEDS = [
     { "feedUrl": "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://www.aljazeera.com/xml/rss/all.xml", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://www.theguardian.com/world/rss", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://apnews.com/hub/world-news.rss", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://www.dw.com/xml/rss-en-all", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://www.france24.com/en/rss", "defaultCategory": "world", "categoryBias": "neutral" },
     # Tech
@@ -98,7 +118,7 @@ FEEDS = [
     # Business
     { "feedUrl": "https://www.ft.com/news-feed.rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=40&id=100011491", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://medicalxpress.com/rss-feed/health-news/", "defaultCategory": "health", "categoryBias": "strong" },
@@ -223,6 +243,12 @@ def detect_paywall(text: str) -> bool:
     lower = text.lower()
     return any(signal in lower for signal in PAYWALL_SIGNALS)
 
+def count_words(text: str) -> int:
+    """Utility to count space-separated words."""
+    if not text:
+        return 0
+    return len(text.split())
+
 def is_scraper_error_page(text: str) -> bool:
     if not text:
         return True
@@ -293,17 +319,22 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
     raw_content = ""
 
     async with httpx.AsyncClient(timeout=90.0) as client:
-        if provider == "gemini":
-            res = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
-                json={
-                    "contents": [{"parts": [{"text": full_prompt}]}],
-                    "generationConfig": {"maxOutputTokens": 500, "temperature": 0.1, "responseMimeType": "application/json"}
-                }
+        if provider in ("gemini", "vertex"):
+            # Use unified SDK for both Gemini (API Studio) and Vertex
+            gen_client = _vertex_client if provider == "vertex" else _gemini_client
+            if not gen_client:
+                raise ValueError(f"Provider '{provider}' is not configured.")
+
+            response = await gen_client.aio.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=full_prompt,
+                config=genai_types.GenerateContentConfig(
+                    max_output_tokens=500,
+                    temperature=0.1,
+                    response_mime_type="application/json"
+                )
             )
-            res.raise_for_status()
-            data = res.json()
-            raw_content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            raw_content = response.text.strip()
             
         elif provider == "groq":
             res = await client.post(
@@ -507,6 +538,10 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "Medical Xpress": "Medical Xpress",
         "KFF Health News": "KFF Health News",
         "CBS Sports Headlines": "CBS Sports",
+        "The Guardian": "The Guardian",
+        "Associated Press": "AP News",
+        "AP": "AP News",
+        "CNBC": "CNBC",
     }
     channel_display_name = source_mapping.get(channel_title, channel_title)
     
@@ -579,7 +614,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
                 continue
         
         # 3. Common non-article paths
-        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/", "/video-clips/"]
+        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/", "/video-clips/", "/video/quotable/", "/video/"]
         if any(p in link.lower() for p in non_article_paths):
             print(f"[parseRss] Skipping Non-article Path: {link}")
             continue
@@ -638,7 +673,7 @@ async def is_duplicate(conn, embedding: list[float]) -> bool:
         return False
 
 def get_model_name(provider: str) -> str:
-    if provider == "gemini": return "gemini-2.5-flash-lite"
+    if provider in ("gemini", "vertex"): return "gemini-2.5-flash-lite"
     if provider == "groq": return "llama-3.3-70b-versatile"
     return LOCAL_LLM_MODEL
 
@@ -689,6 +724,15 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             print(f"[processFeed] Batch dedupe query failed: {e}")
 
         for item in items:
+            # Ensure pubDate is a datetime object for DB compatibility
+            if isinstance(item.get("pubDate"), str):
+                try:
+                    item["pubDate"] = date_parser.parse(item["pubDate"])
+                except Exception:
+                    item["pubDate"] = datetime.now(timezone.utc)
+            elif not item.get("pubDate"):
+                item["pubDate"] = datetime.now(timezone.utc)
+
             # Combined duplicate detection logic optimization
             content_hash = generate_content_hash(item["link"], item["title"])
             if item["link"] in existing_urls or content_hash in existing_hashes:
@@ -758,11 +802,13 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     article_text = fallback_text
                     scraper_status = "DEGRADED"
 
-                if len(article_text) < 350:
+                if count_words(article_text) < 120:
                     article_text = f"{item['title']}\n\n{article_text}"
 
-                if is_scraper_error_page(article_text) or len(article_text) < 350:
-                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message="Combined content failed validation")
+                # Strict validation: require at least 75 words (approx 900-1000 chars) for a meaningful summary.
+                # Also filter out if character count is still suspiciously low.
+                if is_scraper_error_page(article_text) or count_words(article_text) < 75 or len(article_text) < 800:
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message=f"Content too short: {count_words(article_text)} words")
                     results["skipped"] += 1
                     continue
 

@@ -60,7 +60,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     if (message.isEmpty) return;
 
     ref
-        .read(aiChatNotifierProvider(widget.article.id).notifier)
+        .read(aiChatNotifierProvider(widget.article.id, widget.article.title).notifier)
         .sendMessage(message);
     _controller.clear();
     _scrollToBottom();
@@ -68,11 +68,11 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final chatState = ref.watch(aiChatNotifierProvider(widget.article.id));
+    final chatState = ref.watch(aiChatNotifierProvider(widget.article.id, widget.article.title));
     final messages = chatState.messages;
     final isLoading = chatState.isLoading;
 
-    ref.listen(aiChatNotifierProvider(widget.article.id), (previous, next) {
+    ref.listen(aiChatNotifierProvider(widget.article.id, widget.article.title), (previous, next) {
       final prevMsgs = previous?.messages ?? [];
       final nextMsgs = next.messages;
       if (nextMsgs.isNotEmpty &&

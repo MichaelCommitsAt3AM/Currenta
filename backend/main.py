@@ -20,6 +20,7 @@ import redis.asyncio as redis
 from .services.scheduler import start_scheduler, stop_scheduler
 from .core.security import limiter
 from .api import feed, ingest, chat
+from .version import VERSION
 
 import asyncio
 
@@ -102,7 +103,7 @@ async def lifespan(app: FastAPI):
         await redis_client.close()
         logger.info("Closed Redis connection.")
 
-app = FastAPI(title="Currenta Backend", lifespan=lifespan)
+app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
 
 # --- Middleware stack (order matters: outermost = last added) ---
 
@@ -138,7 +139,11 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 
 @app.get("/")
 async def root():
-    return {"status": "online", "service": "Currenta Backend Server"}
+    return {
+        "status": "online", 
+        "service": "Currenta Backend Server", 
+        "backend_version": app.version
+    }
 
 
 @app.get("/health")
@@ -154,7 +159,7 @@ async def health_check():
       - scheduler : confirms the APScheduler background job is running
     """
     import time
-    from .api.chat import _genai_client
+    from .api.chat import _gemini_client, _vertex_client, LLM_PROVIDER
     from .services.scheduler import scheduler
 
     report: dict = {}
@@ -193,13 +198,13 @@ async def health_check():
         report["redis"] = {"status": "unconfigured", "detail": "REDIS_URL not set or connection failed"}
         overall_ok = False
         
-    # ── 2. Gemini (google-genai) — config check only, no live API call ───────
-    # A live API call would add unnecessary latency and cost to every probe.
-    if _genai_client is not None:
-        report["gemini"] = {"status": "ok"}
-    else:
-        # Gemini absent = chat feature degraded, but feed/ingest still work.
-        report["gemini"] = {"status": "unconfigured", "detail": "GEMINI_API_KEY not set"}
+    # ── 2. Google Generative AI (AI Studio & Vertex) ──────────────────────────
+    # Checking both implementations
+    report["google_ai_studio"] = {"status": "ok" if _gemini_client is not None else "unconfigured"}
+    report["google_vertex_ai"] = {"status": "ok" if _vertex_client is not None else "unconfigured"}
+    
+    # Backward compatibility for health check consumers
+    report["gemini"] = report["google_ai_studio"] if LLM_PROVIDER == "gemini" else report["google_vertex_ai"]
 
     # ── 3. APScheduler ───────────────────────────────────────────────────────
     jobs = scheduler.get_jobs()

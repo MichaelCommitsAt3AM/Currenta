@@ -164,4 +164,35 @@ class NewsRepositoryImpl implements NewsRepository {
         .watchFavorites()
         .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
+
+  @override
+  Stream<List<NewsArticle>> watchLikes() {
+    return _dao
+        .watchLikes()
+        .map((rows) => rows.map((r) => r.toDomain()).toList());
+  }
+
+  @override
+  Stream<List<NewsArticle>> watchReadingHistory() {
+    return _dao
+        .watchReadingHistory()
+        .map((rows) => rows.map((r) => r.toDomain(isViewed: true)).toList());
+  }
+
+  @override
+  Future<void> clearReadingHistory() async {
+    try {
+      await _dao.deleteViewedArticles();
+    } catch (e) {
+      throw CacheException();
+    }
+  }
+
+  @override
+  Future<NewsArticle?> getArticleById(String id) async {
+    final row = await _dao.getArticleById(id);
+    if (row == null) return null;
+    final isViewed = await _dao.isViewed(id);
+    return row.toDomain(isViewed: isViewed);
+  }
 }

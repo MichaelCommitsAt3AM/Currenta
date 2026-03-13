@@ -11,6 +11,7 @@ import '../../domain/entities/news_category.dart';
 import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
 import '../widgets/sidebar.dart';
+import '../widgets/ai_quick_chat_sheet.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
 import '../../../../theme/app_theme.dart';
@@ -33,7 +34,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    final initialIndex = ref.read(newsFeedNotifierProvider).valueOrNull?.currentIndex ?? 0;
+    _pageController = PageController(initialPage: initialIndex);
+    _currentIndex = initialIndex;
     _pageController.addListener(_onPageScroll);
 
     // Mark the very first article as viewed
@@ -74,6 +77,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     setState(() {
       _currentIndex = index;
     });
+    ref.read(newsFeedNotifierProvider.notifier).updateCurrentIndex(index);
 
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
@@ -112,6 +116,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(newsFeedNotifierProvider, (previous, next) {
+      final nextFeed = next.valueOrNull;
+      if (nextFeed != null && nextFeed.showChatForArticleId != null) {
+        final articleId = nextFeed.showChatForArticleId!;
+        final article = nextFeed.articles.firstWhere((a) => a.id == articleId);
+        
+        // Clear immediately so it doesn't re-open on next rebuild
+        ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
+
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => AiQuickChatSheet(article: article),
+        );
+      }
+    });
+
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.valueOrNull;
 

@@ -55,4 +55,16 @@ abstract class NewsRepository {
 
   /// Returns a stream of favorited articles.
   Stream<List<NewsArticle>> watchFavorites();
+
+  /// Returns a stream of liked articles.
+  Stream<List<NewsArticle>> watchLikes();
+
+  /// Returns a stream of recently viewed articles, newest-first.
+  Stream<List<NewsArticle>> watchReadingHistory();
+
+  /// Clears the local reading history (viewed articles).
+  Future<void> clearReadingHistory();
+
+  /// Returns a single article by its identifier.
+  Future<NewsArticle?> getArticleById(String id);
 }

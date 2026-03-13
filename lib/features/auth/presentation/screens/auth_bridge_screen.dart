@@ -29,6 +29,16 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
         widget.selectedInterests.map((c) => c.name).toList(),
       );
 
+      // Save implied sub-interests (Smart Defaults)
+      final allSubCategories = widget.selectedInterests
+          .expand((cat) => cat.subCategories)
+          .map((sub) => sub.name)
+          .toList();
+      
+      if (allSubCategories.isNotEmpty) {
+        await authRepo.saveUserSubInterests(allSubCategories);
+      }
+
       // 2. Mark flow as completed locally
       await onboardingRepo.completeOnboarding();
 

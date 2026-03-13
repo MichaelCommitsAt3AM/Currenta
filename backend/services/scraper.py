@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import httpx
 from googlenewsdecoder import gnewsdecoder
 import json
+from datetime import datetime, timezone
 
 def process_image(img_url: str) -> bytes | None:
     """Downloads, resizes, and iteratively compresses to target ~150KB. Returns raw bytes."""
@@ -373,10 +374,21 @@ def discover_techcrunch_articles(limit: int = 10) -> list[dict]:
                 # Clean HTML entities from title
                 clean_title = BeautifulSoup(title, "html.parser").get_text()
                 
+                # Parse date string to datetime object (asyncpg requires datetime, not str)
+                pub_date_str = post.get("date_gmt")
+                try:
+                    if pub_date_str:
+                        # TechCrunch API date_gmt is 'YYYY-MM-DDTHH:MM:SS'
+                        pub_date = datetime.fromisoformat(pub_date_str).replace(tzinfo=timezone.utc)
+                    else:
+                        pub_date = datetime.now(timezone.utc)
+                except Exception:
+                    pub_date = datetime.now(timezone.utc)
+
                 articles.append({
                     "title": clean_title,
                     "link": post.get("link"),
-                    "pubDate": post.get("date_gmt") + "Z" if post.get("date_gmt") else None,
+                    "pubDate": pub_date,
                     "source": "TechCrunch",
                     "description": BeautifulSoup(post.get("excerpt", {}).get("rendered", ""), "html.parser").get_text(strip=True)
                 })

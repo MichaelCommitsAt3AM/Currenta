@@ -68,10 +68,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24.0),
               child: Text(
-                'Choose at least 3 topics to personalize your feed and filter out the noise.',
+                'Choose at least 3 topics to personalize your feed. You can change these anytime in settings.',
                 style: TextStyle(
                   color: Colors.white70,
-                  fontSize: 16,
+                  fontSize: 15,
                   height: 1.5,
                 ),
               ),

@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../auth/application/auth_notifier.dart';
-import '../screens/favorites_screen.dart';
 import '../screens/settings_screen.dart';
 
 class Sidebar extends ConsumerWidget {
@@ -102,27 +101,6 @@ class Sidebar extends ConsumerWidget {
               const SizedBox(height: 16),
 
               // ── Menu Items ─────────────────────────────────────────────
-              _SidebarTile(
-                icon: Icons.bookmark_outline_rounded,
-                label: 'Saved Articles',
-                color: Colors.white.withValues(alpha: 0.7),
-                onTap: () {
-                  Navigator.pop(context); // Close drawer
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const FavoritesScreen()),
-                  );
-                },
-              ),
-              _SidebarTile(
-                icon: Icons.history_rounded,
-                label: 'Reading History',
-                color: Colors.white.withValues(alpha: 0.7),
-                onTap: () {
-                  // TODO: Implement history
-                  Navigator.pop(context);
-                },
-              ),
               _SidebarTile(
                 icon: Icons.auto_awesome_outlined,
                 label: 'Premium Features',

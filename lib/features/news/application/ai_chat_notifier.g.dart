@@ -6,7 +6,7 @@ part of 'ai_chat_notifier.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$aiChatNotifierHash() => r'f65c1cc12b30d9d885fb6c1e483c6fc38ed61afc';
+String _$aiChatNotifierHash() => r'cf217518b64d52302b4cebd68f691dcd8885cd5a';
 
 /// Copied from Dart SDK
 class _SystemHash {
@@ -32,9 +32,11 @@ class _SystemHash {
 abstract class _$AiChatNotifier
     extends BuildlessAutoDisposeNotifier<AiChatState> {
   late final String articleId;
+  late final String articleTitle;
 
   AiChatState build(
     String articleId,
+    String articleTitle,
   );
 }
 
@@ -50,9 +52,11 @@ class AiChatNotifierFamily extends Family<AiChatState> {
   /// See also [AiChatNotifier].
   AiChatNotifierProvider call(
     String articleId,
+    String articleTitle,
   ) {
     return AiChatNotifierProvider(
       articleId,
+      articleTitle,
     );
   }
 
@@ -62,6 +66,7 @@ class AiChatNotifierFamily extends Family<AiChatState> {
   ) {
     return call(
       provider.articleId,
+      provider.articleTitle,
     );
   }
 
@@ -86,8 +91,11 @@ class AiChatNotifierProvider
   /// See also [AiChatNotifier].
   AiChatNotifierProvider(
     String articleId,
+    String articleTitle,
   ) : this._internal(
-          () => AiChatNotifier()..articleId = articleId,
+          () => AiChatNotifier()
+            ..articleId = articleId
+            ..articleTitle = articleTitle,
           from: aiChatNotifierProvider,
           name: r'aiChatNotifierProvider',
           debugGetCreateSourceHash:
@@ -98,6 +106,7 @@ class AiChatNotifierProvider
           allTransitiveDependencies:
               AiChatNotifierFamily._allTransitiveDependencies,
           articleId: articleId,
+          articleTitle: articleTitle,
         );
 
   AiChatNotifierProvider._internal(
@@ -108,9 +117,11 @@ class AiChatNotifierProvider
     required super.debugGetCreateSourceHash,
     required super.from,
     required this.articleId,
+    required this.articleTitle,
   }) : super.internal();
 
   final String articleId;
+  final String articleTitle;
 
   @override
   AiChatState runNotifierBuild(
@@ -118,6 +129,7 @@ class AiChatNotifierProvider
   ) {
     return notifier.build(
       articleId,
+      articleTitle,
     );
   }
 
@@ -126,13 +138,16 @@ class AiChatNotifierProvider
     return ProviderOverride(
       origin: this,
       override: AiChatNotifierProvider._internal(
-        () => create()..articleId = articleId,
+        () => create()
+          ..articleId = articleId
+          ..articleTitle = articleTitle,
         from: from,
         name: null,
         dependencies: null,
         allTransitiveDependencies: null,
         debugGetCreateSourceHash: null,
         articleId: articleId,
+        articleTitle: articleTitle,
       ),
     );
   }
@@ -145,13 +160,16 @@ class AiChatNotifierProvider
 
   @override
   bool operator ==(Object other) {
-    return other is AiChatNotifierProvider && other.articleId == articleId;
+    return other is AiChatNotifierProvider &&
+        other.articleId == articleId &&
+        other.articleTitle == articleTitle;
   }
 
   @override
   int get hashCode {
     var hash = _SystemHash.combine(0, runtimeType.hashCode);
     hash = _SystemHash.combine(hash, articleId.hashCode);
+    hash = _SystemHash.combine(hash, articleTitle.hashCode);
 
     return _SystemHash.finish(hash);
   }
@@ -162,6 +180,9 @@ class AiChatNotifierProvider
 mixin AiChatNotifierRef on AutoDisposeNotifierProviderRef<AiChatState> {
   /// The parameter `articleId` of this provider.
   String get articleId;
+
+  /// The parameter `articleTitle` of this provider.
+  String get articleTitle;
 }
 
 class _AiChatNotifierProviderElement
@@ -171,6 +192,8 @@ class _AiChatNotifierProviderElement
 
   @override
   String get articleId => (origin as AiChatNotifierProvider).articleId;
+  @override
+  String get articleTitle => (origin as AiChatNotifierProvider).articleTitle;
 }
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

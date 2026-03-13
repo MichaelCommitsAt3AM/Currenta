@@ -8,6 +8,8 @@ import '../../../core/config/app_config.dart';
 import '../../../core/errors/app_exception.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../domain/entities/chat_message.dart';
+import '../domain/entities/chat_session.dart';
+import '../../../core/providers/providers.dart';
 
 part 'ai_chat_notifier.g.dart';
 
@@ -43,10 +45,22 @@ class AiChatNotifier extends _$AiChatNotifier {
   StreamSubscription<String>? _streamSub;
 
   @override
-  AiChatState build(String articleId) {
+  AiChatState build(String articleId, String articleTitle) {
     // Clean up any in-flight stream when the provider is disposed.
     ref.onDispose(() => _streamSub?.cancel());
+    
+    // Load existing messages if any
+    _loadMessages();
+    
     return const AiChatState();
+  }
+
+  Future<void> _loadMessages() async {
+    final repository = ref.read(chatRepositoryProvider);
+    final session = await repository.getChatSession(articleId);
+    if (session != null && session.messages != null) {
+      state = state.copyWith(messages: session.messages);
+    }
   }
 
   List<ChatMessage> get messages => state.messages;
@@ -60,6 +74,19 @@ class AiChatNotifier extends _$AiChatNotifier {
       messages: [...state.messages, userMessage],
       isLoading: true,
     );
+
+    // Save user message
+    final repository = ref.read(chatRepositoryProvider);
+    if (state.messages.length == 1 && this.articleTitle != null) {
+      await repository.saveChatSession(ChatSession(
+        id: this.articleId,
+        articleId: this.articleId,
+        articleTitle: this.articleTitle!,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ));
+    }
+    await repository.saveChatMessage(this.articleId, userMessage);
 
     try {
       final session = Supabase.instance.client.auth.currentSession;
@@ -122,6 +149,9 @@ class AiChatNotifier extends _$AiChatNotifier {
         _updateLastMessage(
             'No response was received. The request may have timed out. Please try again.');
       }
+      
+      // Save AI message
+      await repository.saveChatMessage(articleId, state.messages.last);
     } catch (e) {
       String errorMessage =
           'Sorry, I encountered an error. Please try again later.';

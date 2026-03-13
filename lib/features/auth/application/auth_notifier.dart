@@ -10,22 +10,29 @@ class AuthState {
     this.isLoading = false,
     this.error,
     this.isAuthenticated = false,
+    this.needsOtp = false,
+    this.pendingEmail,
   });
 
   final bool isLoading;
   final String? error;
   final bool isAuthenticated;
+  final bool needsOtp;
+  final String? pendingEmail;
 
   AuthState copyWith({
     bool? isLoading,
     String? error,
     bool? isAuthenticated,
+    bool? needsOtp,
+    String? pendingEmail,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
-      error:
-          error, // Can't easily clear error with copyWith if it's null, but we'll manage it
+      error: error,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      needsOtp: needsOtp ?? this.needsOtp,
+      pendingEmail: pendingEmail ?? this.pendingEmail,
     );
   }
 }
@@ -64,7 +71,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       await _repository.signUpWithEmail(
           email: email, password: password, name: name);
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: email);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);
     } catch (e) {
@@ -94,6 +101,46 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
     }
+  }
+
+  Future<void> updatePassword(String newPassword) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _repository.updatePassword(newPassword);
+      state = state.copyWith(isLoading: false);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+    }
+  }
+
+  Future<void> verifyOtp(String email, String token, String type) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _repository.verifyOtp(email: email, token: token, type: type);
+      state = state.copyWith(isLoading: false, needsOtp: false, pendingEmail: null);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+    }
+  }
+
+  Future<void> sendPasswordResetEmail(String email) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _repository.sendPasswordResetEmail(email);
+      state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: email);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+    }
+  }
+
+  void resetOtpState() {
+     state = state.copyWith(needsOtp: false, pendingEmail: null);
   }
 }
 

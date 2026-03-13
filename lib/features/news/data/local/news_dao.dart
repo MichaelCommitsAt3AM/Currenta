@@ -6,7 +6,7 @@ import 'app_database.dart';
 
 part 'news_dao.g.dart';
 
-@DriftAccessor(tables: [NewsArticlesTable, ViewedArticlesTable])
+@DriftAccessor(tables: [NewsArticlesTable, ViewedArticlesTable, ChatSessionsTable])
 class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   NewsDao(super.db);
 
@@ -44,6 +44,10 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
               ? t.categories.like('%"$category"%')
               : const Constant(true)))
         .get();
+  }
+
+  Future<NewsArticlesTableData?> getArticleById(String id) {
+    return (select(newsArticlesTable)..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
   /// Paginated fetch: returns [limit] articles newest-first.
@@ -206,6 +210,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
         .watch();
   }
 
+  Stream<List<NewsArticlesTableData>> watchLikes() {
+    return (select(newsArticlesTable)
+          ..where((t) => t.isLiked.equals(true))
+          ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)]))
+        .watch();
+  }
+
   Future<bool> isViewed(String articleId) async {
     final query = select(viewedArticlesTable)
       ..where((t) => t.id.equals(articleId));
@@ -214,15 +225,46 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   }
 
   /// Deletes all articles with publishedAt before [threshold].
-  Future<int> deleteArticlesOlderThan(DateTime threshold) {
-    return (delete(newsArticlesTable)
-          ..where((t) => t.publishedAt.isSmallerThanValue(threshold)))
-        .go();
+  /// Also cleans up associated user data (history, chat sessions).
+  Future<int> deleteArticlesOlderThan(DateTime threshold) async {
+    // 1. Find IDs of articles to delete
+    final toDelete = selectOnly(newsArticlesTable)
+      ..addColumns([newsArticlesTable.id])
+      ..where(newsArticlesTable.publishedAt.isSmallerThanValue(threshold));
+    
+    final ids = (await toDelete.get()).map((r) => r.read(newsArticlesTable.id)!).toList();
+    if (ids.isEmpty) return 0;
+
+    // 2. Cascade delete manually (since Drift doesn't always handle it on mobile without special config)
+    await (delete(viewedArticlesTable)..where((t) => t.id.isIn(ids))).go();
+    await (delete(chatSessionsTable)..where((t) => t.articleId.isIn(ids))).go();
+    
+    // 3. Delete main articles
+    return (delete(newsArticlesTable)..where((t) => t.id.isIn(ids))).go();
   }
 
   /// Clears the entire articles cache.
   Future<void> deleteAllArticles() async {
     await delete(newsArticlesTable).go();
+  }
+
+  // ── Reading History ───────────────────────────────────────────
+
+  Stream<List<NewsArticlesTableData>> watchReadingHistory({int limit = 100}) {
+    final query = select(newsArticlesTable).join([
+      innerJoin(viewedArticlesTable,
+          viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
+    ])
+      ..orderBy([OrderingTerm.desc(viewedArticlesTable.viewedAt)])
+      ..limit(limit);
+
+    return query.watch().map((rows) {
+      return rows.map((row) => row.readTable(newsArticlesTable)).toList();
+    });
+  }
+
+  Future<void> deleteViewedArticles() async {
+    await delete(viewedArticlesTable).go();
   }
 }
 
@@ -240,6 +282,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         publishedAt: publishedAt,
         createdAt: createdAt,
         categories: categories, // already decoded by CategoryListConverter
+        subCategories: subCategories, // already decoded by SubCategoryListConverter
         isPaywalled: isPaywalled,
         isLiked: isLiked,
         likesCount: likesCount,
@@ -262,6 +305,7 @@ extension NewsArticleDboMapper on NewsArticle {
         createdAt: Value(createdAt),
         // Encode List<NewsCategory> → JSON string via the TypeConverter-aware Value
         categories: Value(categories),
+        subCategories: Value(subCategories),
         isPaywalled: Value(isPaywalled),
         isLiked: Value(isLiked),
         likesCount: Value(likesCount),

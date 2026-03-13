@@ -54,6 +54,13 @@ mixin _$NewsArticle {
       toJson: _categoriesToJson)
   List<NewsCategory> get categories;
 
+  /// Sub-categories for fine-grained personalization
+  @JsonKey(
+      name: 'sub_categories',
+      fromJson: _subCategoriesFromJson,
+      toJson: _subCategoriesToJson)
+  List<NewsSubCategory> get subCategories;
+
   /// Whether this article is behind a paywall
   @JsonKey(name: 'is_paywalled')
   bool get isPaywalled;
@@ -110,6 +117,8 @@ mixin _$NewsArticle {
                 other.createdAt == createdAt) &&
             const DeepCollectionEquality()
                 .equals(other.categories, categories) &&
+            const DeepCollectionEquality()
+                .equals(other.subCategories, subCategories) &&
             (identical(other.isPaywalled, isPaywalled) ||
                 other.isPaywalled == isPaywalled) &&
             (identical(other.isLiked, isLiked) || other.isLiked == isLiked) &&
@@ -137,6 +146,7 @@ mixin _$NewsArticle {
       publishedAt,
       createdAt,
       const DeepCollectionEquality().hash(categories),
+      const DeepCollectionEquality().hash(subCategories),
       isPaywalled,
       isLiked,
       likesCount,
@@ -146,7 +156,7 @@ mixin _$NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
   }
 }
 
@@ -171,6 +181,11 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
           fromJson: _categoriesFromJson,
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
+      @JsonKey(
+          name: 'sub_categories',
+          fromJson: _subCategoriesFromJson,
+          toJson: _subCategoriesToJson)
+      List<NewsSubCategory> subCategories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
       @JsonKey(name: 'is_liked') bool isLiked,
       @JsonKey(name: 'likes_count') int likesCount,
@@ -201,6 +216,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? publishedAt = null,
     Object? createdAt = null,
     Object? categories = null,
+    Object? subCategories = null,
     Object? isPaywalled = null,
     Object? isLiked = null,
     Object? likesCount = null,
@@ -249,6 +265,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.categories
           : categories // ignore: cast_nullable_to_non_nullable
               as List<NewsCategory>,
+      subCategories: null == subCategories
+          ? _self.subCategories
+          : subCategories // ignore: cast_nullable_to_non_nullable
+              as List<NewsSubCategory>,
       isPaywalled: null == isPaywalled
           ? _self.isPaywalled
           : isPaywalled // ignore: cast_nullable_to_non_nullable
@@ -385,6 +405,11 @@ extension NewsArticlePatterns on NewsArticle {
                 fromJson: _categoriesFromJson,
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
+            @JsonKey(
+                name: 'sub_categories',
+                fromJson: _subCategoriesFromJson,
+                toJson: _subCategoriesToJson)
+            List<NewsSubCategory> subCategories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
@@ -408,6 +433,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.publishedAt,
             _that.createdAt,
             _that.categories,
+            _that.subCategories,
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
@@ -449,6 +475,11 @@ extension NewsArticlePatterns on NewsArticle {
                 fromJson: _categoriesFromJson,
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
+            @JsonKey(
+                name: 'sub_categories',
+                fromJson: _subCategoriesFromJson,
+                toJson: _subCategoriesToJson)
+            List<NewsSubCategory> subCategories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
@@ -471,6 +502,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.publishedAt,
             _that.createdAt,
             _that.categories,
+            _that.subCategories,
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
@@ -511,6 +543,11 @@ extension NewsArticlePatterns on NewsArticle {
                 fromJson: _categoriesFromJson,
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
+            @JsonKey(
+                name: 'sub_categories',
+                fromJson: _subCategoriesFromJson,
+                toJson: _subCategoriesToJson)
+            List<NewsSubCategory> subCategories,
             @JsonKey(name: 'is_paywalled') bool isPaywalled,
             @JsonKey(name: 'is_liked') bool isLiked,
             @JsonKey(name: 'likes_count') int likesCount,
@@ -533,6 +570,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.publishedAt,
             _that.createdAt,
             _that.categories,
+            _that.subCategories,
             _that.isPaywalled,
             _that.isLiked,
             _that.likesCount,
@@ -563,13 +601,19 @@ class _NewsArticle implements NewsArticle {
           fromJson: _categoriesFromJson,
           toJson: _categoriesToJson)
       final List<NewsCategory> categories = const [NewsCategory.world],
+      @JsonKey(
+          name: 'sub_categories',
+          fromJson: _subCategoriesFromJson,
+          toJson: _subCategoriesToJson)
+      final List<NewsSubCategory> subCategories = const [],
       @JsonKey(name: 'is_paywalled') this.isPaywalled = false,
       @JsonKey(name: 'is_liked') this.isLiked = false,
       @JsonKey(name: 'likes_count') this.likesCount = 0,
       @JsonKey(name: 'is_favorited') this.isFavorited = false,
       @JsonKey(name: 'is_viewed') this.isViewed = false,
       @JsonKey(name: 'cluster_id') this.clusterId})
-      : _categories = categories;
+      : _categories = categories,
+        _subCategories = subCategories;
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
       _$NewsArticleFromJson(json);
 
@@ -628,6 +672,21 @@ class _NewsArticle implements NewsArticle {
     if (_categories is EqualUnmodifiableListView) return _categories;
     // ignore: implicit_dynamic_type
     return EqualUnmodifiableListView(_categories);
+  }
+
+  /// Sub-categories for fine-grained personalization
+  final List<NewsSubCategory> _subCategories;
+
+  /// Sub-categories for fine-grained personalization
+  @override
+  @JsonKey(
+      name: 'sub_categories',
+      fromJson: _subCategoriesFromJson,
+      toJson: _subCategoriesToJson)
+  List<NewsSubCategory> get subCategories {
+    if (_subCategories is EqualUnmodifiableListView) return _subCategories;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableListView(_subCategories);
   }
 
   /// Whether this article is behind a paywall
@@ -697,6 +756,8 @@ class _NewsArticle implements NewsArticle {
                 other.createdAt == createdAt) &&
             const DeepCollectionEquality()
                 .equals(other._categories, _categories) &&
+            const DeepCollectionEquality()
+                .equals(other._subCategories, _subCategories) &&
             (identical(other.isPaywalled, isPaywalled) ||
                 other.isPaywalled == isPaywalled) &&
             (identical(other.isLiked, isLiked) || other.isLiked == isLiked) &&
@@ -724,6 +785,7 @@ class _NewsArticle implements NewsArticle {
       publishedAt,
       createdAt,
       const DeepCollectionEquality().hash(_categories),
+      const DeepCollectionEquality().hash(_subCategories),
       isPaywalled,
       isLiked,
       likesCount,
@@ -733,7 +795,7 @@ class _NewsArticle implements NewsArticle {
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
   }
 }
 
@@ -760,6 +822,11 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
           fromJson: _categoriesFromJson,
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
+      @JsonKey(
+          name: 'sub_categories',
+          fromJson: _subCategoriesFromJson,
+          toJson: _subCategoriesToJson)
+      List<NewsSubCategory> subCategories,
       @JsonKey(name: 'is_paywalled') bool isPaywalled,
       @JsonKey(name: 'is_liked') bool isLiked,
       @JsonKey(name: 'likes_count') int likesCount,
@@ -790,6 +857,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? publishedAt = null,
     Object? createdAt = null,
     Object? categories = null,
+    Object? subCategories = null,
     Object? isPaywalled = null,
     Object? isLiked = null,
     Object? likesCount = null,
@@ -838,6 +906,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self._categories
           : categories // ignore: cast_nullable_to_non_nullable
               as List<NewsCategory>,
+      subCategories: null == subCategories
+          ? _self._subCategories
+          : subCategories // ignore: cast_nullable_to_non_nullable
+              as List<NewsSubCategory>,
       isPaywalled: null == isPaywalled
           ? _self.isPaywalled
           : isPaywalled // ignore: cast_nullable_to_non_nullable

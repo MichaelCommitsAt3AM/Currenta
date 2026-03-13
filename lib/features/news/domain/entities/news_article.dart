@@ -25,6 +25,21 @@ List<NewsCategory> _categoriesFromJson(dynamic raw) {
 List<String> _categoriesToJson(List<NewsCategory> categories) =>
     categories.map((c) => c.name).toList();
 
+List<NewsSubCategory> _subCategoriesFromJson(dynamic raw) {
+  if (raw == null) return [];
+  final List<dynamic> list = raw is List ? raw : [raw];
+  return list
+      .map((e) => e?.toString() ?? '')
+      .map((s) => NewsSubCategory.values.firstWhere(
+            (c) => c.name == s,
+            orElse: () => NewsSubCategory.elections, // Defaulting to something, but we filter out errors maybe?
+          ))
+      .toList();
+}
+
+List<String> _subCategoriesToJson(List<NewsSubCategory> subCategories) =>
+    subCategories.map((c) => c.name).toList();
+
 // ── Entity ────────────────────────────────────────────────────────────────────
 
 @freezed
@@ -65,6 +80,15 @@ abstract class NewsArticle with _$NewsArticle {
     )
     @Default([NewsCategory.world])
     List<NewsCategory> categories,
+
+    /// Sub-categories for fine-grained personalization
+    @JsonKey(
+      name: 'sub_categories',
+      fromJson: _subCategoriesFromJson,
+      toJson: _subCategoriesToJson,
+    )
+    @Default([])
+    List<NewsSubCategory> subCategories,
 
     /// Whether this article is behind a paywall
     @JsonKey(name: 'is_paywalled') @Default(false) bool isPaywalled,

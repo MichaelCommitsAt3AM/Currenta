@@ -1,26 +1,26 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'news_feed_notifier.dart';
+part of 'likes_notifier.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$newsFeedNotifierHash() => r'5824688f974cc16e3ed0767e660812136fd65e8b';
+String _$likesNotifierHash() => r'95a21123d3c958ad807057d5e64205c8995cff78';
 
-/// See also [NewsFeedNotifier].
-@ProviderFor(NewsFeedNotifier)
-final newsFeedNotifierProvider =
-    AutoDisposeAsyncNotifierProvider<NewsFeedNotifier, FeedState>.internal(
-  NewsFeedNotifier.new,
-  name: r'newsFeedNotifierProvider',
+/// See also [LikesNotifier].
+@ProviderFor(LikesNotifier)
+final likesNotifierProvider = AutoDisposeStreamNotifierProvider<LikesNotifier,
+    List<NewsArticle>>.internal(
+  LikesNotifier.new,
+  name: r'likesNotifierProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
       ? null
-      : _$newsFeedNotifierHash,
+      : _$likesNotifierHash,
   dependencies: null,
   allTransitiveDependencies: null,
 );
 
-typedef _$NewsFeedNotifier = AutoDisposeAsyncNotifier<FeedState>;
+typedef _$LikesNotifier = AutoDisposeStreamNotifier<List<NewsArticle>>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

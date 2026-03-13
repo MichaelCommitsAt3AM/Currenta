@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
+import 'otp_verification_screen.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -73,6 +74,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (next.isAuthenticated) {
         // Pop back to login then hopefully back to feed
         Navigator.of(context).popUntil((route) => route.isFirst);
+      } else if (next.needsOtp && next.pendingEmail != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              email: next.pendingEmail!,
+              type: 'signup',
+            ),
+          ),
+        );
+        ref.read(authNotifierProvider.notifier).resetOtpState();
       }
     });
 

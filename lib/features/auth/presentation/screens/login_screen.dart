@@ -6,6 +6,7 @@ import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
+import 'otp_verification_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -64,6 +65,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         } else {
           debugPrint('[Login] Cannot pop! Maybe we are at the root?');
         }
+      } else if (next.needsOtp && next.pendingEmail != null) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              email: next.pendingEmail!,
+              type: 'recovery',
+            ),
+          ),
+        );
+        ref.read(authNotifierProvider.notifier).resetOtpState();
       }
     });
 
@@ -134,7 +146,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () {
-                      // Optional: Forgot password flow
+                      _showForgotPasswordDialog(context, ref);
                     },
                     child: const Text(
                       'Forgot Password?',
@@ -245,6 +257,68 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showForgotPasswordDialog(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF161A26),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Reset Password',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Enter your email address and we\'ll send you a code to reset your password.',
+                style: TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              AuthTextField(
+                controller: controller,
+                hintText: 'Email Address',
+                icon: Icons.email_outlined,
+                keyboardType: TextInputType.emailAddress,
+                validator: (val) {
+                  if (val == null || val.isEmpty) return 'Enter your email';
+                  if (!val.contains('@')) return 'Enter a valid email';
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                final email = controller.text.trim();
+                Navigator.pop(context); // Close dialog
+                await ref.read(authNotifierProvider.notifier).sendPasswordResetEmail(email);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6C63FF),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Send Code'),
+          ),
+        ],
       ),
     );
   }

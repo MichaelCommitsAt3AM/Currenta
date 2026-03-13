@@ -9,6 +9,8 @@ import '../domain/repositories/news_repository.dart';
 import '../../../core/providers/providers.dart';
 import '../../auth/application/auth_notifier.dart';
 
+import 'pending_activity_provider.dart';
+
 part 'news_feed_notifier.g.dart';
 
 const _kPageSize = 10;
@@ -24,6 +26,8 @@ class FeedState {
     this.selectedCategory,
     this.newArticlesCount = 0,
     this.pendingArticles = const [],
+    this.currentIndex = 0,
+    this.showChatForArticleId,
   });
 
   final List<NewsArticle> articles;
@@ -42,6 +46,10 @@ class FeedState {
   /// New articles found in background refresh, waiting to be applied.
   final List<NewsArticle> pendingArticles;
 
+  final int currentIndex;
+
+  final String? showChatForArticleId;
+
   FeedState copyWith({
     List<NewsArticle>? articles,
     bool? isLoadingMore,
@@ -49,6 +57,8 @@ class FeedState {
     NewsCategory? Function()? selectedCategory,
     int? newArticlesCount,
     List<NewsArticle>? pendingArticles,
+    int? currentIndex,
+    String? Function()? showChatForArticleId,
   }) =>
       FeedState(
         articles: articles ?? this.articles,
@@ -59,6 +69,10 @@ class FeedState {
             : this.selectedCategory,
         newArticlesCount: newArticlesCount ?? this.newArticlesCount,
         pendingArticles: pendingArticles ?? this.pendingArticles,
+        currentIndex: currentIndex ?? this.currentIndex,
+        showChatForArticleId: showChatForArticleId != null
+            ? showChatForArticleId()
+            : this.showChatForArticleId,
       );
 }
 
@@ -70,20 +84,28 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   @override
   Future<FeedState> build() async {
-    // Watch Auth state so we automatically re-sync when user logs in/out.
-    ref.watch(authNotifierProvider);
+    // 1. Check for pending activity if we just became authenticated.
+    final auth = ref.watch(authNotifierProvider);
+    if (auth.isAuthenticated) {
+      final pending = ref.read(pendingActivityNotifierProvider);
+      if (pending != null) {
+        // Clear immediately to prevent re-execution
+        ref.read(pendingActivityNotifierProvider.notifier).clear();
+        Future.microtask(() => _handlePendingActivity(pending));
+      }
+    }
 
-    // 1. If we already have articles in memory, don't flash the shimmer.
+    // 2. If we already have articles in memory, don't flash the shimmer.
     // This happens when the provider rebuilds (e.g., due to watch(authNotifierProvider)).
-    if (state.hasValue && state.value!.articles.isNotEmpty) {
-      final current = state.value!;
+    final previousState = state.valueOrNull;
+    if (previousState != null && previousState.articles.isNotEmpty) {
       debugPrint('[Feed] Retaining existing in-memory articles during rebuild.');
       // Silently refresh in background
       Future.microtask(_backgroundRefresh);
-      return current;
+      return previousState;
     }
 
-    // 2. Fetch from local cache for initial load. 
+    // 3. Fetch from local cache for initial load. 
     // We now EXCLUDE viewed articles by default, so the user always sees fresh content.
     final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0, includeViewed: false);
 
@@ -319,7 +341,41 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
+  /// Updates the current index track in state.
+  void updateCurrentIndex(int index) {
+    final current = state.valueOrNull;
+    if (current != null && current.currentIndex != index) {
+      state = AsyncData(current.copyWith(currentIndex: index));
+    }
+  }
+
+  /// Clears the pending chat flag.
+  void clearPendingChat() {
+    final current = state.valueOrNull;
+    if (current != null && current.showChatForArticleId != null) {
+      state = AsyncData(current.copyWith(showChatForArticleId: () => null));
+    }
+  }
+
   // ── Private ─────────────────────────────────────────────────────
+
+  Future<void> _handlePendingActivity(PendingActivity pending) async {
+    debugPrint('[Feed] Executing pending action: ${pending.action} for ${pending.articleId}');
+    switch (pending.action) {
+      case PendingAction.like:
+        await toggleLike(pending.articleId);
+        break;
+      case PendingAction.favorite:
+        await toggleFavorite(pending.articleId);
+        break;
+      case PendingAction.chat:
+        final current = state.valueOrNull;
+        if (current != null) {
+          state = AsyncData(current.copyWith(showChatForArticleId: () => pending.articleId));
+        }
+        break;
+    }
+  }
 
   /// Silently checks for new articles in the background.
   /// Instead of replacing the current list, it stores them in [pendingArticles].
