@@ -9,12 +9,13 @@ import 'firebase_options.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/config/app_config.dart';
+import 'core/providers/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme/theme.dart';
 import 'features/news/application/background_fetch_service.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
-import 'features/auth/presentation/screens/onboarding_screen.dart';
+import 'features/auth/presentation/screens/welcome_screen.dart';
 
 // ── Crash Reporting Shim ─────────────────────────────────────────────────────
 void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
@@ -85,10 +86,13 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+      ],
       child: CurrentaApp(
         initialScreen: hasCompletedOnboarding 
             ? const FeedScreen() 
-            : const OnboardingScreen(),
+            : const WelcomeScreen(),
       ),
     ),
   );

@@ -47,6 +47,9 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  bool get isAnonymous => _supabase.auth.currentUser?.isAnonymous ?? false;
+
+  @override
   Future<void> signInWithEmail({
     required String email,
     required String password,
@@ -172,6 +175,22 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> signInAnonymously() async {
+    try {
+      await _supabase.auth.signInAnonymously();
+    } on AuthException catch (e) {
+      throw ServerException(e.message);
+    } catch (e) {
+      if (e.toString().contains('No host specified')) {
+        throw const ServerException(
+          'Supabase configuration is missing or invalid. Please check your AppConfig and environment variables.'
+        );
+      }
+      throw ServerException('An unexpected error occurred during guest sign-in: $e');
+    }
+  }
+
+  @override
   Future<void> signOut() async {
     try {
       // Sign out from both Supabase and Google to allow switching accounts next time
@@ -193,9 +212,18 @@ class AuthRepositoryImpl implements AuthRepository {
   }
   @override
   Future<void> saveUserInterests(List<String> categories) async {
-    final uid = _supabase.auth.currentUser?.id;
+    var user = _supabase.auth.currentUser;
+    
+    // If no user exists (even anonymous), create one now so we can save preferences
+    if (user == null) {
+      debugPrint('[Auth] No user found for saveUserInterests. Signing in anonymously...');
+      await _supabase.auth.signInAnonymously();
+      user = _supabase.auth.currentUser;
+    }
+
+    final uid = user?.id;
     if (uid == null) {
-      throw const ServerException('Must be authenticated to save interests');
+      throw const ServerException('Unable to establish a session to save interests.');
     }
 
     try {
@@ -250,9 +278,17 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<void> saveUserSubInterests(List<String> subCategories) async {
-    final uid = _supabase.auth.currentUser?.id;
+    var user = _supabase.auth.currentUser;
+    
+    if (user == null) {
+      debugPrint('[Auth] No user found for saveUserSubInterests. Signing in anonymously...');
+      await _supabase.auth.signInAnonymously();
+      user = _supabase.auth.currentUser;
+    }
+
+    final uid = user?.id;
     if (uid == null) {
-      throw const ServerException('Must be authenticated to save sub-interests');
+      throw const ServerException('Unable to establish a session to save sub-interests.');
     }
 
     try {

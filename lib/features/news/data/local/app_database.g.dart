@@ -124,6 +124,20 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<String> clusterId = GeneratedColumn<String>(
       'cluster_id', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _trendScoreMeta =
+      const VerificationMeta('trendScore');
+  @override
+  late final GeneratedColumn<double> trendScore = GeneratedColumn<double>(
+      'trend_score', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
+  static const VerificationMeta _lastTrendUpdateMeta =
+      const VerificationMeta('lastTrendUpdate');
+  @override
+  late final GeneratedColumn<DateTime> lastTrendUpdate =
+      GeneratedColumn<DateTime>('last_trend_update', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -141,7 +155,9 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         isLiked,
         isFavorited,
         likesCount,
-        clusterId
+        clusterId,
+        trendScore,
+        lastTrendUpdate
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -235,6 +251,18 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       context.handle(_clusterIdMeta,
           clusterId.isAcceptableOrUnknown(data['cluster_id']!, _clusterIdMeta));
     }
+    if (data.containsKey('trend_score')) {
+      context.handle(
+          _trendScoreMeta,
+          trendScore.isAcceptableOrUnknown(
+              data['trend_score']!, _trendScoreMeta));
+    }
+    if (data.containsKey('last_trend_update')) {
+      context.handle(
+          _lastTrendUpdateMeta,
+          lastTrendUpdate.isAcceptableOrUnknown(
+              data['last_trend_update']!, _lastTrendUpdateMeta));
+    }
     return context;
   }
 
@@ -278,6 +306,10 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.int, data['${effectivePrefix}likes_count'])!,
       clusterId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}cluster_id']),
+      trendScore: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}trend_score'])!,
+      lastTrendUpdate: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}last_trend_update']),
     );
   }
 
@@ -314,6 +346,8 @@ class NewsArticlesTableData extends DataClass
   final bool isFavorited;
   final int likesCount;
   final String? clusterId;
+  final double trendScore;
+  final DateTime? lastTrendUpdate;
   const NewsArticlesTableData(
       {required this.id,
       required this.title,
@@ -330,7 +364,9 @@ class NewsArticlesTableData extends DataClass
       required this.isLiked,
       required this.isFavorited,
       required this.likesCount,
-      this.clusterId});
+      this.clusterId,
+      required this.trendScore,
+      this.lastTrendUpdate});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -362,6 +398,10 @@ class NewsArticlesTableData extends DataClass
     if (!nullToAbsent || clusterId != null) {
       map['cluster_id'] = Variable<String>(clusterId);
     }
+    map['trend_score'] = Variable<double>(trendScore);
+    if (!nullToAbsent || lastTrendUpdate != null) {
+      map['last_trend_update'] = Variable<DateTime>(lastTrendUpdate);
+    }
     return map;
   }
 
@@ -389,6 +429,10 @@ class NewsArticlesTableData extends DataClass
       clusterId: clusterId == null && nullToAbsent
           ? const Value.absent()
           : Value(clusterId),
+      trendScore: Value(trendScore),
+      lastTrendUpdate: lastTrendUpdate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastTrendUpdate),
     );
   }
 
@@ -413,6 +457,8 @@ class NewsArticlesTableData extends DataClass
       isFavorited: serializer.fromJson<bool>(json['isFavorited']),
       likesCount: serializer.fromJson<int>(json['likesCount']),
       clusterId: serializer.fromJson<String?>(json['clusterId']),
+      trendScore: serializer.fromJson<double>(json['trendScore']),
+      lastTrendUpdate: serializer.fromJson<DateTime?>(json['lastTrendUpdate']),
     );
   }
   @override
@@ -435,6 +481,8 @@ class NewsArticlesTableData extends DataClass
       'isFavorited': serializer.toJson<bool>(isFavorited),
       'likesCount': serializer.toJson<int>(likesCount),
       'clusterId': serializer.toJson<String?>(clusterId),
+      'trendScore': serializer.toJson<double>(trendScore),
+      'lastTrendUpdate': serializer.toJson<DateTime?>(lastTrendUpdate),
     };
   }
 
@@ -454,7 +502,9 @@ class NewsArticlesTableData extends DataClass
           bool? isLiked,
           bool? isFavorited,
           int? likesCount,
-          Value<String?> clusterId = const Value.absent()}) =>
+          Value<String?> clusterId = const Value.absent(),
+          double? trendScore,
+          Value<DateTime?> lastTrendUpdate = const Value.absent()}) =>
       NewsArticlesTableData(
         id: id ?? this.id,
         title: title ?? this.title,
@@ -474,6 +524,10 @@ class NewsArticlesTableData extends DataClass
         isFavorited: isFavorited ?? this.isFavorited,
         likesCount: likesCount ?? this.likesCount,
         clusterId: clusterId.present ? clusterId.value : this.clusterId,
+        trendScore: trendScore ?? this.trendScore,
+        lastTrendUpdate: lastTrendUpdate.present
+            ? lastTrendUpdate.value
+            : this.lastTrendUpdate,
       );
   NewsArticlesTableData copyWithCompanion(NewsArticlesTableCompanion data) {
     return NewsArticlesTableData(
@@ -504,6 +558,11 @@ class NewsArticlesTableData extends DataClass
       likesCount:
           data.likesCount.present ? data.likesCount.value : this.likesCount,
       clusterId: data.clusterId.present ? data.clusterId.value : this.clusterId,
+      trendScore:
+          data.trendScore.present ? data.trendScore.value : this.trendScore,
+      lastTrendUpdate: data.lastTrendUpdate.present
+          ? data.lastTrendUpdate.value
+          : this.lastTrendUpdate,
     );
   }
 
@@ -525,7 +584,9 @@ class NewsArticlesTableData extends DataClass
           ..write('isLiked: $isLiked, ')
           ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
-          ..write('clusterId: $clusterId')
+          ..write('clusterId: $clusterId, ')
+          ..write('trendScore: $trendScore, ')
+          ..write('lastTrendUpdate: $lastTrendUpdate')
           ..write(')'))
         .toString();
   }
@@ -547,7 +608,9 @@ class NewsArticlesTableData extends DataClass
       isLiked,
       isFavorited,
       likesCount,
-      clusterId);
+      clusterId,
+      trendScore,
+      lastTrendUpdate);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -567,7 +630,9 @@ class NewsArticlesTableData extends DataClass
           other.isLiked == this.isLiked &&
           other.isFavorited == this.isFavorited &&
           other.likesCount == this.likesCount &&
-          other.clusterId == this.clusterId);
+          other.clusterId == this.clusterId &&
+          other.trendScore == this.trendScore &&
+          other.lastTrendUpdate == this.lastTrendUpdate);
 }
 
 class NewsArticlesTableCompanion
@@ -588,6 +653,8 @@ class NewsArticlesTableCompanion
   final Value<bool> isFavorited;
   final Value<int> likesCount;
   final Value<String?> clusterId;
+  final Value<double> trendScore;
+  final Value<DateTime?> lastTrendUpdate;
   final Value<int> rowid;
   const NewsArticlesTableCompanion({
     this.id = const Value.absent(),
@@ -606,6 +673,8 @@ class NewsArticlesTableCompanion
     this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
+    this.trendScore = const Value.absent(),
+    this.lastTrendUpdate = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NewsArticlesTableCompanion.insert({
@@ -625,6 +694,8 @@ class NewsArticlesTableCompanion
     this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
+    this.trendScore = const Value.absent(),
+    this.lastTrendUpdate = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         title = Value(title),
@@ -649,6 +720,8 @@ class NewsArticlesTableCompanion
     Expression<bool>? isFavorited,
     Expression<int>? likesCount,
     Expression<String>? clusterId,
+    Expression<double>? trendScore,
+    Expression<DateTime>? lastTrendUpdate,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -668,6 +741,8 @@ class NewsArticlesTableCompanion
       if (isFavorited != null) 'is_favorited': isFavorited,
       if (likesCount != null) 'likes_count': likesCount,
       if (clusterId != null) 'cluster_id': clusterId,
+      if (trendScore != null) 'trend_score': trendScore,
+      if (lastTrendUpdate != null) 'last_trend_update': lastTrendUpdate,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -689,6 +764,8 @@ class NewsArticlesTableCompanion
       Value<bool>? isFavorited,
       Value<int>? likesCount,
       Value<String?>? clusterId,
+      Value<double>? trendScore,
+      Value<DateTime?>? lastTrendUpdate,
       Value<int>? rowid}) {
     return NewsArticlesTableCompanion(
       id: id ?? this.id,
@@ -707,6 +784,8 @@ class NewsArticlesTableCompanion
       isFavorited: isFavorited ?? this.isFavorited,
       likesCount: likesCount ?? this.likesCount,
       clusterId: clusterId ?? this.clusterId,
+      trendScore: trendScore ?? this.trendScore,
+      lastTrendUpdate: lastTrendUpdate ?? this.lastTrendUpdate,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -765,6 +844,12 @@ class NewsArticlesTableCompanion
     if (clusterId.present) {
       map['cluster_id'] = Variable<String>(clusterId.value);
     }
+    if (trendScore.present) {
+      map['trend_score'] = Variable<double>(trendScore.value);
+    }
+    if (lastTrendUpdate.present) {
+      map['last_trend_update'] = Variable<DateTime>(lastTrendUpdate.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -790,6 +875,8 @@ class NewsArticlesTableCompanion
           ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId, ')
+          ..write('trendScore: $trendScore, ')
+          ..write('lastTrendUpdate: $lastTrendUpdate, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1646,6 +1733,8 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
+  Value<double> trendScore,
+  Value<DateTime?> lastTrendUpdate,
   Value<int> rowid,
 });
 typedef $$NewsArticlesTableTableUpdateCompanionBuilder
@@ -1666,6 +1755,8 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
+  Value<double> trendScore,
+  Value<DateTime?> lastTrendUpdate,
   Value<int> rowid,
 });
 
@@ -1731,6 +1822,13 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get trendScore => $composableBuilder(
+      column: $table.trendScore, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get lastTrendUpdate => $composableBuilder(
+      column: $table.lastTrendUpdate,
+      builder: (column) => ColumnFilters(column));
 }
 
 class $$NewsArticlesTableTableOrderingComposer
@@ -1791,6 +1889,13 @@ class $$NewsArticlesTableTableOrderingComposer
 
   ColumnOrderings<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get trendScore => $composableBuilder(
+      column: $table.trendScore, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get lastTrendUpdate => $composableBuilder(
+      column: $table.lastTrendUpdate,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$NewsArticlesTableTableAnnotationComposer
@@ -1851,6 +1956,12 @@ class $$NewsArticlesTableTableAnnotationComposer
 
   GeneratedColumn<String> get clusterId =>
       $composableBuilder(column: $table.clusterId, builder: (column) => column);
+
+  GeneratedColumn<double> get trendScore => $composableBuilder(
+      column: $table.trendScore, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastTrendUpdate => $composableBuilder(
+      column: $table.lastTrendUpdate, builder: (column) => column);
 }
 
 class $$NewsArticlesTableTableTableManager extends RootTableManager<
@@ -1898,6 +2009,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
+            Value<double> trendScore = const Value.absent(),
+            Value<DateTime?> lastTrendUpdate = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion(
@@ -1917,6 +2030,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
+            trendScore: trendScore,
+            lastTrendUpdate: lastTrendUpdate,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -1936,6 +2051,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
+            Value<double> trendScore = const Value.absent(),
+            Value<DateTime?> lastTrendUpdate = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion.insert(
@@ -1955,6 +2072,8 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
+            trendScore: trendScore,
+            lastTrendUpdate: lastTrendUpdate,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

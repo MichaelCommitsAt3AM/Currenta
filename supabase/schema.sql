@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS articles (
   content_hash      TEXT,
   summary_model     TEXT,
   -- 768-dim for nomic-embed-text (dedicated embedding model)
-  embedding         vector(768)
+  embedding         vector(768),
+  trend_score      DOUBLE PRECISION DEFAULT 0.0,
+  last_trend_update TIMESTAMPTZ
 );
 
 -- 3. IVFFlat index for fast cosine similarity search

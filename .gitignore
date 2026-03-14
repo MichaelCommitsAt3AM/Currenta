@@ -46,6 +46,7 @@ app.*.map.json
 
 # App Secrets
 /lib/core/config/app_config.dart
+/config/*.json
 
 # Node.js
 node_modules/

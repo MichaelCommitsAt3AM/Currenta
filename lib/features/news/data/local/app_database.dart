@@ -93,6 +93,10 @@ class NewsArticlesTable extends Table {
   IntColumn get likesCount =>
       integer().named('likes_count').withDefault(const Constant(0))();
   TextColumn get clusterId => text().named('cluster_id').nullable()();
+  RealColumn get trendScore =>
+      real().named('trend_score').withDefault(const Constant(0.0))();
+  DateTimeColumn get lastTrendUpdate =>
+      dateTime().named('last_trend_update').nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -146,7 +150,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -173,6 +177,10 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 8) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.subCategories);
+          }
+          if (from < 9) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.trendScore);
+            await m.addColumn(newsArticlesTable, newsArticlesTable.lastTrendUpdate);
           }
         },
       );

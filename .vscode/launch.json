@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Currenta (Dev)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "args": [
+        "--dart-define-from-file",
+        "config/dev.json"
+      ]
+    },
+    {
+      "name": "Currenta (Prod)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "args": [
+        "--dart-define-from-file",
+        "config/prod.json"
+      ]
+    },
+    {
+      "name": "Currenta (Release/Prod)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "release",
+      "args": [
+        "--dart-define-from-file",
+        "config/prod.json"
+      ]
+    }
+  ]
+}

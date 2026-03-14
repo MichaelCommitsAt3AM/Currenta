@@ -20,7 +20,7 @@ VALID_CATEGORIES = frozenset([
 # Only these columns are sent to the client — never the embedding vector or internal fields
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
-    published_at, created_at, categories, subcategory, is_paywalled, country_code
+    published_at, created_at, categories, subcategory, is_paywalled, country_code, trend_score
 """
 
 def get_db(request: Request) -> asyncpg.Pool:
@@ -150,11 +150,14 @@ async def get_feed(
                     where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                     
                     # Increased limit slightly since we are fetching multiple categories in one go
+                    # Ranking score: (1 + trend_score) * exp(-decay * hours_old)
+                    # We use a decay of 0.05 per hour.
                     batch_query = f"""
-                        SELECT {ARTICLE_COLUMNS}
+                        SELECT {ARTICLE_COLUMNS},
+                        ((1.0 + trend_score) * exp(-0.05 * extract(epoch from (now() - published_at))/3600)) as ranking_score
                         FROM articles
                         {where_sql}
-                        ORDER BY published_at DESC
+                        ORDER BY ranking_score DESC
                         LIMIT 500
                     """
                     records = await conn.fetch(batch_query, *params)
@@ -169,6 +172,7 @@ async def get_feed(
                         r['id'] = str(r['id']) if r.get('id') else None
                         
                         # Add to overall results
+                        r['ranking_score'] = record.get('ranking_score', 0.0)
                         all_articles.append(r)
                         
                         # Add to individual category buckets for Redis storage
@@ -208,7 +212,9 @@ async def get_feed(
             seen.add(aid)
             unique_filtered.append(a)
             
-        unique_filtered.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+        # For 'For You' (all categories or personalized), sort by ranking score.
+        # For specific categories, we still want to benefit from the trend boost.
+        unique_filtered.sort(key=lambda x: x.get('ranking_score', 0.0), reverse=True)
         
         # 6. Apply pagination
         final_result = unique_filtered[offset:offset+limit]

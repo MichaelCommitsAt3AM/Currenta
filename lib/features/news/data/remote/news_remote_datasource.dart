@@ -115,4 +115,27 @@ class NewsRemoteDataSource {
       rethrow;
     }
   }
+
+  /// Fetches global trending articles.
+  Future<List<NewsArticle>> fetchTrendingArticles({int limit = 20}) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/trending';
+      final queryParams = {'limit': limit};
+
+      final session = Supabase.instance.client.auth.currentSession;
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      final response = await _dio.get(url, queryParameters: queryParams, options: options);
+      final data = response.data as List<dynamic>;
+      return data
+          .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (e) {
+      throw ServerException('Failed to fetch trending: ${e.message}');
+    }
+  }
 }

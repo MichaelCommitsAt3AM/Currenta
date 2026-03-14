@@ -41,6 +41,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final initialIndex = ref.read(newsFeedNotifierProvider).valueOrNull?.currentIndex ?? 0;
     _pageController = PageController(initialPage: initialIndex);
     _currentIndex = initialIndex;
+    _selectedCategory = ref.read(newsFeedNotifierProvider).valueOrNull?.selectedCategory;
     _pageController.addListener(_onPageScroll);
 
     // Mark the very first article as viewed
@@ -127,7 +128,36 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Widget build(BuildContext context) {
     ref.listen(newsFeedNotifierProvider, (previous, next) {
       final nextFeed = next.valueOrNull;
-      if (nextFeed != null && nextFeed.showChatForArticleId != null) {
+      if (nextFeed == null) return;
+
+      // 1. Sync PageController if state changed index independently (e.g., restoration or refresh)
+      final prevIndex = previous?.valueOrNull?.currentIndex;
+      final nextIndex = nextFeed.currentIndex;
+      final controllerPage = _pageController.hasClients ? _pageController.page?.round() : null;
+
+      if (nextIndex != prevIndex && nextIndex != controllerPage) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_pageController.hasClients) {
+            // If it's the very first load (prevFeed == null), jump immediately.
+            // Otherwise, animate to provide visual context of the "shift".
+            if (previous?.valueOrNull == null) {
+              _pageController.jumpToPage(nextIndex);
+            } else {
+              _pageController.animateToPage(
+                nextIndex,
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.fastOutSlowIn,
+              );
+            }
+            if (_currentIndex != nextIndex) {
+              setState(() => _currentIndex = nextIndex);
+            }
+          }
+        });
+      }
+
+      // 2. Handle AI Chat sheet
+      if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
         final article = nextFeed.articles.firstWhere((a) => a.id == articleId);
         
@@ -256,14 +286,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             _NewStoriesBadge(
               count: feed.newArticlesCount,
               onTap: () {
+                // Notifier handles list reconstruction and index shift (Current @ 0, New @ 1)
                 ref
                     .read(newsFeedNotifierProvider.notifier)
                     .applyPendingArticles();
-                _pageController.animateToPage(
-                  0,
-                  duration: const Duration(milliseconds: 600),
-                  curve: Curves.fastOutSlowIn,
-                );
               },
             ),
         ],
@@ -430,7 +456,7 @@ class _CategoryBar extends ConsumerWidget {
                       onTap: () => onCategoryChanged(null),
                     ),
                     const SizedBox(width: 8),
-                    ...NewsCategory.values
+                    ..._getSortedCategories(ref)
                         .where((cat) => cat.isSupported(
                           ref.watch(authNotifierProvider).preferredCountry ?? 
                           View.of(context).platformDispatcher.locale.countryCode))
@@ -466,6 +492,21 @@ class _CategoryBar extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  List<NewsCategory> _getSortedCategories(WidgetRef ref) {
+    final selectedInterests = ref.watch(authNotifierProvider).selectedInterests;
+    if (selectedInterests.isEmpty) return NewsCategory.values;
+
+    final sorted = List<NewsCategory>.from(NewsCategory.values);
+    sorted.sort((a, b) {
+      final aSelected = selectedInterests.contains(a.name);
+      final bSelected = selectedInterests.contains(b.name);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return 0;
+    });
+    return sorted;
   }
 }
 

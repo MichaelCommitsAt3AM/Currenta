@@ -26,7 +26,7 @@ LOCAL_LLM_BASE_URL = RAW_LOCAL_LLM_BASE_URL.rstrip("/")
 if not LOCAL_LLM_BASE_URL.endswith("/v1"):
     LOCAL_LLM_BASE_URL += "/v1"
 
-LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "llama3.1")
+LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL")
 LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "nomic-embed-text")
 
 # --- Google Gen-AI Clients (Unified SDK) ---
@@ -274,9 +274,9 @@ def is_scraper_error_page(text: str) -> bool:
     lower = text.lower()
     return any(signal in lower for signal in (PAYWALL_SIGNALS + TECHNICAL_ERROR_SIGNALS))
 
-def is_junk_content(text: str, title: str) -> bool:
+def is_junk_content(text: str, title: str) -> Optional[str]:
     """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
-    combined = (title + " " + text).lower()
+    combined = " " + (title + " " + text).lower() + " "
     hard_signals = [
         "promo code", "bonus bets", "bonus bet", "sign-up bonus", "sign up bonus",
         "signup bonus", "welcome bonus", "first deposit bonus", "draftkings",
@@ -307,24 +307,43 @@ def is_junk_content(text: str, title: str) -> bool:
         "watch live", "streaming live", "video highlights", "video clip", "video-clips",
         "buying guide", "gift guide", "shopping guide", "the best gadgets", "best phone", "best laptop",
         "best tracker", "best earbud", "best headphone", "best camera", "we've tested", "our tests showed",
-        "best smart", "best of 202"
+        "best smart", "best of 202",
+        "winning numbers", "drawn in", "evening draw", "pick 3", "pick 4", "lottery result", "lotto result", "jackpot winner",
+        "mega millions", "powerball", "lottery update", "prediction", "match preview", "game preview", "betting tips",
+        "expert picks", "score prediction", "forecast", "injury report", "lineup update", "live scoreboard", 
+        "real-time updates", "minute-by-minute", "live commentary", "full time results", "half-time score",
+        " betting ", " sportsbook ", " oddsmaker ", " parlay ", " moneyline ", " point spread ", " spread ", " over/under ",
+        " wagering ", " wagering ", " betting odds ", " free picks ", " expert predictions ", " game odds ", " v.s. ", " vs. ",
+        "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream"
     ]
-    if any(signal in combined for signal in hard_signals):
-        return True
+    for signal in hard_signals:
+        if signal in combined:
+            return f"Matched hard signal: {signal}"
 
     # Check for multi-topic title patterns (too many unrelated items)
     # Titles like "Apple Event, LG TV, and Blu-ray Sales"
     if title.count(',') >= 2 and (" and " in title.lower() or " & " in title):
         # High probability of being a roundup
-        return True
+        return "Multi-topic title pattern (roundup)"
 
     soft_signals = [
         "promo", "sportsbook", "oddsmaker", "parlay", "moneyline", "point spread",
         "over/under", "wagering", "sweepstakes", "giveaway", "refer a friend",
-        "loyalty points", "cash back offer", "podcast", "episode"
+        "loyalty points", "cash back offer", "podcast", "episode", " betting ", " odds "
     ]
-    matches = sum(1 for signal in soft_signals if signal in combined)
-    return matches >= 2
+    matches = [signal for signal in soft_signals if signal in combined]
+    if len(matches) >= 2:
+        return f"Matched soft signals: {', '.join(matches)}"
+
+    # Basic English Detection (Heuristic)
+    # If the text is long enough and lacks common English functional words, it's likely non-English.
+    if len(combined.split()) > 5:
+        # Common English stop words/function words
+        common_en_words = [" the ", " and ", " was ", " for ", " with ", " that ", " this ", " from ", " were ", " their "]
+        if not any(word in combined for word in common_en_words):
+            return "Likely non-English content (heuristic)"
+
+    return None
 
 async def summarize_article(text: str, provider: str, category_hint: str = None, category_bias: str = "neutral") -> dict:
     category_context = ""
@@ -785,7 +804,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     if scraper_text_is_error:
                         print(f"[processFeed] Content blocked/invalid. Falling back to RSS context.")
                         fallback_text = f"{item['title']}\n\n{item.get('description', '')}".strip()
-                        if is_scraper_error_page(fallback_text) or len(fallback_text) < 100:
+                        if is_scraper_error_page(fallback_text) or count_words(fallback_text) < 75:
                             await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SCRAPER_FAIL", error_message=scraper_error_msg or "Blocked/Invalid Content", resolved_url=scraper_result.get("url"))
                             results["skipped"] += 1
                             continue
@@ -816,7 +835,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 except Exception as e:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="INTERNAL_ERROR", error_message=str(e))
                     fallback_text = f"{item['title']}\n\n{item.get('description', '')}".strip()
-                    if is_scraper_error_page(fallback_text) or len(fallback_text) < 100:
+                    if is_scraper_error_page(fallback_text) or count_words(fallback_text) < 75:
                         results["skipped"] += 1
                         continue
                     article_text = fallback_text
@@ -825,15 +844,15 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 if count_words(article_text) < 120:
                     article_text = f"{item['title']}\n\n{article_text}"
 
-                # Strict validation: require at least 75 words (approx 900-1000 chars) for a meaningful summary.
-                # Also filter out if character count is still suspiciously low.
-                if is_scraper_error_page(article_text) or count_words(article_text) < 75 or len(article_text) < 800:
+                # Strict validation: require at least 75 words for a meaningful summary.
+                if is_scraper_error_page(article_text) or count_words(article_text) < 75:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message=f"Content too short: {count_words(article_text)} words")
                     results["skipped"] += 1
                     continue
 
-                if is_junk_content(article_text, item["title"]):
-                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SKIPPED_JUNK")
+                junk_reason = is_junk_content(article_text, item["title"])
+                if junk_reason:
+                    await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SKIPPED_JUNK", error_message=junk_reason)
                     results["skipped"] += 1
                     continue
 
@@ -1075,4 +1094,89 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
             await process_feed(rss_url, "local", "strong", db_pool, country_code=country_code)
         except Exception as e:
             logger.error(f"LocalIngest: Error during on-demand fetch for {country_code}: {e}")
+
+async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None):
+    """
+    Ingests a single article from a raw URL.
+    Useful for 'On-Demand Ingest' from trending signals.
+    """
+    async with db_pool.acquire() as conn:
+        # Check duplicate
+        existing = await conn.fetchval("SELECT 1 FROM articles WHERE original_url = $1", url)
+        if existing:
+            # await log_ingestion_event(conn, url, "SKIPPED", error_type="DUPLICATE_URL")
+            return None
+
+        scraper_result = await asyncio.to_thread(scrape_article_sync, url)
+        if scraper_result.get("error"):
+            await log_ingestion_event(conn, url, "FAILED", error_type="SCRAPER_ERROR", error_message=scraper_result.get("error"))
+            return None
+
+        scraped_text = scraper_result.get("text", "")
+        if is_scraper_error_page(scraped_text) or count_words(scraped_text) < 75:
+            await log_ingestion_event(conn, url, "FAILED", error_type="CONTENT_TOO_SHORT", error_message=f"Content too short: {count_words(scraped_text)} words")
+            return None
+
+        # Determine if it's junk
+        title = scraper_result.get("title", "News Update")
+        junk_reason = is_junk_content(scraped_text, title)
+        if junk_reason:
+            await log_ingestion_event(conn, url, "FAILED", error_type="SKIPPED_JUNK", error_message=junk_reason)
+            return None
+
+        # Summarize
+        try:
+            # We don't have a category hint here, so we let the LLM decide
+            llm_res = await summarize_article(scraped_text, LLM_PROVIDER)
+        except Exception as e:
+            await log_ingestion_event(conn, url, "FAILED", error_type="LLM_ERROR", error_message=str(e))
+            return None
+
+        if llm_res["type"] not in ["hard_news", "analysis"]:
+            await log_ingestion_event(conn, url, "FAILED", error_type="LOW_SIGNAL_TYPE")
+            return None
+
+        # Embed
+        embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
+        if await is_duplicate(conn, embedding):
+            await log_ingestion_event(conn, url, "FAILED", error_type="DUPLICATE_EMBEDDING")
+            return None
+
+        # Image
+        article_image_url = scraper_result.get("image_url")
+        if scraper_result.get("image_bytes"):
+            image_file_name = hashlib.sha256(url.encode()).hexdigest()
+            persistent_url = await upload_image_sync(scraper_result["image_bytes"], image_file_name)
+            if persistent_url:
+                article_image_url = persistent_url
+
+        # Insert
+        embedding_str = f"[{','.join(map(str, embedding))}]"
+        # Since this might be from a trending signal, use the domain as source if unknown
+        source_name = scraper_result.get("source") or (re.search(r'https?://([^/]+)', url).group(1) if re.search(r'https?://([^/]+)', url) else "Unknown")
+        content_hash = generate_content_hash(url, llm_res["title"])
+        
+        try:
+            # We use a CTE to ensure we get the ID even if it exists.
+            result = await conn.fetchrow('''
+                INSERT INTO articles (
+                    title, summary, original_url, image_url, source_name,
+                    published_at, categories, subcategory, embedding, content_hash, 
+                    summary_model, country_code, is_paywalled, ingestion_method, created_at
+                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+                ON CONFLICT (original_url) DO UPDATE SET last_trend_update = NOW() -- Dummy update to trigger RETURNING
+                RETURNING id
+            ''', 
+            llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
+            llm_res["categories"], llm_res["subcategory"],
+            embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code, 
+            scraper_result.get("is_paywalled", False), "scraper")
+            
+            article_id = result["id"] if result else None
+
+            await log_ingestion_event(conn, url, "SUCCESS", source_name=source_name, has_text=True, has_image=article_image_url is not None)
+            return article_id
+        except Exception as db_err:
+            await log_ingestion_event(conn, url, "FAILED", error_type="DB_INSERT_ERROR", error_message=str(db_err))
+            return None
 

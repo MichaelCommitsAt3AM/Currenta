@@ -236,18 +236,28 @@ hr
 
 info "Updating Flutter app config with new ngrok URL..."
 CONFIG_FILE="${PROJECT_ROOT}/lib/core/config/app_config.dart"
-if [[ -f "${CONFIG_FILE}" ]]; then
-  # More robust regex that handles potential multiline or trailing whitespace from formatters (.app or .dev)
-  sed -i "s|static const String apiBaseUrl =.*'https://.*.ngrok-free\..*';|static const String apiBaseUrl = '${BACKEND_NGROK_URL}';|g" "${CONFIG_FILE}"
-  # Check if the file actually contains the new URL to confirm update
-  if grep -q "${BACKEND_NGROK_URL}" "${CONFIG_FILE}"; then
-    ok "Updated apiBaseUrl in app_config.dart ✓"
-  else
-    warn "Failed to update apiBaseUrl in app_config.dart (check if the pattern in the script matches your file structure)"
-  fi
+DEV_JSON="${PROJECT_ROOT}/config/dev.json"
 
+# 1. Update config/dev.json (Primary source for --dart-define-from-file)
+if [[ -f "${DEV_JSON}" ]]; then
+  if command -v jq >/dev/null 2>&1; then
+    jq ".API_BASE_URL = \"${BACKEND_NGROK_URL}\"" "${DEV_JSON}" > "${DEV_JSON}.tmp" && mv "${DEV_JSON}.tmp" "${DEV_JSON}"
+    ok "Updated API_BASE_URL in config/dev.json ✓"
+  else
+    sed -i "s|\"API_BASE_URL\": \".*\"|\"API_BASE_URL\": \"${BACKEND_NGROK_URL}\"|g" "${DEV_JSON}"
+    ok "Updated API_BASE_URL in config/dev.json (via sed) ✓"
+  fi
+fi
+
+# 2. Update Status
+if [[ -f "${DEV_JSON}" ]]; then
+  if grep -q "${BACKEND_NGROK_URL}" "${DEV_JSON}"; then
+    ok "App configuration updated in config/dev.json ✓"
+  else
+    warn "Failed to update API_BASE_URL in config/dev.json"
+  fi
 else
-  warn "app_config.dart not found at ${CONFIG_FILE}. Please update manualy."
+  warn "config/dev.json not found. Please update manually."
 fi
 echo ""
 

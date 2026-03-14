@@ -10,6 +10,7 @@ import '../../../core/providers/providers.dart';
 import '../../auth/application/auth_notifier.dart';
 
 import 'pending_activity_provider.dart';
+import '../data/repositories/local_persistence_repository.dart';
 
 part 'news_feed_notifier.g.dart';
 
@@ -81,6 +82,7 @@ class FeedState {
 @riverpod
 class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
+  LocalPersistenceRepository get _persistence => ref.read(localPersistenceRepositoryProvider);
 
   @override
   Future<FeedState> build() async {
@@ -105,33 +107,62 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       return previousState;
     }
 
-    // 3. Fetch from local cache for initial load. 
-    // We now EXCLUDE viewed articles by default, so the user always sees fresh content.
-    final firstPage = await _repo.fetchPage(limit: _kPageSize, offset: 0, includeViewed: false);
+    // 3. Check for persisted state
+    final savedCategoryId = _persistence.getCurrentCategory();
+    final savedArticleId = _persistence.getCurrentArticleId();
+
+    // 4. Fetch from local cache for initial load. 
+    // If we have a saved article ID, we MUST include viewed articles to find it.
+    // Otherwise, we exclude viewed articles to keep the feed fresh.
+    final includeViewed = savedArticleId != null;
+    
+    final firstPage = await _repo.fetchPage(
+      category: savedCategoryId,
+      limit: _kPageSize, 
+      offset: 0, 
+      includeViewed: includeViewed,
+    );
 
     // If cache is empty, wait for the first refresh to complete before showing data.
     if (firstPage.isEmpty) {
       debugPrint('[Feed] Cache empty. Performing initial remote sync...');
       try {
         await _repo.refreshFeed();
-        // Initial sync always gets fresh (unviewed) content
-        final freshPage = await _repo.fetchPage(limit: _kPageSize, offset: 0);
+        final freshPage = await _repo.fetchPage(
+          category: savedCategoryId,
+          limit: _kPageSize, 
+          offset: 0,
+        );
         return FeedState(
           articles: freshPage,
           hasMore: freshPage.length >= _kPageSize,
+          selectedCategory: savedCategoryId,
         );
       } catch (e) {
         debugPrint('[Feed] Initial remote refresh failed: $e');
-        return const FeedState(articles: [], hasMore: false);
+        return FeedState(articles: [], hasMore: false, selectedCategory: savedCategoryId);
+      }
+    }
+
+    // Find the current index if we saved an article ID
+    int initialIndex = 0;
+    if (savedArticleId != null) {
+      initialIndex = firstPage.indexWhere((a) => a.id == savedArticleId);
+      if (initialIndex == -1) {
+        // If not in first page, just start from 0 or try to fetch it?
+        // For now, let's keep it simple. If it's old/gone, start at 0.
+        initialIndex = 0;
       }
     }
 
     // SILENT refresh in background. 
-    // We wait for a microtask to ensure the state returned below is already applied.
     Future.microtask(_backgroundRefresh);
+    
     return FeedState(
       articles: firstPage,
       hasMore: firstPage.length >= _kPageSize,
+      selectedCategory: savedCategoryId,
+      currentIndex: initialIndex,
     );
   }
 
@@ -221,6 +252,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         selectedCategory: category,
       ));
 
+      // Persist category selection
+      _persistence.saveCurrentCategory(category);
+      _persistence.saveCurrentArticleId(articles.firstOrNull?.id);
+
       // 3. If we still have very few articles, try to load one more page locally (if any)
       if (articles.isNotEmpty && articles.length < _kPageSize) {
         await loadNextPage();
@@ -231,10 +266,25 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   /// Full refresh: re-syncs remote data then resets to page 1.
+  /// Full refresh: re-syncs remote data then incorporates results.
+  /// If already viewing articles, it performs a silent refresh to avoid losing place.
   Future<void> refresh() async {
-    final currentCategory = state.valueOrNull?.selectedCategory;
-    state = const AsyncLoading();
+    final startState = state.valueOrNull;
+    
+    // If we have nothing, show full loading. 
+    // Otherwise, do a silent refresh to preserve the current view.
+    if (startState == null || startState.articles.isEmpty) {
+      state = const AsyncLoading();
+    }
+
+    final currentCategory = startState?.selectedCategory;
     await _backgroundRefresh(forcedCategory: currentCategory);
+
+    // If new articles were found, apply them using the preservation logic.
+    final updatedState = state.valueOrNull;
+    if (updatedState != null && updatedState.pendingArticles.isNotEmpty) {
+      applyPendingArticles();
+    }
   }
 
   /// Toggles the like status of an article.
@@ -299,24 +349,53 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   ///
   /// CRITICAL: To prevent the user from seeing articles they already scrolled past,
   /// we truncate the 'old' feed to only include articles that haven't been viewed yet.
+  /// Incorporates pending articles into the main feed while preserving the current article.
+  /// The current article is moved to index 0, and the new articles begin at index 1.
+  /// This allows the user to swipe up to return to what they were reading.
   void applyPendingArticles() {
     final current = state.valueOrNull;
     if (current == null || current.pendingArticles.isEmpty) return;
 
-    // Filter out articles the user has already seen to keep the feed fresh
-    final unviewedOldArticles =
-        current.articles.where((a) => !a.isViewed).toList();
+    // 1. Identify the currently visible article
+    final currentArticle =
+        (current.currentIndex >= 0 && current.currentIndex < current.articles.length)
+            ? current.articles[current.currentIndex]
+            : null;
 
-    // Deduplicate against pending articles just in case of overlap
+    // 2. Filter out already viewed articles from the old list
+    // (excluding the current one since we want to keep it)
+    final unviewedOldArticles = current.articles.where((a) {
+      if (currentArticle != null && a.id == currentArticle.id) return false;
+      return !a.isViewed;
+    }).toList();
+
+    // 3. Deduplicate against pending articles
     final pendingIds = current.pendingArticles.map((a) => a.id).toSet();
     final uniqueUnviewedOld =
         unviewedOldArticles.where((a) => !pendingIds.contains(a.id)).toList();
 
+    // 4. Construct new list: [Current, New1, New2..., OldUnviewed1...]
+    final newList = <NewsArticle>[];
+    if (currentArticle != null) {
+      newList.add(currentArticle);
+    }
+    newList.addAll(current.pendingArticles);
+    newList.addAll(uniqueUnviewedOld);
+
     state = AsyncData(current.copyWith(
-      articles: [...current.pendingArticles, ...uniqueUnviewedOld],
+      articles: newList,
       pendingArticles: [],
       newArticlesCount: 0,
+      currentIndex: currentArticle != null ? 1 : 0,
     ));
+
+    // Persist the new "current" article (the one the user is now looking at)
+    if (newList.isNotEmpty) {
+      final newIndex = currentArticle != null ? 1 : 0;
+      if (newIndex < newList.length) {
+        _persistence.saveCurrentArticleId(newList[newIndex].id);
+      }
+    }
   }
 
   /// Explicitly marks an article as viewed in memory and persists to DB.
@@ -346,6 +425,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current != null && current.currentIndex != index) {
       state = AsyncData(current.copyWith(currentIndex: index));
+      
+      // Persist the current article ID
+      if (index >= 0 && index < current.articles.length) {
+        _persistence.saveCurrentArticleId(current.articles[index].id);
+      }
     }
   }
 

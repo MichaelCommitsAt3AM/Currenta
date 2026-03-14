@@ -72,11 +72,27 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
   Future<void> _handleGuest() async {
     setState(() {
       _isLoading = true;
-      _loadingMessage = 'Personalizing your experience...';
+      _loadingMessage = 'Preparing your guest session...';
     });
-    // For Guest, they are already signed in anonymously from main.dart,
-    // so we just finalize preferences.
-    await _completeOnboardingFlow();
+    
+    try {
+      // Ensure we have an anonymous session before saving preferences
+      await ref.read(authRepositoryProvider).signInAnonymously();
+      
+      setState(() {
+        _loadingMessage = 'Personalizing your experience...';
+      });
+      
+      await _completeOnboardingFlow();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to start guest session: $e')),
+      );
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _handleSignIn() async {
@@ -201,7 +217,7 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Image.asset(
-                      'assets/icons/google_logo.png', // Assuming you have this asset
+                      'assets/icons/google.png',
                       height: 24,
                       errorBuilder: (c, e, s) => const Icon(Icons.g_mobiledata, size: 28),
                     ),

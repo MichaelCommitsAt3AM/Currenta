@@ -20,7 +20,7 @@ import redis.asyncio as redis
 from .services.scheduler import start_scheduler, stop_scheduler
 from .core.logging_config import setup_logging
 from .core.security import limiter
-from .api import feed, ingest, chat
+from .api import feed, ingest, chat, trending
 from .version import VERSION
 
 import asyncio
@@ -133,6 +133,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(trending.router, prefix="/api/trending", tags=["trending"])
 
 
 @app.get("/")

@@ -5,6 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
+import '../screens/trending_screen.dart';
+import '../../application/trending_notifier.dart';
+import '../../../../core/utils/browser_service.dart';
+import '../../domain/entities/news_article.dart';
+import '../../../../theme/theme.dart';
 
 class Sidebar extends ConsumerWidget {
   final Color catColor;
@@ -69,7 +74,7 @@ class Sidebar extends ConsumerWidget {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: Image.asset(
-                          'assets/icons/app_logo.jpg',
+                          'assets/icons/app_logo_new.png',
                           fit: BoxFit.cover,
                         ),
                       ),
@@ -159,11 +164,104 @@ class Sidebar extends ConsumerWidget {
 
               const SizedBox(height: 8),
               Divider(color: Colors.white.withValues(alpha: 0.05), indent: 24, endIndent: 24),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
 
-              // ── Menu Items ─────────────────────────────────────────────
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Trending Now Section ──────────────────────────────────
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.pop(context); // Close drawer
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const TrendingScreen()),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.trending_up_rounded, color: Colors.orangeAccent, size: 18),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Trending Now',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  Icons.arrow_forward_ios_rounded,
+                                  color: Colors.white.withValues(alpha: 0.3),
+                                  size: 12,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Consumer(
+                        builder: (context, ref, child) {
+                          final trendingAsync = ref.watch(trendingNotifierProvider);
 
-              const Spacer(),
+                          return trendingAsync.when(
+                            data: (articles) {
+                              if (articles.isEmpty) {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                                  child: Text(
+                                    'Stay tuned for trending stories...',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.3),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return ListView.separated(
+                                padding: const EdgeInsets.symmetric(horizontal: 24),
+                                itemCount: articles.length.clamp(0, 5), // Show top 5 in sidebar
+                                physics: const NeverScrollableScrollPhysics(),
+                                shrinkWrap: true,
+                                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  final article = articles[index];
+                                  return _TrendingTile(
+                                    article: article,
+                                    onTap: () {
+                                      Navigator.pop(context); // Close drawer
+                                      ref.read(browserServiceProvider).openUrl(context, article.originalUrl);
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                            loading: () => const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                            error: (e, st) => const SizedBox.shrink(),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
 
               // ── Bottom Section ─────────────────────────────────────────
               Divider(color: Colors.white.withValues(alpha: 0.05), indent: 24, endIndent: 24),
@@ -197,6 +295,87 @@ class Sidebar extends ConsumerWidget {
               const SizedBox(height: 12),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrendingTile extends StatelessWidget {
+  final NewsArticle article;
+  final VoidCallback onTap;
+
+  const _TrendingTile({
+    required this.article,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryCategory = article.categories.isNotEmpty ? article.categories.first : null;
+    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.05),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 4,
+              height: 40,
+              decoration: BoxDecoration(
+                color: catColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    article.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        article.sourceName,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        Icons.trending_up,
+                        size: 10,
+                        color: Colors.orangeAccent.withValues(alpha: 0.6),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

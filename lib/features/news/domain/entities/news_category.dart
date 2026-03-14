@@ -197,12 +197,7 @@ enum NewsCategory {
             NewsSubCategory.sustainability,
             NewsSubCategory.renewableEnergy,
           ],
-        NewsCategory.local => [
-            NewsSubCategory.community,
-            NewsSubCategory.events,
-            NewsSubCategory.traffic,
-            NewsSubCategory.localGovernment,
-          ],
+        NewsCategory.local => [],
       };
 }
 

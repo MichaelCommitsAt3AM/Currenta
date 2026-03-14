@@ -13,6 +13,9 @@ abstract class AuthRepository {
   /// Returns the current user's avatar URL, or null if not signed in or not found.
   String? get avatarUrl;
 
+  /// Returns true if the current user is anonymous (guest).
+  bool get isAnonymous;
+
   /// Signs in with an email and password.
   Future<void> signInWithEmail({
     required String email,
@@ -28,6 +31,9 @@ abstract class AuthRepository {
 
   /// Initiates the Google OAuth sign-in flow.
   Future<void> signInWithGoogle();
+
+  /// Signs in anonymously to track guest preferences.
+  Future<void> signInAnonymously();
 
   /// Signs the user out.
   Future<void> signOut();

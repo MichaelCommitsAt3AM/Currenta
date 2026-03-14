@@ -13,7 +13,9 @@ import '../../features/auth/data/repositories/onboarding_repository_impl.dart';
 import '../../features/auth/domain/repositories/onboarding_repository.dart';
 import '../../features/news/data/repositories/chat_repository_impl.dart';
 import '../../features/news/domain/repositories/chat_repository.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/dio_client.dart';
+import '../../features/news/data/repositories/local_persistence_repository.dart';
 
 // ── Supabase ──────────────────────────────────────────────────────
 
@@ -63,4 +65,16 @@ final onboardingRepositoryProvider = Provider<OnboardingRepository>((ref) {
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   return ChatRepositoryImpl(db: ref.watch(appDatabaseProvider));
+});
+
+// ── Persistence ──────────────────────────────────────────────────
+
+final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+  throw UnimplementedError('sharedPreferencesProvider must be overridden in ProviderScope');
+});
+
+final localPersistenceRepositoryProvider = Provider<LocalPersistenceRepository>((ref) {
+  return LocalPersistenceRepository(
+    prefs: ref.watch(sharedPreferencesProvider),
+  );
 });

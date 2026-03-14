@@ -10,9 +10,11 @@ class AuthState {
     this.isLoading = false,
     this.error,
     this.isAuthenticated = false,
+    this.isAnonymous = false,
     this.needsOtp = false,
     this.pendingEmail,
     this.preferredCountry,
+    this.selectedInterests = const [],
     this.displayName,
     this.avatarUrl,
   });
@@ -20,9 +22,11 @@ class AuthState {
   final bool isLoading;
   final String? error;
   final bool isAuthenticated;
+  final bool isAnonymous;
   final bool needsOtp;
   final String? pendingEmail;
   final String? preferredCountry;
+  final List<String> selectedInterests;
   final String? displayName;
   final String? avatarUrl;
 
@@ -30,9 +34,11 @@ class AuthState {
     bool? isLoading,
     String? error,
     bool? isAuthenticated,
+    bool? isAnonymous,
     bool? needsOtp,
     String? pendingEmail,
     String? Function()? preferredCountry,
+    List<String>? selectedInterests,
     String? Function()? displayName,
     String? Function()? avatarUrl,
   }) {
@@ -40,9 +46,11 @@ class AuthState {
       isLoading: isLoading ?? this.isLoading,
       error: error,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      isAnonymous: isAnonymous ?? this.isAnonymous,
       needsOtp: needsOtp ?? this.needsOtp,
       pendingEmail: pendingEmail ?? this.pendingEmail,
       preferredCountry: preferredCountry != null ? preferredCountry() : this.preferredCountry,
+      selectedInterests: selectedInterests ?? this.selectedInterests,
       displayName: displayName != null ? displayName() : this.displayName,
       avatarUrl: avatarUrl != null ? avatarUrl() : this.avatarUrl,
     );
@@ -58,14 +66,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       String? country;
       String? name;
       String? avatar;
-      if (isAuthenticated) {
+      List<String> interests = [];
+      if (isAuthenticated || _repository.isAnonymous) {
         country = await _repository.getPreferredCountry();
+        interests = await _repository.getUserInterests();
         name = _repository.displayName;
         avatar = _repository.avatarUrl;
       }
       state = state.copyWith(
         isAuthenticated: isAuthenticated,
+        isAnonymous: _repository.isAnonymous,
         preferredCountry: () => country,
+        selectedInterests: interests,
         displayName: () => name,
         avatarUrl: () => avatar,
       );
@@ -169,9 +181,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> refreshPreferredCountry() async {
-    if (state.isAuthenticated) {
+    if (state.isAuthenticated || state.isAnonymous) {
       final country = await _repository.getPreferredCountry();
       state = state.copyWith(preferredCountry: () => country);
+    }
+  }
+
+  Future<void> refreshInterests() async {
+    if (state.isAuthenticated || state.isAnonymous) {
+      final interests = await _repository.getUserInterests();
+      state = state.copyWith(selectedInterests: interests);
     }
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/providers.dart';
 import '../../domain/entities/news_category.dart';
 import 'empty_state_screen.dart';
+import 'country_selection_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 
@@ -36,13 +37,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       
       if (mounted) {
         setState(() {
-          for (final catName in interests) {
-            final category = NewsCategory.values.firstWhere(
-              (c) => c.name == catName,
-              orElse: () => NewsCategory.world,
-            );
-            _selectedCategories.add(category);
-          }
+          // First, load all specific sub-interests
           for (final subName in subInterests) {
              try {
                 final subCategory = NewsSubCategory.values.firstWhere(
@@ -51,6 +46,27 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                 _selectedSubCategories.add(subCategory);
              } catch (_) {}
           }
+
+          // Then, load categories and apply smart defaults for missing sub-interests
+          for (final catName in interests) {
+            final category = NewsCategory.values.firstWhere(
+              (c) => c.name == catName,
+              orElse: () => NewsCategory.world,
+            );
+            _selectedCategories.add(category);
+            
+            // Per user request: If a category is selected but has NO stored sub-interests,
+            // we automatically select all its sub-categories.
+            final categorySubNames = category.subCategories.toSet();
+            final hasStoredSubInterests = categorySubNames.any(
+              (sub) => _selectedSubCategories.contains(sub)
+            );
+            
+            if (!hasStoredSubInterests && categorySubNames.isNotEmpty) {
+              _selectedSubCategories.addAll(category.subCategories);
+            }
+          }
+          
           _selectedCountry = preferredCountry;
           _isLoading = false;
         });
@@ -130,8 +146,9 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       }
       
       if (mounted) {
-        // Refresh the global country preference
+        // Refresh the global country and interests preference
         ref.read(authNotifierProvider.notifier).refreshPreferredCountry();
+        ref.read(authNotifierProvider.notifier).refreshInterests();
         
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +169,8 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
 
-    if (!authState.isAuthenticated) {
+    // Allow both regular and guest users to personalize
+    if (!authState.isAuthenticated && !authState.isAnonymous) {
       return Scaffold(
         backgroundColor: const Color(0xFF0A0C14),
         appBar: AppBar(
@@ -172,10 +190,10 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
           ),
         ),
         body: EmptyStateScreen(
-          title: 'Sign In Required',
-          message: 'Personalize your feed by selecting topics you love. Sign in to save your preferences.',
-          buttonLabel: 'Sign In Now',
-          icon: Icons.lock_outline_rounded,
+          title: 'Session Error',
+          message: 'Unable to establish a secure session. Please check your connection or sign in.',
+          buttonLabel: 'Sign In',
+          icon: Icons.error_outline_rounded,
           onRetry: () {
             Navigator.push(
               context,
@@ -236,17 +254,68 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        children: [
-                          // "Auto" or "Detect" option
-                          _buildCountryChip(null, 'Detect'),
-                          ...NewsCategory.supportedCountries.map((code) => 
-                            _buildCountryChip(code, NewsCategory.getCountryName(code)),
+                    GestureDetector(
+                      onTap: () async {
+                        final result = await Navigator.push<({String? code})?>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => CountrySelectionScreen(initialCountry: _selectedCountry),
                           ),
-                        ],
+                        );
+                        if (mounted && result != null) {
+                           setState(() => _selectedCountry = result.code);
+                        }
+                      },
+                        // Actually, looking at my screen, I always pop with a value when a list item is tapped.
+                        // If they pop via back button, it returns null by default in Flutter.
+                        // I'll use a slightly safer pattern.
+                      // The original code had an extra closing brace here. Removing it.
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                        ),
+                        child: Row(
+                          children: [
+                            Text(
+                              _selectedCountry != null 
+                                ? NewsCategory.getCountryEmoji(_selectedCountry!) 
+                                : '📍',
+                              style: const TextStyle(fontSize: 22),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _selectedCountry != null 
+                                      ? NewsCategory.getCountryName(_selectedCountry!) 
+                                      : 'Detect Automatically',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Source local news based on this region',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.5),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.keyboard_arrow_right_rounded,
+                              color: Colors.white.withValues(alpha: 0.3),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -321,7 +390,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                             ),
                           ),
                         ),
-                        if (isSelected) 
+                        if (isSelected && cat.subCategories.isNotEmpty) 
                           Padding(
                             padding: const EdgeInsets.only(left: 8, bottom: 20),
                             child: Column(
@@ -431,47 +500,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
               ),
             ],
           ),
-    );
-  }
-
-  Widget _buildCountryChip(String? code, String label) {
-    final isSelected = _selectedCountry == code;
-    final emoji = code != null ? NewsCategory.getCountryEmoji(code) : '📍';
-    
-    return GestureDetector(
-      onTap: () => setState(() => _selectedCountry = code),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? const Color(0xFF6C63FF).withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected 
-                ? const Color(0xFF6C63FF)
-                : Colors.white.withValues(alpha: 0.1),
-            width: 1.5,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 16)),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 14,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

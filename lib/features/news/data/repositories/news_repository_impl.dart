@@ -204,4 +204,20 @@ class NewsRepositoryImpl implements NewsRepository {
     final isViewed = await _dao.isViewed(id);
     return row.toDomain(isViewed: isViewed);
   }
+
+  @override
+  Future<List<NewsArticle>> fetchTrending({int limit = 20}) async {
+    try {
+      final remoteArticles = await _remote.fetchTrendingArticles(limit: limit);
+      // We don't necessarily want to cache these, or we can upsert if we want them available offline.
+      // Let's upsert them so they appear in the feed too if relevant.
+      final companions = remoteArticles.map((a) => a.toCompanion()).toList();
+      await _dao.upsertArticles(companions);
+      return remoteArticles;
+    } on AppException {
+      rethrow;
+    } catch (e) {
+      throw ServerException('Failed to fetch trending: $e');
+    }
+  }
 }
