@@ -160,7 +160,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     
     return FeedState(
       articles: firstPage,
-      hasMore: firstPage.length >= _kPageSize,
+      hasMore: true, // Always allow at least one pagination attempt to trigger remote sync if needed
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
     );
@@ -179,7 +179,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final category = startState.selectedCategory;
       final last = startState.articles.isEmpty ? null : startState.articles.last;
 
-      final nextPage = await _repo.fetchPage(
+      var nextPage = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         before: last?.publishedAt,
@@ -187,13 +187,29 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         includeViewed: false,
       );
 
-      // CRITICAL: Read the LATEST state to avoid overwriting updates (likes, etc.) 
-      // made while we were fetching.
-      final current = state.valueOrNull;
-      if (current == null || current.selectedCategory != category) {
-         debugPrint('[Feed] loadNextPage discarded: category changed during fetch.');
-         return;
+      // If local cache is exhausted or sparse, sync from remote
+      if (nextPage.length < _kPageSize) {
+        debugPrint('[Feed] Local cache sparse for ${category?.name ?? 'all'}. Syncing from remote...');
+        final syncedCount = await _repo.syncMoreFromRemote(
+          category: category,
+          before: last?.publishedAt,
+          limit: 30, // Fetch a healthy batch
+        );
+
+        if (syncedCount > 0) {
+          // Fetch again to include newly synced items
+          nextPage = await _repo.fetchPage(
+            category: category,
+            limit: _kPageSize,
+            before: last?.publishedAt,
+            afterId: last?.id,
+            includeViewed: false,
+          );
+        }
       }
+
+      final current = state.valueOrNull;
+      if (current == null || current.selectedCategory != category) return;
 
       // Deduplicate against already loaded articles
       final existingIds = current.articles.map((a) => a.id).toSet();
@@ -202,7 +218,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       state = AsyncData(current.copyWith(
         articles: [...current.articles, ...uniqueNextPage],
         isLoadingMore: false,
-        hasMore: nextPage.length >= _kPageSize,
+        hasMore: nextPage.isNotEmpty, // Only stop if we really got nothing even after sync
       ));
     } catch (e, st) {
       debugPrint('[Feed] loadNextPage error: $e\n$st');
@@ -248,7 +264,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       state = AsyncData(FeedState(
         articles: articles,
-        hasMore: articles.length >= _kPageSize,
+        hasMore: true, // Allow pagination to attempt remote sync
         selectedCategory: category,
       ));
 
@@ -491,7 +507,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         // If we really have nothing, show immediately.
         state = AsyncData(FeedState(
           articles: freshPage,
-          hasMore: freshPage.length >= _kPageSize,
+          hasMore: true,
           selectedCategory: category,
         ));
         return;

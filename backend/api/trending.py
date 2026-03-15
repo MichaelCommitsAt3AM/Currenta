@@ -1,9 +1,10 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, BackgroundTasks
 import asyncpg
 from typing import List, Optional
-from ..core.security import limiter
+from ..core.security import limiter, verify_admin_api_key
 from .feed import ARTICLE_COLUMNS, get_db
+from ..services.trending import update_trending_scores
 
 logger = logging.getLogger(__name__)
 
@@ -48,3 +49,19 @@ async def get_trending_feed(
     except Exception as e:
         logger.error("Database error in get_trending_feed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch trending articles")
+
+@router.post("/trigger")
+async def trigger_trending_update(
+    background_tasks: BackgroundTasks,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    admin_key: str = Depends(verify_admin_api_key)
+):
+    """
+    Manually triggers the trending score update process.
+    """
+    try:
+        background_tasks.add_task(update_trending_scores, db_pool)
+        return {"status": "trending_update_started"}
+    except Exception as e:
+        logger.error("Error triggering trending update: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))

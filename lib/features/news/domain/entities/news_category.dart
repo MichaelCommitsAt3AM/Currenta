@@ -119,6 +119,7 @@ enum NewsCategory {
             NewsSubCategory.crypto,
             NewsSubCategory.semiconductors,
             NewsSubCategory.robotics,
+            NewsSubCategory.gaming,
           ],
         NewsCategory.science => [
             NewsSubCategory.space,

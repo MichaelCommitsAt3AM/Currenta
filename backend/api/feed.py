@@ -24,9 +24,9 @@ ARTICLE_COLUMNS = """
 """
 
 def get_db(request: Request) -> asyncpg.Pool:
-    pool = request.app.state.db_pool
+    pool = getattr(request.app.state, "db_pool", None)
     if not pool:
-        raise HTTPException(status_code=500, detail="Database connection not available")
+        raise HTTPException(status_code=503, detail="Database connection not available")
     return pool
 
 @router.get("")

@@ -51,6 +51,10 @@ redis_client = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_pool, redis_client
+    
+    # Initialize state attributes to None to avoid AttributeErrors in dependencies
+    app.state.db_pool = None
+    app.state.redis_client = None
 
     database_url = os.environ.get("DATABASE_URL")
     if database_url:

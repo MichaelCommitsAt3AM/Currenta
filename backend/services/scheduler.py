@@ -14,12 +14,12 @@ def start_scheduler():
     # Run orchestration every ~3 hours like the Flutter Background Fetch used to
     scheduler.add_job(orchestrate_sync_wrapper, 'interval', minutes=180, id='orchestrate_news', replace_existing=True)
     
-    # Run trending updates every hour
+    # Run trending updates every 15 minutes
     from ..main import db_pool
-    scheduler.add_job(update_trending_scores, 'interval', minutes=60, id='update_trends', args=[db_pool], replace_existing=True)
+    scheduler.add_job(update_trending_scores, 'interval', minutes=15, id='update_trends', args=[db_pool], replace_existing=True)
 
     scheduler.start()
-    logger.info("Background scheduler started: orchestration (180m) and trends (60m).")
+    logger.info("Background scheduler started: orchestration (180m) and trends (15m).")
 
 def stop_scheduler():
     scheduler.shutdown(wait=False)

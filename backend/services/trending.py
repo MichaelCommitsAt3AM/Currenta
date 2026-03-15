@@ -36,41 +36,46 @@ async def fetch_google_trends(region: str = "US") -> List[Dict]:
     trending_items = []
     for item in items:
         try:
-            title = item.title.text.strip()
-            # Google Trends uses 'ht:approx_traffic' for search volume
+            query = item.title.text.strip()
             traffic_text = item.find('ht:approx_traffic').text if item.find('ht:approx_traffic') else "0"
-            # Extract numeric value (e.g., "500,000+" -> 500000)
             traffic = int(re.sub(r'[^0-9]', '', traffic_text))
             
-            # Google Trends uses 'ht:news_item' for the first related story
-            news_item = item.find('ht:news_item')
-            anchor_url = ""
-            anchor_title = ""
-            if news_item:
-                anchor_title = news_item.find('ht:news_item_title').text if news_item.find('ht:news_item_title') else ""
-                anchor_url = news_item.find('ht:news_item_url').text if news_item.find('ht:news_item_url') else ""
+            # Google Trends provides multiple news items (ht:news_item)
+            news_items = item.find_all('ht:news_item')
+            clean_stories = []
+            
+            for ni in news_items:
+                ni_title = ni.find('ht:news_item_title').text if ni.find('ht:news_item_title') else ""
+                ni_url = ni.find('ht:news_item_url').text if ni.find('ht:news_item_url') else ""
+                
+                # Verify if this specific news story is junk
+                reason = is_junk_content(ni_title, query)
+                if not reason:
+                    clean_stories.append({"title": ni_title, "url": ni_url})
+                else:
+                    logger.debug(f"[{region}] Skipping junk story in trend '{query}': {ni_title} ({reason})")
 
+            if not clean_stories:
+                logger.info(f"[{region}] Skipping trend '{query}': No high-signal news stories found among {len(news_items)} items.")
+                continue
+
+            # Use the first clean story as the primary anchor for ingestion
+            primary = clean_stories[0]
+            
             trending_items.append({
-                "query": title,
+                "query": query,
                 "traffic": traffic,
-                "anchor_title": anchor_title,
-                "anchor_url": anchor_url,
+                "anchor_title": primary["title"],
+                "anchor_url": primary["url"],
+                # We save all clean titles to help with semantic mapping context
+                "context_text": " | ".join([s["title"] for s in clean_stories]),
                 "region": region
             })
         except Exception as e:
             logger.warning(f"Error parsing trending item: {e}")
             continue
             
-    # Filter out junk items from Google Trends
-    filtered_items = []
-    for item in trending_items:
-        junk_reason = is_junk_content(item['anchor_title'], item['query'])
-        if junk_reason:
-            logger.info(f"Skipping junk trend '{item['query']}': {junk_reason}")
-            continue
-        filtered_items.append(item)
-            
-    return filtered_items
+    return trending_items
 
 async def log_trending_event(conn, region: str, query: str, action: str, traffic: int = None, anchor_title: str = None, anchor_url: str = None, match_count: int = 0, error_message: str = None):
     try:
@@ -84,75 +89,90 @@ async def log_trending_event(conn, region: str, query: str, action: str, traffic
 
 async def update_trending_scores(db_pool):
     """
-    Orchestrates the trending score updates across all regions.
+    Orchestrates the trending score updates across all regions in parallel.
     """
     logger.info("Starting trending score update...")
-    
     all_regions = ["US", "KE"]
-    for region in all_regions:
-        trends = await fetch_google_trends(region)
-        if not trends:
-            continue
+    
+    # Recommendation 4: Local set to deduplicate ingestion within a single run
+    processed_urls = set()
+    
+    async def process_region(region):
+        async with db_pool.acquire() as conn:
+            trends = await fetch_google_trends(region)
+            if not trends:
+                return
+                
+            logger.info(f"[{region}] Processing {len(trends)} trends")
             
-        logger.info(f"Processing {len(trends)} trends for {region}")
-        
-        for trend in trends:
-            try:
-                async with db_pool.acquire() as conn:
-                    # 1. Semantic Search: Check if we have a match in the last 48 hours
-                    # We use the trend query and anchor title for embedding
-                    search_text = f"{trend['query']} {trend['anchor_title']}"
-                    embedding = await embed_text(search_text)
-                    embedding_str = f"[{','.join(map(str, embedding))}]"
-                    
-                    # Find semantic matches (>0.70 similarity) within last 48 hours
-                    # We've lowered the threshold to 0.70 to be more inclusive of related news.
+            # Recommendation 1: Parallelize embeddings for all trends in this region
+            async def get_embedding(trend):
+                # Combine query + all clean headlines for a much richer semantic search context
+                search_text = f"{trend['query']} {trend['context_text']}"
+                try:
+                    return await embed_text(search_text)
+                except Exception as e:
+                    logger.error(f"[{region}] Embedding failed for '{trend['query']}': {e}")
+                    return e
+
+            tasks = [get_embedding(t) for t in trends]
+            embeddings = await asyncio.gather(*tasks)
+            
+            for trend, embedding in zip(trends, embeddings):
+                if isinstance(embedding, Exception):
+                    continue
+                
+                # Deduplication within the run
+                url = trend.get('anchor_url')
+                if url and url in processed_urls:
+                    logger.debug(f"[{region}] Skipping already processed URL: {url}")
+                    continue
+                if url:
+                    processed_urls.add(url)
+
+                try:
+                    # Recommendation 3: Passing list directly for vector similarity.
+                    # We cast the list (which asyncpg sends as float8[]) to ::vector.
                     matches = await conn.fetch("""
-                        SELECT id, cluster_id, title, 1 - (embedding <=> $1::vector) as similarity
+                        SELECT id, cluster_id, title, 1 - (embedding <=> $1::float8[]::vector) as similarity
                         FROM articles 
                         WHERE published_at > NOW() - INTERVAL '48 hours'
-                        AND 1 - (embedding <=> $1::vector) > 0.70
-                        ORDER BY 1 - (embedding <=> $1::vector) DESC
+                        AND 1 - (embedding <=> $1::float8[]::vector) > 0.70
+                        ORDER BY 1 - (embedding <=> $1::float8[]::vector) DESC
                         LIMIT 5
-                    """, embedding_str)
+                    """, embedding)
                     
                     article_ids_to_boost = []
                     cluster_ids_to_boost = []
 
                     if matches:
-                        # Found existing matches!
                         cluster_ids_to_boost = {m['cluster_id'] for m in matches if m['cluster_id']}
                         article_ids_to_boost = {m['id'] for m in matches}
                         
                         max_sim = matches[0]['similarity']
-                        logger.info(f"Found {len(matches)} matches for trend '{trend['query']}' (Max similarity: {max_sim:.4f})")
+                        logger.info(f"[{region}] Found {len(matches)} matches for '{trend['query']}' (Max similarity: {max_sim:.4f})")
                         
                         await log_trending_event(conn, region, trend['query'], "BOOSTED", 
                                                 traffic=trend['traffic'], anchor_title=trend['anchor_title'], 
                                                 anchor_url=trend['anchor_url'], match_count=len(matches))
                     else:
-                        # No match found: Trigger on-demand ingest if we have an anchor URL
                         if trend['anchor_url']:
-                            logger.info(f"Trend '{trend['query']}' not found in DB. Ingesting: {trend['anchor_url']}")
+                            logger.info(f"[{region}] Trend '{trend['query']}' not found. Ingesting: {trend['anchor_url']}")
                             await log_trending_event(conn, region, trend['query'], "INGEST_TRIGGERED", 
                                                     traffic=trend['traffic'], anchor_title=trend['anchor_title'], 
                                                     anchor_url=trend['anchor_url'])
                             
-                            # ingest_from_url now returns the newly created (or existing) article UUID
                             new_article_id = await ingest_from_url(trend['anchor_url'], db_pool, country_code=region)
                             if new_article_id:
                                 article_ids_to_boost = [new_article_id]
-                                logger.info(f"Successfully ingested and prepared to boost new article {new_article_id}")
                         else:
                             await log_trending_event(conn, region, trend['query'], "SKIPPED", 
                                                     traffic=trend['traffic'], error_message="No anchor URL available")
 
-                    # Apply boost if we have anything to boost
                     if article_ids_to_boost or cluster_ids_to_boost:
                         import math
                         trend_weight = math.log(trend['traffic'] + 1)
                         
-                        # Use COALESCE to handle potential NULLs in trend_score
                         await conn.execute("""
                             UPDATE articles 
                             SET trend_score = COALESCE(trend_score, 0) + $1,
@@ -160,15 +180,16 @@ async def update_trending_scores(db_pool):
                             WHERE id = ANY($2::uuid[])
                             OR (cluster_id IS NOT NULL AND cluster_id = ANY($3::uuid[]))
                         """, trend_weight, list(article_ids_to_boost), list(cluster_ids_to_boost))
-                        logger.info(f"Boosted trend '{trend['query']}' with weight {trend_weight:.2f}")
+                        logger.info(f"[{region}] Boosted '{trend['query']}' with weight {trend_weight:.2f}")
 
-            except Exception as e:
-                logger.error(f"Error processing trend '{trend.get('query')}': {e}")
-                try:
-                    async with db_pool.acquire() as conn:
+                except Exception as e:
+                    logger.error(f"[{region}] Error processing trend '{trend.get('query')}': {e}")
+                    try:
                         await log_trending_event(conn, region, trend.get('query', 'Unknown'), "ERROR", 
                                                 error_message=str(e))
-                except Exception:
-                    pass
-                
+                    except Exception:
+                        pass
+
+    # Process all regions in parallel
+    await asyncio.gather(*[process_region(r) for r in all_regions])
     logger.info("Trending score update complete.")

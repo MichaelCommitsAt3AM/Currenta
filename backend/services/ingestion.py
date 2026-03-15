@@ -184,7 +184,7 @@ Rules:
 1. "summary" MUST be EXACTLY 65 words (tolerance: 60-70 words), written in exactly 3-4 sentences, each roughly 15-20 words. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
 3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
-4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
+4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Gaming', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
 5. "type" MUST be one of: "hard_news", "analysis", "opinion", "review", "listicle", "sponsored", "irrelevant".
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
@@ -314,7 +314,8 @@ def is_junk_content(text: str, title: str) -> Optional[str]:
         "real-time updates", "minute-by-minute", "live commentary", "full time results", "half-time score",
         " betting ", " sportsbook ", " oddsmaker ", " parlay ", " moneyline ", " point spread ", " spread ", " over/under ",
         " wagering ", " wagering ", " betting odds ", " free picks ", " expert predictions ", " game odds ", " v.s. ", " vs. ",
-        "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream"
+        "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream",
+        "quiz", "trivia", "test your knowledge", "test your skills", "how well do you know", "guess the ", "take our poll", "interactive poll"
     ]
     for signal in hard_signals:
         if signal in combined:
@@ -596,7 +597,8 @@ async def parse_rss(feed_url: str) -> list[dict]:
         "books in brief", "book review", "summaries of books", "now hiring", "job vacancy", "recruitment", "career opportunity",
         "chart rewind", "historical chart", "this day in history", "on this day",
         "watch live", "streaming live", "video-clips", "video highlights",
-        "buying guide", "shopping guide", "the best ", "best gadgets", "best phones", "best laptops"
+        "buying guide", "shopping guide", "the best ", "best gadgets", "best phones", "best laptops",
+        "quiz", "trivia", "test your knowledge", "how well do you know", "take our poll"
     ]
     
     parsed_items = []
@@ -695,15 +697,15 @@ async def parse_rss(feed_url: str) -> list[dict]:
     return parsed_items
 
 async def is_duplicate(conn, embedding: list[float]) -> bool:
-    # 3. Duplicate Detection Logic optimization: Reduces latency by passing the connection
-    # 2. Embedding Conversion Bug Risk: If PostgreSQL + pgvector is used, pass as a string for safety
-    # The string format must be '[0.1, 0.2, ...]'
-    embedding_str = f"[{','.join(map(str, embedding))}]"
+    # Recommendation 3: Pass embedding list directly instead of stringifying.
+    # We use $1::vector in the query or ensure the function handles the cast.
     try:
         # Check similarity match (...)
+        # The match_recent_articles function expects a vector(768).
+        # We cast the list (which asyncpg sends as float8[]) to ::vector.
         records = await conn.fetch(
-            "SELECT id FROM match_recent_articles($1, $2, $3)",
-            embedding_str, SIMILARITY_THRESHOLD, 1
+            "SELECT id FROM match_recent_articles($1::float8[]::vector, $2, $3)",
+            embedding, SIMILARITY_THRESHOLD, 1
         )
         return len(records) > 0
     except Exception as e:
@@ -891,10 +893,6 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 # Insert using the same connection
                 try:
-                    # Convert embedding to string for pgvector compatibility
-                    # Argument $9 is the embedding vector
-                    embedding_str = f"[{','.join(map(str, embedding))}]"
-                    
                     # Determine ingestion method for analysis
                     ingestion_method = "scraper" if scraper_status == "SUCCESS" else "rss"
                     
@@ -903,12 +901,12 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                             title, summary, original_url, image_url, source_name,
                             published_at, categories, subcategory, embedding, content_hash, 
                             summary_model, country_code, is_paywalled, ingestion_method, created_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW())
                         ON CONFLICT (original_url) DO NOTHING
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
                     item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method)
+                    embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method)
                     
                     # Log successful ingestion with details
                     final_status = scraper_status
@@ -1150,8 +1148,6 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             if persistent_url:
                 article_image_url = persistent_url
 
-        # Insert
-        embedding_str = f"[{','.join(map(str, embedding))}]"
         # Since this might be from a trending signal, use the domain as source if unknown
         source_name = scraper_result.get("source") or (re.search(r'https?://([^/]+)', url).group(1) if re.search(r'https?://([^/]+)', url) else "Unknown")
         content_hash = generate_content_hash(url, llm_res["title"])
@@ -1163,13 +1159,13 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                     title, summary, original_url, image_url, source_name,
                     published_at, categories, subcategory, embedding, content_hash, 
                     summary_model, country_code, is_paywalled, ingestion_method, created_at
-                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8::float8[]::vector, $9, $10, $11, $12, $13, NOW())
                 ON CONFLICT (original_url) DO UPDATE SET last_trend_update = NOW() -- Dummy update to trigger RETURNING
                 RETURNING id
             ''', 
             llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
             llm_res["categories"], llm_res["subcategory"],
-            embedding_str, content_hash, get_model_name(LLM_PROVIDER), country_code, 
+            embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, 
             scraper_result.get("is_paywalled", False), "scraper")
             
             article_id = result["id"] if result else None
