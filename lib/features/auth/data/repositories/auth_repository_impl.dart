@@ -227,7 +227,10 @@ class AuthRepositoryImpl implements AuthRepository {
     }
 
     try {
-      final dataToInsert = categories.map((cat) => {
+      // Deduplicate categories to prevent Postgrest error 21000 on upsert
+      final uniqueCategories = categories.toSet().toList();
+      
+      final dataToInsert = uniqueCategories.map((cat) => {
         'user_id': uid,
         'category': cat,
       }).toList();
@@ -294,7 +297,10 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       if (subCategories.isEmpty) return;
       
-      final dataToInsert = subCategories.map((sub) => {
+      // Deduplicate sub-categories to prevent Postgrest error 21000 on upsert
+      final uniqueSubCategories = subCategories.toSet().toList();
+
+      final dataToInsert = uniqueSubCategories.map((sub) => {
         'user_id': uid,
         'sub_category': sub,
       }).toList();
