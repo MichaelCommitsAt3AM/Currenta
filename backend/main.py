@@ -17,18 +17,20 @@ from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import redis.asyncio as redis
 
-from .services.scheduler import start_scheduler, stop_scheduler
 from .core.logging_config import setup_logging
-from .core.security import limiter
-from .api import feed, ingest, chat, trending
-from .version import VERSION
-
-import asyncio
 
 # ---------------------------------------------------------------------------
 # Logging — configure once at startup so all modules use structured output
 # ---------------------------------------------------------------------------
 setup_logging()
+
+from .core.security import limiter
+from .api import feed, ingest, chat, trending
+from .version import VERSION
+from .services.scheduler import start_scheduler, stop_scheduler
+
+import asyncio
+
 logger = logging.getLogger(__name__)
 
 

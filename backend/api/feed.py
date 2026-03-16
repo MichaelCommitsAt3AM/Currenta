@@ -5,6 +5,7 @@ import asyncpg
 from typing import Optional
 import orjson
 from ..core.security import limiter, verify_supabase_jwt, User
+from ..core.geo import get_country_from_ip
 from ..services.ingestion import fetch_local_news_on_demand
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ async def get_feed(
     if category and category not in VALID_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category '{category}'.")
 
-    if country:
+    if country and country.lower() != 'auto':
         country = country.upper()
         if len(country) != 2 or not country.isalpha():
             raise HTTPException(status_code=400, detail="Invalid country code. Must be a 2-letter ISO code.")
@@ -62,9 +63,40 @@ async def get_feed(
         
         categories_to_fetch = []
         viewed_ids = set()
+        country_source = "default"
+        detected_country = None
         
         async with db_pool.acquire() as conn:
-            # 1. Determine categories
+            # 1. Determine Country (Preference > IP > Parameter)
+            if not country or country.lower() == 'auto':
+                # Try database preference first if logged in
+                if user_id:
+                    pref = await conn.fetchval(
+                        "SELECT preferred_country FROM user_profiles WHERE user_id = $1",
+                        user_id
+                    )
+                    if pref:
+                        country = pref
+                        country_source = "preference"
+                        logger.debug(f"Using stored country preference for user {user_id}: {country}")
+                
+                # If still no country, try IP detection
+                if not country or (isinstance(country, str) and country.lower() == 'auto'):
+                    # Get remote IP, considering possible proxy headers
+                    forwarded = request.headers.get("X-Forwarded-For")
+                    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host
+                    
+                    detected_country = await get_country_from_ip(ip)
+                    if detected_country:
+                        country = detected_country
+                        country_source = "auto_ip"
+                        logger.info(f"Automatically detected country '{country}' from IP {ip}")
+                    else:
+                        logger.warning(f"Failed to automatically detect country for IP {ip}")
+            else:
+                country_source = "parameter"
+            
+            # 2. Determine categories
             if category:
                 categories_to_fetch.append(category)
             elif user_id:
@@ -140,12 +172,44 @@ async def get_feed(
                     
                     if "all" not in missing_categories:
                         # Only specific categories
-                        where_clauses.append("categories && $1::text[]")
-                        params.append(named_categories)
-                        if country_key != 'all':
-                            # Optionally filter by country if provided, but usually global feeds
-                            # are what fill these categories. 
-                            pass 
+                        # STRICT FILTERING for Local News: must match detected/specified country_code
+                        if "local" in named_categories:
+                            if country and country != 'all':
+                                # Article must have 'local' tag AND the correct country code
+                                # OR match one of the OTHER requested categories (and NOT be a local article from another country)
+                                other_cats = [c for c in named_categories if c != 'local']
+                                if other_cats:
+                                    where_clauses.append("""
+                                        (
+                                            country_code = $1
+                                            OR 
+                                            (categories && $2::text[] AND (country_code = $1 OR country_code IS NULL))
+                                        )
+                                    """)
+                                    params.append(country)
+                                    params.append(other_cats)
+                                else:
+                                    # Virtual category 'local' matches any article with the correct country_code
+                                    where_clauses.append("country_code = $1")
+                                    params.append(country)
+                            else:
+                                # 'local' requested but NO country detected/specified.
+                                # We return nothing for the local part, but can still return other categories if any.
+                                other_cats = [c for c in named_categories if c != 'local']
+                                if other_cats:
+                                    where_clauses.append("categories && $1::text[]")
+                                    params.append(other_cats)
+                                else:
+                                    # ONLY 'local' requested and NO country -> return nothing
+                                    where_clauses.append("FALSE")
+                        else:
+                            # Standard multi-category filter for non-local requests
+                            where_clauses.append("categories && $1::text[]")
+                            params.append(named_categories)
+                    
+                    # Trigger background sync for local news if category is local and we have a country
+                    if country and country != 'all' and (category == 'local' or 'local' in categories_to_fetch):
+                        background_tasks.add_task(fetch_local_news_on_demand, country, db_pool)
                     
                     where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                     
@@ -181,6 +245,12 @@ async def get_feed(
                             temp_results["all"].append(r)
                             
                         article_cats = r.get('categories', [])
+                        
+                        # Virtual category mapping for 'local'
+                        if "local" in named_categories and r.get('country_code') == country:
+                            if len(temp_results["local"]) < 200:
+                                temp_results["local"].append(r)
+                                
                         for cat in named_categories:
                             if cat in article_cats:
                                 if len(temp_results[cat]) < 200: # Keep Redis caches lean
@@ -222,6 +292,7 @@ async def get_feed(
         # 7. Metrics Logging (Observability)
         logger.info(
             f"Feed request: categories={len(categories_to_fetch)} "
+            f"country={country} (method={country_source}) "
             f"redis_hits={len(articles_by_cat)} "
             f"merged={len(all_articles)} "
             f"filtered_out={len(all_articles) - len(unique_filtered)} "

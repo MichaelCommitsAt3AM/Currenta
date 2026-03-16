@@ -37,18 +37,9 @@ class NewsRemoteDataSource {
 
       if (country != null) {
         queryParams['country'] = country;
-      } else if (category == NewsCategory.local) {
-        // Auto-detect country from system locale for localized news
-        final detectedCountry =
-            WidgetsBinding.instance.platformDispatcher.locale.countryCode;
-        
-        if (detectedCountry != null && detectedCountry.isNotEmpty && 
-            detectedCountry.toUpperCase() != 'US' && detectedCountry.toUpperCase() != 'GB') {
-          queryParams['country'] = detectedCountry.toUpperCase();
-        } else if (DateTime.now().timeZoneOffset.inHours == 3) {
-          // Fallback for Kenya
-          queryParams['country'] = 'KE';
-        }
+      } else {
+        // Signal backend to use IP-based detection or stored preference
+        queryParams['country'] = 'auto';
       }
 
       if (before != null) {
@@ -67,9 +58,25 @@ class NewsRemoteDataSource {
           await _dio.get(url, queryParameters: queryParams, options: options);
 
       final data = response.data as List<dynamic>;
-      return data
+      final articles = data
           .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
           .toList();
+
+      // Backend local feed is country-filtered; ensure local-tab cache queries can
+      // retrieve these articles by including the virtual `local` category marker.
+      if (category == NewsCategory.local) {
+        return articles.map((article) {
+          if (article.categories.contains(NewsCategory.local)) return article;
+          return article.copyWith(
+            categories: [
+              NewsCategory.local,
+              ...article.categories.where((c) => c != NewsCategory.local),
+            ],
+          );
+        }).toList();
+      }
+
+      return articles;
     } on DioException catch (e) {
       throw ServerException(
         'API request failed: ${e.message}',

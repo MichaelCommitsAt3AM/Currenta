@@ -49,7 +49,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 SIMILARITY_THRESHOLD = 0.92
 
-VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment"]
+VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
 
 # Create a synchronous supabase client for storage uploads and RPC calls if needed
 supabase_client: Client | None = None
@@ -183,7 +183,7 @@ Return the result as a raw JSON object only (no preamble):
 Rules:
 1. "summary" MUST be EXACTLY 65 words (tolerance: 60-70 words), written in exactly 3-4 sentences, each roughly 15-20 words. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
-3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "local", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
+3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
 4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Gaming', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
 5. "type" MUST be one of: "hard_news", "analysis", "opinion", "review", "listicle", "sponsored", "irrelevant".
    - hard_news: Breaking news, reports on current events.
@@ -966,7 +966,7 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
             params = []
             if category != "all":
                 if category == "local" and country_key != 'all':
-                    where_clauses.append(f"'{category}' = ANY(categories) AND country_code = $1")
+                    where_clauses.append("country_code = $1")
                     params.append(country_key)
                 else:
                     where_clauses.append(f"$1 = ANY(categories)")

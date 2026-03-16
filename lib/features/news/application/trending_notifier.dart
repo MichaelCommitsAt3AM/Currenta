@@ -20,22 +20,25 @@ class TrendingNotifier extends _$TrendingNotifier {
   }
 
   Future<List<NewsArticle>> _fetch({bool force = false}) async {
-    // If not forced and we have data within the last 30 minutes, return existing state if available.
+    final now = DateTime.now();
+
+    // 1. Check if we have valid cached data
     if (!force && _lastFetchTime != null) {
-      final now = DateTime.now();
-      if (now.difference(_lastFetchTime!) < const Duration(minutes: 30)) {
+      final difference = now.difference(_lastFetchTime!);
+      if (difference < const Duration(minutes: 30)) {
         final currentData = state.valueOrNull;
         if (currentData != null && currentData.isNotEmpty) {
-          debugPrint('[Trending] Serving from cache (${now.difference(_lastFetchTime!).inMinutes}m old)');
+          debugPrint('[Trending] Serving from cache (${difference.inMinutes}m old)');
           return currentData;
         }
       }
     }
 
+    // 2. Otherwise fetch from remote
     try {
       debugPrint('[Trending] Fetching fresh trending articles...');
       final articles = await _repo.fetchTrending(limit: 20);
-      _lastFetchTime = DateTime.now();
+      _lastFetchTime = now;
       return articles;
     } catch (e) {
       debugPrint('[Trending] Error fetching: $e');
