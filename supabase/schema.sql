@@ -20,11 +20,13 @@ CREATE TABLE IF NOT EXISTS articles (
   is_paywalled      BOOLEAN NOT NULL DEFAULT false,
   ingestion_method  TEXT, -- 'scraper' or 'rss' (for analysis)
   cluster_id        UUID,
-  content_hash      TEXT,
+  content_hash      TEXT UNIQUE,
   summary_model     TEXT,
   -- 768-dim for nomic-embed-text (dedicated embedding model)
   embedding         vector(768),
+  country_code      VARCHAR(2),
   trend_score      DOUBLE PRECISION DEFAULT 0.0,
+  ranking_score    DOUBLE PRECISION DEFAULT 0.0,
   last_trend_update TIMESTAMPTZ
 );
 
@@ -44,13 +46,23 @@ CREATE INDEX IF NOT EXISTS articles_published_at_idx
 CREATE INDEX IF NOT EXISTS articles_created_at_idx
   ON articles (created_at DESC);
 
+-- 5.5 Trend score index
+CREATE INDEX IF NOT EXISTS articles_trend_score_idx
+  ON articles (trend_score DESC);
+
 -- 6. Content hash index for fast lookup
-CREATE INDEX IF NOT EXISTS articles_content_hash_idx
-  ON articles (content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS articles_content_hash_idx
+  ON articles (content_hash) WHERE content_hash IS NOT NULL;
 
 -- 7. GIN index for category filtering
-CREATE INDEX IF NOT EXISTS articles_categories_idx
+CREATE INDEX IF NOT EXISTS articles_categories_gin_idx
   ON articles USING GIN (categories);
+
+-- 7.5 Index for fast ranking-based retrieval
+CREATE INDEX IF NOT EXISTS articles_ranking_score_idx ON articles (ranking_score DESC);
+
+-- 7.6 Compound index for feed filtering
+CREATE INDEX IF NOT EXISTS idx_articles_category_country ON articles (country_code, categories);
 
 -- 8. Database Function for vector similarity search
 CREATE OR REPLACE FUNCTION match_recent_articles(

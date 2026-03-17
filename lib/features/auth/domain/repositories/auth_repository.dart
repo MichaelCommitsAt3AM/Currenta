@@ -74,4 +74,7 @@ abstract class AuthRepository {
 
   /// Sends a password reset email.
   Future<void> sendPasswordResetEmail(String email);
+
+  /// Triggers background location detection on the backend and saves to profile.
+  Future<String?> detectAndSaveCountry();
 }

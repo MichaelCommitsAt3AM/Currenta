@@ -56,6 +56,7 @@ final newsRepositoryProvider = Provider<NewsRepository>((ref) {
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepositoryImpl(
     supabaseClient: ref.watch(supabaseClientProvider),
+    dio: ref.watch(dioClientProvider),
   );
 });
 

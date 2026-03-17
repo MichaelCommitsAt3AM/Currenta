@@ -1,6 +1,5 @@
-// lib/features/auth/data/repositories/auth_repository_impl.dart
-
 import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/config/app_config.dart';
@@ -8,10 +7,14 @@ import '../../../../core/errors/app_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
-  AuthRepositoryImpl({required SupabaseClient supabaseClient})
-      : _supabase = supabaseClient;
+  AuthRepositoryImpl({
+    required SupabaseClient supabaseClient,
+    required Dio dio,
+  })  : _supabase = supabaseClient,
+        _dio = dio;
 
   final SupabaseClient _supabase;
+  final Dio _dio;
 
   @override
   Stream<bool> get authStateChanges => _supabase.auth.onAuthStateChange.map(
@@ -442,6 +445,28 @@ class AuthRepositoryImpl implements AuthRepository {
       throw ServerException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
+    }
+  }
+
+  @override
+  Future<String?> detectAndSaveCountry() async {
+    try {
+      final session = _supabase.auth.currentSession;
+      final url = '${AppConfig.apiBaseUrl}/api/feed/detect-location';
+      
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      final response = await _dio.get(url, options: options);
+      final country = response.data['country'] as String?;
+      debugPrint('[Auth] Background location detection result: $country');
+      return country;
+    } catch (e) {
+      debugPrint('[Auth] detectAndSaveCountry failed: $e');
+      return null;
     }
   }
 }

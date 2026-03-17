@@ -12,6 +12,16 @@
       ]
     },
     {
+      "name": "Currenta (Profile/Dev)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "profile",
+      "args": [
+        "--dart-define-from-file",
+        "config/dev.json"
+      ]
+    },
+    {
       "name": "Currenta (Prod)",
       "request": "launch",
       "type": "dart",

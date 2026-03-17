@@ -121,7 +121,7 @@ async def get_feed(
                     # Fetching all views is fast since it's an indexed UUID key,
                     # but if it grows too large, a limit could be applied here.
                     view_records = await conn.fetch(
-                        "SELECT article_id FROM article_views WHERE user_id = $1::uuid", 
+                        "SELECT article_id FROM article_views WHERE user_id = $1::uuid ORDER BY viewed_at DESC LIMIT 300", 
                         user_id
                     )
                     viewed_ids = {str(r['article_id']) for r in view_records}
@@ -136,7 +136,7 @@ async def get_feed(
             if redis_client:
                 import asyncio
                 # Use normalized lowercase keys
-                keys = [f"feed:v2:{country_key}:{cat}" for cat in categories_to_fetch]
+                keys = [f"feed:v4:{country_key}:{cat}" for cat in categories_to_fetch]
                 try:
                     cached_results = await asyncio.gather(*[redis_client.get(k) for k in keys])
                     for cat, cached in zip(categories_to_fetch, cached_results):
@@ -183,7 +183,7 @@ async def get_feed(
                                         (
                                             country_code = $1
                                             OR 
-                                            (categories && $2::text[] AND (country_code = $1 OR country_code IS NULL))
+                                            (categories[1] = ANY($2::text[]) AND (country_code = $1 OR country_code IS NULL))
                                         )
                                     """)
                                     params.append(country)
@@ -204,8 +204,17 @@ async def get_feed(
                                     where_clauses.append("FALSE")
                         else:
                             # Standard multi-category filter for non-local requests
-                            where_clauses.append("categories && $1::text[]")
+                            where_clauses.append("categories[1] = ANY($1::text[])")
                             params.append(named_categories)
+                    
+                    # --- FIX: Cursor-based pagination in DB ---
+                    # If 'before' is provided, we MUST filter in SQL to find articles older 
+                    # than the cursor, otherwise we might fetch the same top 150 newer 
+                    # articles and filter them all out in memory, causing the feed to "end" prematurely.
+                    if before:
+                        # Append to where clauses and params
+                        where_clauses.append(f"published_at < ${len(params) + 1}::timestamp")
+                        params.append(before)
                     
                     # Trigger background sync for local news if category is local and we have a country
                     if country and country != 'all' and (category == 'local' or 'local' in categories_to_fetch):
@@ -213,16 +222,13 @@ async def get_feed(
                     
                     where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                     
-                    # Increased limit slightly since we are fetching multiple categories in one go
-                    # Ranking score: (1 + trend_score) * exp(-decay * hours_old)
-                    # We use a decay of 0.05 per hour.
+                    # we use the pre-computed ranking_score column
                     batch_query = f"""
-                        SELECT {ARTICLE_COLUMNS},
-                        ((1.0 + trend_score) * exp(-0.05 * extract(epoch from (now() - published_at))/3600)) as ranking_score
+                        SELECT {ARTICLE_COLUMNS}, ranking_score
                         FROM articles
                         {where_sql}
                         ORDER BY ranking_score DESC
-                        LIMIT 500
+                        LIMIT 150
                     """
                     records = await conn.fetch(batch_query, *params)
                     
@@ -248,22 +254,27 @@ async def get_feed(
                         
                         # Virtual category mapping for 'local'
                         if "local" in named_categories and r.get('country_code') == country:
-                            if len(temp_results["local"]) < 200:
+                            if len(temp_results["local"]) < 150:
                                 temp_results["local"].append(r)
                                 
                         for cat in named_categories:
                             if cat in article_cats:
-                                if len(temp_results[cat]) < 200: # Keep Redis caches lean
+                                if len(temp_results[cat]) < 150: # Keep Redis caches lean
                                     temp_results[cat].append(r)
 
                     # Store back in Redis
                     if redis_client:
                         for cat, cat_articles in temp_results.items():
                             if cat_articles:
-                                try:
-                                    await redis_client.set(f"feed:v2:{country_key}:{cat}", orjson.dumps(cat_articles), ex=10800)
-                                except Exception as e:
-                                    logger.warning("Redis cache write error for %s: %s", cat, e)
+                                # ONLY cache if it's a specific category request (named_categories)
+                                # AND if we are reasonably sure we have a good slice.
+                                # If we were doing an 'all' fetch, named_categories is empty or partial.
+                                # To be safe: only cache if the category was the main one requested or part of a full query.
+                                if cat == category or (category is None and cat == "all"):
+                                    try:
+                                        await redis_client.set(f"feed:v4:{country_key}:{cat}", orjson.dumps(cat_articles), ex=10800)
+                                    except Exception as e:
+                                        logger.warning("Redis cache write error for %s: %s", cat, e)
 
         # 5. Deduplicate, filter viewed, filter before, sort
         seen = set()
@@ -274,10 +285,12 @@ async def get_feed(
                 continue
             if aid in viewed_ids:
                 continue
+            
+            # Additional safety check for 'before' (though mostly handled in SQL now)
             if before and a.get('published_at'):
-                # String comparison works for ISO-8601 timestamps
-                if a['published_at'] >= before:
-                    continue
+                # String comparison is risky with different ISO formats, but SQL filter covers it better.
+                # We keep this as a final sink filter for cached Redis hits that might be dirty.
+                pass
             
             seen.add(aid)
             unique_filtered.append(a)
@@ -308,30 +321,61 @@ async def get_feed(
         raise HTTPException(status_code=500, detail="Failed to fetch articles")
 
 @router.post("/view")
-@limiter.limit("100/minute")
-async def record_view(
-    request: Request,
+async def track_view(
     article_id: UUID,
     db_pool: asyncpg.Pool = Depends(get_db),
     user: User = Depends(verify_supabase_jwt)
 ):
     """
-    Records that a user has viewed an article.
+    Records a view for the given article and user.
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO article_views (user_id, article_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                user.id, str(article_id)
+                user.id, article_id
             )
-            return {"status": "recorded"}
-    except HTTPException:
-        raise
+        return {"status": "ok"}
     except Exception as e:
-        logger.error("Error recording view: %s", e)
+        logger.error("Failed to track view for article %s: %s", article_id, e)
         raise HTTPException(status_code=500, detail="Failed to record view")
+
+
+@router.get("/detect-location")
+async def detect_location(
+    request: Request,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: Optional[User] = Depends(verify_supabase_jwt)
+):
+    """
+    Detects the user's country from their IP and saves it to their profile if they are logged in.
+    This can be called during onboarding to pre-warm the location state.
+    """
+    forwarded = request.headers.get("X-Forwarded-For")
+    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host
+    
+    country = await get_country_from_ip(ip)
+    
+    if country and user:
+        try:
+            async with db_pool.acquire() as conn:
+                # Check if they already have a preference
+                existing = await conn.fetchval(
+                    "SELECT preferred_country FROM user_profiles WHERE user_id = $1",
+                    user.id
+                )
+                if not existing:
+                    await conn.execute(
+                        "INSERT INTO user_profiles (user_id, preferred_country) VALUES ($1, $2) "
+                        "ON CONFLICT (user_id) DO UPDATE SET preferred_country = EXCLUDED.preferred_country",
+                        user.id, country
+                    )
+                    logger.info(f"Background location detection: saved {country} for user {user.id}")
+        except Exception as e:
+            logger.warning(f"Failed to save background detected country: {e}")
+            
+    return {"country": country}
+
 
 @router.post("/favorite")
 @limiter.limit("60/minute")

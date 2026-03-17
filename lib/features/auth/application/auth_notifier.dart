@@ -1,5 +1,4 @@
-// lib/features/auth/application/auth_notifier.dart
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/providers/providers.dart';
@@ -184,6 +183,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (state.isAuthenticated || state.isAnonymous) {
       final country = await _repository.getPreferredCountry();
       state = state.copyWith(preferredCountry: () => country);
+    }
+  }
+
+  Future<void> detectLocation() async {
+    try {
+      final country = await _repository.detectAndSaveCountry();
+      if (country != null && state.preferredCountry == null) {
+        state = state.copyWith(preferredCountry: () => country);
+      }
+    } catch (e) {
+      debugPrint('[Auth] detectLocation error in Notifier: $e');
     }
   }
 

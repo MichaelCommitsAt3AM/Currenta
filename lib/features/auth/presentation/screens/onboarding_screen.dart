@@ -1,19 +1,28 @@
-// lib/features/auth/presentation/screens/onboarding_screen.dart
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../application/auth_notifier.dart';
 import '../../../news/domain/entities/news_category.dart';
 import 'auth_bridge_screen.dart';
 import 'login_screen.dart';
 
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final Set<NewsCategory> _selectedCategories = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Trigger background location detection early in onboarding to reduce delay on Feed
+    Future.microtask(() {
+      ref.read(authNotifierProvider.notifier).detectLocation();
+    });
+  }
 
   void _toggleCategory(NewsCategory category) {
     setState(() {

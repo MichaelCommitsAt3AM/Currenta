@@ -86,28 +86,37 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   @override
   Future<FeedState> build() async {
-    // 1. Check for pending activity if we just became authenticated.
-    final auth = ref.watch(authNotifierProvider);
+    // 1. Listen for auth changes to handle transitions (login/logout) without 
+    // triggering a full provider rebuild. This preserves the in-memory feed 
+    // and current scroll position (currentIndex) during the auth process.
+    ref.listen(authNotifierProvider, (previous, next) {
+      if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
+        debugPrint('[Feed] Auth state changed to authenticated. Processing pending actions.');
+        final pending = ref.read(pendingActivityNotifierProvider);
+        if (pending != null) {
+          ref.read(pendingActivityNotifierProvider.notifier).clear();
+          _handlePendingActivity(pending);
+        }
+        
+        // Perform a background refresh to fetch articles tailored to the new user session.
+        // This will show the 'New Stories' badge if new content is available.
+        _backgroundRefresh();
+      }
+    });
+
+    // 2. Initial load: Check for pending activity if starting as authenticated.
+    final auth = ref.read(authNotifierProvider);
     if (auth.isAuthenticated) {
       final pending = ref.read(pendingActivityNotifierProvider);
       if (pending != null) {
-        // Clear immediately to prevent re-execution
         ref.read(pendingActivityNotifierProvider.notifier).clear();
         Future.microtask(() => _handlePendingActivity(pending));
       }
     }
 
-    // 2. If we already have articles in memory, don't flash the shimmer.
-    // This happens when the provider rebuilds (e.g., due to watch(authNotifierProvider)).
-    final previousState = state.valueOrNull;
-    if (previousState != null && previousState.articles.isNotEmpty) {
-      debugPrint('[Feed] Retaining existing in-memory articles during rebuild.');
-      // Silently refresh in background
-      Future.microtask(_backgroundRefresh);
-      return previousState;
-    }
-
-    // 3. Check for persisted state
+    // 3. Since we are no longer using ref.watch(authNotifierProvider), 
+    // this build() method will only run when the provider is first created 
+    // or explicitly invalidated. We check for persisted state to restore the session.
     final savedCategoryId = _persistence.getCurrentCategory();
     final savedArticleId = _persistence.getCurrentArticleId();
 

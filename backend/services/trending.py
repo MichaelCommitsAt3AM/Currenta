@@ -176,11 +176,12 @@ async def update_trending_scores(db_pool):
                         await conn.execute("""
                             UPDATE articles 
                             SET trend_score = COALESCE(trend_score, 0) + $1,
-                                last_trend_update = NOW()
+                                last_trend_update = NOW(),
+                                ranking_score = ((1.0 + (COALESCE(trend_score, 0) + $1)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
                             WHERE id = ANY($2::uuid[])
                             OR (cluster_id IS NOT NULL AND cluster_id = ANY($3::uuid[]))
                         """, trend_weight, list(article_ids_to_boost), list(cluster_ids_to_boost))
-                        logger.info(f"[{region}] Boosted '{trend['query']}' with weight {trend_weight:.2f}")
+                        logger.info(f"[{region}] Boosted '{trend['query']}' with weight {trend_weight:.2f} and updated ranking score")
 
                 except Exception as e:
                     logger.error(f"[{region}] Error processing trend '{trend.get('query')}': {e}")
@@ -192,4 +193,18 @@ async def update_trending_scores(db_pool):
 
     # Process all regions in parallel
     await asyncio.gather(*[process_region(r) for r in all_regions])
+    
+    # Finally, refresh ranking scores for all recent articles to account for time decay
+    # even if they weren't boosted this run.
+    async with db_pool.acquire() as conn:
+        try:
+            logger.info("Refreshing ranking scores for all articles from last 7 days...")
+            await conn.execute("""
+                UPDATE articles 
+                SET ranking_score = ((1.0 + trend_score) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
+                WHERE published_at > NOW() - INTERVAL '7 days'
+            """)
+        except Exception as e:
+            logger.error(f"Failed to refresh ranking scores: {e}")
+
     logger.info("Trending score update complete.")

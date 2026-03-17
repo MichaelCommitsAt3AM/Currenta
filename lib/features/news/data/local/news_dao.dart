@@ -28,7 +28,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           ])
           ..where((t) {
             final catFilter = category != null
-                ? t.categories.like('%"$category"%')
+                ? t.categories.like(categoryPrefix)
                 : const Constant(true);
             final viewedIds = selectOnly(viewedArticlesTable)
               ..addColumns([viewedArticlesTable.id]);
@@ -41,7 +41,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
           ..where((t) => category != null
-              ? t.categories.like('%"$category"%')
+              ? t.categories.like('["$category"%')
               : const Constant(true)))
         .get();
   }
@@ -90,7 +90,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       ])
       ..where(() {
         final catFilter = category != null
-            ? newsArticlesTable.categories.like('%"$category"%')
+            ? newsArticlesTable.categories.like(categoryPrefix)
             : const Constant(true);
 
         Expression<bool> cursorFilter = const Constant(true);
@@ -135,7 +135,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final query = selectOnly(newsArticlesTable)
       ..addColumns([newsArticlesTable.id.count()])
       ..where(category != null
-          ? newsArticlesTable.categories.like('%"$category"%')
+          ? newsArticlesTable.categories.like('["$category"%')
           : const Constant(true));
     final result = await query.getSingle();
     return result.read(newsArticlesTable.id.count()) ?? 0;

@@ -204,6 +204,25 @@ def generate_content_hash(link: str, title: str) -> str:
     s = link + title
     return hashlib.sha256(s.encode('utf-8')).hexdigest()
 
+def calculate_ranking_score(published_at: datetime, trend_score: float = 0.0) -> float:
+    """
+    Calculates the ranking score based on trend score and time decay.
+    Formula: (1.0 + trend_score) * exp(-0.05 * hours_old)
+    """
+    import math
+    now = datetime.now(timezone.utc)
+    # Ensure published_at is timezone-aware
+    if published_at.tzinfo is None:
+        published_at = published_at.replace(tzinfo=timezone.utc)
+    
+    delta = now - published_at
+    hours_old = delta.total_seconds() / 3600.0
+    
+    # We cap hours_old at 0 to avoid boost for future articles (if any)
+    hours_old = max(0.0, hours_old)
+    
+    return (1.0 + trend_score) * math.exp(-0.05 * hours_old)
+
 PAYWALL_SIGNALS = [
     "subscribe to read",
     "subscribe to continue",
@@ -364,16 +383,33 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
             if not gen_client:
                 raise ValueError(f"Provider '{provider}' is not configured.")
 
-            response = await gen_client.aio.models.generate_content(
-                model="gemini-2.5-flash-lite",
-                contents=full_prompt,
-                config=genai_types.GenerateContentConfig(
-                    max_output_tokens=500,
-                    temperature=0.1,
-                    response_mime_type="application/json"
-                )
-            )
-            raw_content = response.text.strip()
+            max_retries = 3
+            base_delay = 2.0  # seconds
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await gen_client.aio.models.generate_content(
+                        model="gemini-2.5-flash-lite",
+                        contents=full_prompt,
+                        config=genai_types.GenerateContentConfig(
+                            max_output_tokens=500,
+                            temperature=0.1,
+                            response_mime_type="application/json"
+                        )
+                    )
+                    raw_content = response.text.strip()
+                    break
+                except Exception as e:
+                    err_msg = str(e)
+                    # Handle "503 UNAVAILABLE" or "high demand" which is usually transient
+                    if attempt < max_retries and ("503" in err_msg or "UNAVAILABLE" in err_msg or "high demand" in err_msg.lower()):
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[summarize_article] Gemini API {provider} busy (attempt {attempt+1}/{max_retries}). Retrying in {delay}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    # Re-raise if we're out of retries or it's a different error
+                    raise e
+
             
         elif provider == "groq":
             res = await client.post(
@@ -895,18 +931,21 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 try:
                     # Determine ingestion method for analysis
                     ingestion_method = "scraper" if scraper_status == "SUCCESS" else "rss"
+                    ranking_score = calculate_ranking_score(item["pubDate"], 0.0)
                     
                     await conn.execute('''
                         INSERT INTO articles (
                             title, summary, original_url, image_url, source_name,
                             published_at, categories, subcategory, embedding, content_hash, 
-                            summary_model, country_code, is_paywalled, ingestion_method, created_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW())
+                            summary_model, country_code, is_paywalled, ingestion_method, created_at,
+                            ranking_score
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15)
                         ON CONFLICT (original_url) DO NOTHING
                     ''', 
                     llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
                     item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method)
+                    embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method,
+                    ranking_score)
                     
                     # Log successful ingestion with details
                     final_status = scraper_status
@@ -973,7 +1012,7 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
                     params.append(category)
             
             where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            query = f"SELECT {ARTICLE_COLUMNS} FROM articles {where_sql} ORDER BY published_at DESC LIMIT 200"
+            query = f"SELECT {ARTICLE_COLUMNS} FROM articles {where_sql} ORDER BY ranking_score DESC LIMIT 150"
             
             records = await conn.fetch(query, *params)
             result = []
@@ -986,11 +1025,11 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
 
             # Use shared Redis client if provided, else create a short-lived one
             if redis_client:
-                await redis_client.set(f"feed:v2:{country_key}:{category}", orjson.dumps(result), ex=10800)
+                await redis_client.set(f"feed:v3:{country_key}:{category}", orjson.dumps(result), ex=10800)
             else:
                 import redis.asyncio as redis_lib
                 r_client = redis_lib.from_url(redis_url, decode_responses=True)
-                await r_client.set(f"feed:v2:{country_key}:{category}", orjson.dumps(result), ex=10800)
+                await r_client.set(f"feed:v3:{country_key}:{category}", orjson.dumps(result), ex=10800)
                 await r_client.close()
             # print(f"[Cache-Warming] Updated cache for {country_key}:{category}")
             
@@ -1151,22 +1190,24 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         # Since this might be from a trending signal, use the domain as source if unknown
         source_name = scraper_result.get("source") or (re.search(r'https?://([^/]+)', url).group(1) if re.search(r'https?://([^/]+)', url) else "Unknown")
         content_hash = generate_content_hash(url, llm_res["title"])
-        
         try:
+            ranking_score = calculate_ranking_score(datetime.now(timezone.utc), 0.0)
+
             # We use a CTE to ensure we get the ID even if it exists.
             result = await conn.fetchrow('''
                 INSERT INTO articles (
                     title, summary, original_url, image_url, source_name,
                     published_at, categories, subcategory, embedding, content_hash, 
-                    summary_model, country_code, is_paywalled, ingestion_method, created_at
-                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8::float8[]::vector, $9, $10, $11, $12, $13, NOW())
+                    summary_model, country_code, is_paywalled, ingestion_method, created_at,
+                    ranking_score
+                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8::float8[]::vector, $9, $10, $11, $12, $13, NOW(), $14)
                 ON CONFLICT (original_url) DO UPDATE SET last_trend_update = NOW() -- Dummy update to trigger RETURNING
                 RETURNING id
             ''', 
             llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
             llm_res["categories"], llm_res["subcategory"],
             embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, 
-            scraper_result.get("is_paywalled", False), "scraper")
+            scraper_result.get("is_paywalled", False), "scraper", ranking_score)
             
             article_id = result["id"] if result else None
 
