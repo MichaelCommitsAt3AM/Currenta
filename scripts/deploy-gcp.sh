@@ -6,6 +6,7 @@ set -euo pipefail
 #   ./scripts/deploy-gcp.sh
 #   PROJECT_ID=my-project REGION=europe-west3 ./scripts/deploy-gcp.sh
 #   SKIP_BUILD=true ./scripts/deploy-gcp.sh
+#   SKIP_PRECHECKS=true ./scripts/deploy-gcp.sh
 
 PROJECT_ID="${PROJECT_ID:-gen-lang-client-0685906896}"
 REGION="${REGION:-europe-west3}"
@@ -14,6 +15,8 @@ REPO="${REPO:-currenta-repo}"
 RUNTIME_SA="${RUNTIME_SA:-currenta-runtime@${PROJECT_ID}.iam.gserviceaccount.com}"
 IMAGE="${IMAGE:-${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/backend}"
 SKIP_BUILD="${SKIP_BUILD:-false}"
+SKIP_PRECHECKS="${SKIP_PRECHECKS:-false}"
+PRECHECK_TEST_PATH="${PRECHECK_TEST_PATH:-backend/test_ingestion_pipeline.py}"
 VERIFY="${VERIFY:-true}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,6 +29,28 @@ fi
 if [[ ! -f "${ROOT_DIR}/cloudbuild.yaml" ]]; then
   echo "[deploy] cloudbuild.yaml not found at repo root: ${ROOT_DIR}"
   exit 1
+fi
+
+if [[ "${SKIP_PRECHECKS}" != "true" ]]; then
+  if [[ -x "${ROOT_DIR}/venv/bin/python" ]]; then
+    PYTHON_BIN="${ROOT_DIR}/venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+  else
+    echo "[deploy] Python not found. Cannot run pre-deploy checks."
+    exit 1
+  fi
+
+  echo "[deploy] Running pre-deploy checks: ${PRECHECK_TEST_PATH}"
+  if ! (cd "${ROOT_DIR}" && "${PYTHON_BIN}" -m pytest "${PRECHECK_TEST_PATH}" -q); then
+    echo "[deploy] Pre-deploy checks failed. Aborting build/deploy."
+    exit 1
+  fi
+  echo "[deploy] Pre-deploy checks passed."
+else
+  echo "[deploy] SKIP_PRECHECKS=true, skipping pre-deploy checks."
 fi
 
 if [[ "${SKIP_BUILD}" != "true" ]]; then

@@ -7,7 +7,7 @@ steps:
       set -euo pipefail
       pip install --no-cache-dir -r backend/requirements.txt pytest pip-audit
       python -m compileall -q backend
-      pytest -q backend/test_scraper_gn.py
+      pytest -q backend/test_ingestion_pipeline.py
       pip-audit -r backend/requirements.txt
 
 - name: "gcr.io/cloud-builders/docker"

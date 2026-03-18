@@ -16,7 +16,7 @@ README.md
 
 # Ignore tests and scripts
 test/
-test_scraper_gn.py
+test_ingestion_pipeline.py
 
 # OS Artifacts
 .DS_Store
