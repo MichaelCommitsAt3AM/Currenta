@@ -3,7 +3,7 @@
 -- This RPC is called by the Edge Function for deduplication.
 
 CREATE OR REPLACE FUNCTION match_recent_articles(
-  query_embedding   vector,
+  query_embedding   vector(1536),
   similarity_threshold float,
   match_count       int DEFAULT 1
 )

@@ -95,11 +95,15 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to connect to Redis: %s", e)
         app.state.redis_client = None
 
-    start_scheduler()
+    if ENABLE_INTERNAL_SCHEDULER:
+        start_scheduler()
+    else:
+        logger.info("Internal scheduler is disabled (ENABLE_INTERNAL_SCHEDULER=False). Use Cloud Scheduler for orchestration.")
 
     yield
 
-    stop_scheduler()
+    if ENABLE_INTERNAL_SCHEDULER:
+        stop_scheduler()
     if db_pool:
         await db_pool.close()
         logger.info("Closed PostgreSQL pool.")
@@ -135,6 +139,11 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# --- Scheduler Config (Recommendation 2) ---
+# In GCP Cloud Run, scaling to zero stops background jobs. 
+# Set ENABLE_INTERNAL_SCHEDULER=False in prod and use Google Cloud Scheduler instead.
+ENABLE_INTERNAL_SCHEDULER = os.environ.get("ENABLE_INTERNAL_SCHEDULER", "true").lower() == "true"
+
 # --- Routers ---
 app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
@@ -158,10 +167,10 @@ async def health_check():
     a structured report. HTTP 503 is returned if any critical component fails,
     so load balancers and uptime monitors can act on it correctly.
 
-    Components checked:
-      - database  : runs SELECT 1 through an actual pool connection (latency reported)
-      - gemini    : verifies GEMINI_API_KEY was loaded and a client was created
-      - scheduler : confirms the APScheduler background job is running
+        Components checked:
+            - database  : runs SELECT 1 through an actual pool connection (latency reported)
+            - gemini    : verifies GEMINI_API_KEY was loaded and a client was created
+            - scheduler : required only when ENABLE_INTERNAL_SCHEDULER=true
     """
     import time
     from .api.chat import _gemini_client, _vertex_client, LLM_PROVIDER
@@ -211,15 +220,21 @@ async def health_check():
     # Backward compatibility for health check consumers
     report["gemini"] = report["google_ai_studio"] if LLM_PROVIDER == "gemini" else report["google_vertex_ai"]
 
-    # ── 3. APScheduler ───────────────────────────────────────────────────────
-    jobs = scheduler.get_jobs()
-    report["scheduler"] = {
-        "status": "ok" if scheduler.running else "stopped",
-        "job_count": len(jobs),
-        "jobs": [j.name for j in jobs],
-    }
-    if not scheduler.running:
-        overall_ok = False
+    # ── 3. APScheduler (optional in Cloud Run) ─────────────────────────────
+    if ENABLE_INTERNAL_SCHEDULER:
+        jobs = scheduler.get_jobs()
+        report["scheduler"] = {
+            "status": "ok" if scheduler.running else "stopped",
+            "job_count": len(jobs),
+            "jobs": [j.name for j in jobs],
+        }
+        if not scheduler.running:
+            overall_ok = False
+    else:
+        report["scheduler"] = {
+            "status": "external",
+            "detail": "Internal scheduler disabled; external Cloud Scheduler is expected.",
+        }
 
     return JSONResponse(
         status_code=200 if overall_ok else 503,

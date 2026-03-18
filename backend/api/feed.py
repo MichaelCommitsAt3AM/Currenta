@@ -4,7 +4,7 @@ from uuid import UUID
 import asyncpg
 from typing import Optional
 import orjson
-from ..core.security import limiter, verify_supabase_jwt, User
+from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip
 from ..core.geo import get_country_from_ip
 from ..services.ingestion import fetch_local_news_on_demand
 
@@ -82,9 +82,7 @@ async def get_feed(
                 
                 # If still no country, try IP detection
                 if not country or (isinstance(country, str) and country.lower() == 'auto'):
-                    # Get remote IP, considering possible proxy headers
-                    forwarded = request.headers.get("X-Forwarded-For")
-                    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host
+                    ip = get_client_ip(request)
                     
                     detected_country = await get_country_from_ip(ip)
                     if detected_country:
@@ -351,8 +349,7 @@ async def detect_location(
     Detects the user's country from their IP and saves it to their profile if they are logged in.
     This can be called during onboarding to pre-warm the location state.
     """
-    forwarded = request.headers.get("X-Forwarded-For")
-    ip = forwarded.split(",")[0].strip() if forwarded else request.client.host
+    ip = get_client_ip(request)
     
     country = await get_country_from_ip(ip)
     

@@ -7,7 +7,7 @@
 DROP FUNCTION IF EXISTS match_recent_articles(vector, float, int);
 
 CREATE OR REPLACE FUNCTION match_recent_articles(
-  query_embedding vector(768),
+  query_embedding vector(1536),
   similarity_threshold float,
   match_count int
 )

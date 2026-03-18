@@ -5,17 +5,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
-LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "nomic-embed-text")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_EMBED_MODEL = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 
 async def test_embed():
-    print(f"Testing embedding with {LOCAL_LLM_BASE_URL} and {LOCAL_EMBED_MODEL}...")
+    print(f"Testing OpenAI embedding model: {OPENAI_EMBED_MODEL}...")
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is required for this test.")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.post(
-                f"{LOCAL_LLM_BASE_URL}/embeddings",
-                headers={"Content-Type": "application/json"},
-                json={"model": LOCAL_EMBED_MODEL, "input": "Hello world"}
+                "https://api.openai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": OPENAI_EMBED_MODEL, "input": "Hello world"}
             )
             print(f"Status: {res.status_code}")
             if res.status_code == 200:

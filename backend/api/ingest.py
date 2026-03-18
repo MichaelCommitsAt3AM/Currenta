@@ -1,9 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional
 
 from ..services.ingestion import orchestrate, add_source_feed_to_queue
-from ..core.security import verify_admin_api_key
+from ..core.security import verify_admin_api_key, limiter
 
 router = APIRouter()
 
@@ -12,8 +12,10 @@ class IngestRequest(BaseModel):
     categoryHint: Optional[str] = None
 
 @router.post("/trigger")
+@limiter.limit("5/minute;100/day")
 async def trigger_ingestion(
-    request: IngestRequest, 
+    request: Request,
+    ingest_req: IngestRequest,
     background_tasks: BackgroundTasks,
     admin_key: str = Depends(verify_admin_api_key)
 ):
@@ -22,13 +24,15 @@ async def trigger_ingestion(
     """
     try:
         # Instead of blocking on the entire LLM processing, we add it to schedule/queue
-        background_tasks.add_task(add_source_feed_to_queue, request.feedUrl, request.categoryHint)
-        return {"status": "queued", "feedUrl": request.feedUrl}
+        background_tasks.add_task(add_source_feed_to_queue, ingest_req.feedUrl, ingest_req.categoryHint)
+        return {"status": "queued", "feedUrl": ingest_req.feedUrl}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/orchestrate")
+@limiter.limit("3/minute;60/day")
 async def trigger_orchestrator(
+    request: Request,
     background_tasks: BackgroundTasks,
     admin_key: str = Depends(verify_admin_api_key)
 ):
@@ -43,7 +47,9 @@ async def trigger_orchestrator(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cancel")
+@limiter.limit("10/minute;120/day")
 async def trigger_cancel(
+    request: Request,
     admin_key: str = Depends(verify_admin_api_key)
 ):
     """

@@ -33,15 +33,24 @@ if GEMINI_API_KEY:
     _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # --- Vertex AI Client (Google Cloud) ---
+# Recommendation 5: Use IAM (Service Account) in production.
+# If running on GCP, the SDK will automatically use the environment's service account.
 VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT")
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 _vertex_client: genai.Client | None = None
-if VERTEX_PROJECT:
-    _vertex_client = genai.Client(
-        vertexai=True,
-        project=VERTEX_PROJECT,
-        location=VERTEX_LOCATION
-    )
+
+# If LLM_PROVIDER is vertex, we try to initialize it.
+# In GCP Cloud Run, VERTEX_PROJECT can often be inferred, but we check for it or the provider flag.
+if LLM_PROVIDER == "vertex" or VERTEX_PROJECT:
+    try:
+        _vertex_client = genai.Client(
+            vertexai=True,
+            project=VERTEX_PROJECT, # Can be None if running on GCP
+            location=VERTEX_LOCATION
+        )
+        logger.info("Vertex AI client initialized (IAM/ADC).")
+    except Exception as e:
+        logger.warning(f"Could not initialize Vertex AI client: {e}")
 
 def _get_active_client() -> genai.Client | None:
     """Returns the client based on LLM_PROVIDER setting."""

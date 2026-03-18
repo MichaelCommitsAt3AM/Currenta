@@ -1,0 +1,17 @@
+steps:
+- name: "python:3.11-slim"
+  entrypoint: "bash"
+  args:
+    - "-lc"
+    - |
+      set -euo pipefail
+      pip install --no-cache-dir -r backend/requirements.txt pytest pip-audit
+      python -m compileall -q backend
+      pytest -q backend/test_scraper_gn.py
+      pip-audit -r backend/requirements.txt
+
+- name: "gcr.io/cloud-builders/docker"
+  args: ["build", "-t", "$_TAG", "-f", "backend/Dockerfile", "."]
+
+images:
+  - "$_TAG"

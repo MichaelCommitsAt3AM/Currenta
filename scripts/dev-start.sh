@@ -34,7 +34,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 NGROK_CONFIG="${SCRIPT_DIR}/ngrok.yml"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1}"
-OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"  # 768-dim, for pgvector
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 NGROK_API_PORT="${NGROK_API_PORT:-4040}"      # ngrok local API for URL extraction
 AUTO_UPDATE_SECRET="${AUTO_UPDATE_SECRET:-0}" # set to 1 to skip the prompt
@@ -127,20 +126,11 @@ else
   fi
 fi
 
-# Verify embedding model is available
-info "Checking for embedding model '${OLLAMA_EMBED_MODEL}'..."
-if ollama list 2>/dev/null | grep -q "^${OLLAMA_EMBED_MODEL}"; then
-  ok "Embedding model '${OLLAMA_EMBED_MODEL}' is available"
+# Verify OpenAI embedding key is configured
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  warn "OPENAI_API_KEY is not set. Deduplication embeddings will fail at runtime."
 else
-  warn "Embedding model '${OLLAMA_EMBED_MODEL}' not found."
-  read -rp "  Pull it now? [Y/n] " pull_embed_answer
-  if [[ "${pull_embed_answer:-Y}" =~ ^[Yy]$ ]]; then
-    info "Pulling '${OLLAMA_EMBED_MODEL}' (~274 MB)..."
-    ollama pull "${OLLAMA_EMBED_MODEL}"
-    ok "Embedding model ready"
-  else
-    warn "Skipping — deduplication embeddings will fail at runtime."
-  fi
+  ok "OPENAI_API_KEY is set for OpenAI embeddings"
 fi
 echo ""
 

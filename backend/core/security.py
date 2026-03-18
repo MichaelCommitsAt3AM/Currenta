@@ -1,5 +1,6 @@
 import os
 import logging
+import ipaddress
 import jwt
 from fastapi import Security, HTTPException, status, Header, Request
 from fastapi.security.api_key import APIKeyHeader
@@ -10,6 +11,50 @@ from slowapi.util import get_remote_address
 # Use structured logging instead of print() for production
 logger = logging.getLogger(__name__)
 
+
+def _is_valid_ip(ip: str) -> bool:
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except ValueError:
+        return False
+
+
+def get_client_ip(request: Request) -> str:
+    """
+    Returns the client IP address in a proxy-aware but safe way.
+
+    If TRUST_PROXY_HEADERS=true, the app will trust X-Forwarded-For only when
+    the direct peer is in TRUSTED_PROXY_IPS (if configured). Otherwise it falls
+    back to request.client.host.
+    """
+    peer_ip = request.client.host if request.client and request.client.host else ""
+    if not peer_ip:
+        return "unknown"
+
+    trust_proxy_headers = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+    if not trust_proxy_headers:
+        return peer_ip
+
+    trusted_proxy_ips_raw = os.getenv("TRUSTED_PROXY_IPS", "")
+    trusted_proxy_ips = {ip.strip() for ip in trusted_proxy_ips_raw.split(",") if ip.strip()}
+
+    # If a trusted proxy allowlist exists, only honor X-Forwarded-For when the
+    # immediate caller is a trusted proxy.
+    if trusted_proxy_ips and peer_ip not in trusted_proxy_ips:
+        return peer_ip
+
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if not forwarded_for:
+        return peer_ip
+
+    # X-Forwarded-For can be a chain: client, proxy1, proxy2
+    candidate_ip = forwarded_for.split(",")[0].strip()
+    if _is_valid_ip(candidate_ip):
+        return candidate_ip
+
+    return peer_ip
+
 def get_user_or_ip(request: Request):
     """
     Returns user ID if authenticated, else falls back to remote address.
@@ -18,7 +63,7 @@ def get_user_or_ip(request: Request):
     if auth and auth.startswith("Bearer "):
         # We don't want to fully verify here (expensive), but we can use the token as a key
         return auth
-    return get_remote_address(request)
+    return get_client_ip(request) or get_remote_address(request)
 
 limiter = Limiter(key_func=get_user_or_ip)
 

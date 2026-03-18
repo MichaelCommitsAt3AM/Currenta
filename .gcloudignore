@@ -1,0 +1,31 @@
+# This file specifies which files and directories to ignore when uploading 
+# to Google Cloud Build (gcloud builds submit).
+
+# 1. Ignore EVERYTHING by default (avoids uploading Flutter/Mobile files)
+**
+
+# 2. Allow only the backend directory and its contents
+!backend/
+!backend/**
+!cloudbuild.yaml
+
+# 3. Standard ignores for safety and speed
+.git/
+.gitignore
+.gcloudignore
+.dockerignore
+**/venv/
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+**/.env*
+!**/.env.example
+
+# 4. Specifically block huge mobile/frontend folders (redundant due to step 1, but good practice)
+android/
+ios/
+build/
+assets/
+lib/
+test/
+.dart_tool/

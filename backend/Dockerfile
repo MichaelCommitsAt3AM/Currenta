@@ -19,11 +19,12 @@ COPY backend/requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the backend code
-COPY . .
+# Copy the backend code into the 'backend' folder to maintain package structure
+COPY backend/ ./backend/
 
 # Expose the API port
-EXPOSE 8000
+EXPOSE 8080
 
 # Run the FastAPI application
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the FastAPI application as a module to correctly resolve package-relative imports
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -51,7 +51,9 @@ async def get_trending_feed(
         raise HTTPException(status_code=500, detail="Failed to fetch trending articles")
 
 @router.post("/trigger")
+@limiter.limit("5/minute;100/day")
 async def trigger_trending_update(
+    request: Request,
     background_tasks: BackgroundTasks,
     db_pool: asyncpg.Pool = Depends(get_db),
     admin_key: str = Depends(verify_admin_api_key)

@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS articles (
   cluster_id        UUID,
   content_hash      TEXT UNIQUE,
   summary_model     TEXT,
-  -- 768-dim for nomic-embed-text (dedicated embedding model)
-  embedding         vector(768),
+  -- 1536-dim for OpenAI text-embedding-3-small
+  embedding         vector(1536),
   country_code      VARCHAR(2),
   trend_score      DOUBLE PRECISION DEFAULT 0.0,
   ranking_score    DOUBLE PRECISION DEFAULT 0.0,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 -- 3. IVFFlat index for fast cosine similarity search
---    nomic-embed-text = 768 dims, well within the 2000-dim IVFFlat limit.
+--    text-embedding-3-small = 1536 dims, within the 2000-dim IVFFlat limit.
 --    lists=10 is fine for dev; bump to 100+ once you have >10k rows.
 CREATE INDEX IF NOT EXISTS articles_embedding_idx
   ON articles
@@ -66,7 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_category_country ON articles (country_co
 
 -- 8. Database Function for vector similarity search
 CREATE OR REPLACE FUNCTION match_recent_articles(
-  query_embedding vector(768),
+  query_embedding vector(1536),
   similarity_threshold float,
   match_count int
 )

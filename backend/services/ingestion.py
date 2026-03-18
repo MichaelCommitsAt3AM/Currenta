@@ -27,7 +27,8 @@ if not LOCAL_LLM_BASE_URL.endswith("/v1"):
     LOCAL_LLM_BASE_URL += "/v1"
 
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL")
-LOCAL_EMBED_MODEL = os.environ.get("LOCAL_EMBED_MODEL", "nomic-embed-text")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_EMBED_MODEL = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 
 # --- Google Gen-AI Clients (Unified SDK) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -38,12 +39,16 @@ if GEMINI_API_KEY:
 VERTEX_PROJECT = os.environ.get("VERTEX_PROJECT")
 VERTEX_LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 _vertex_client: genai.Client | None = None
-if VERTEX_PROJECT:
-    _vertex_client = genai.Client(
-        vertexai=True,
-        project=VERTEX_PROJECT,
-        location=VERTEX_LOCATION
-    )
+if LLM_PROVIDER == "vertex" or VERTEX_PROJECT:
+    try:
+        _vertex_client = genai.Client(
+            vertexai=True,
+            project=VERTEX_PROJECT,  # Can be None when running on GCP with ADC
+            location=VERTEX_LOCATION
+        )
+        logger.info("Vertex AI client initialized for ingestion.")
+    except Exception as e:
+        logger.warning("Could not initialize Vertex AI client for ingestion: %s", e)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
@@ -529,11 +534,17 @@ def parse_llm_response(raw_str: str) -> dict:
         }
 
 async def embed_text(text: str) -> list[float]:
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY is required for embeddings.")
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         res = await client.post(
-            f"{LOCAL_LLM_BASE_URL}/embeddings",
-            headers={"Content-Type": "application/json", "ngrok-skip-browser-warning": "true"},
-            json={"model": LOCAL_EMBED_MODEL, "input": text, "options": {"num_gpu": 0}}
+            "https://api.openai.com/v1/embeddings",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"model": OPENAI_EMBED_MODEL, "input": text}
         )
         res.raise_for_status()
         data = res.json()
@@ -737,7 +748,8 @@ async def is_duplicate(conn, embedding: list[float]) -> bool:
     # We use $1::vector in the query or ensure the function handles the cast.
     try:
         # Check similarity match (...)
-        # The match_recent_articles function expects a vector(768).
+        # The match_recent_articles function expects the same embedding dimension
+        # as the configured embedding model.
         # We cast the list (which asyncpg sends as float8[]) to ::vector.
         records = await conn.fetch(
             "SELECT id FROM match_recent_articles($1::float8[]::vector, $2, $3)",
@@ -1216,4 +1228,3 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         except Exception as db_err:
             await log_ingestion_event(conn, url, "FAILED", error_type="DB_INSERT_ERROR", error_message=str(db_err))
             return None
-
