@@ -29,6 +29,9 @@ if not LOCAL_LLM_BASE_URL.endswith("/v1"):
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_EMBED_MODEL = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
+VOYAGE_EMBED_MODEL = os.environ.get("VOYAGE_EMBED_MODEL", "voyage-3.5-lite")
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "openai").strip().lower()
 
 # --- Google Gen-AI Clients (Unified SDK) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -534,22 +537,42 @@ def parse_llm_response(raw_str: str) -> dict:
         }
 
 async def embed_text(text: str) -> list[float]:
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY is required for embeddings.")
+    provider = EMBEDDING_PROVIDER
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        res = await client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={"model": OPENAI_EMBED_MODEL, "input": text}
-        )
-        res.raise_for_status()
-        data = res.json()
-        embedding = data["data"][0]["embedding"]
-        return [float(x) for x in embedding]
+        if provider == "voyage":
+            if not VOYAGE_API_KEY:
+                raise ValueError("VOYAGE_API_KEY is required when EMBEDDING_PROVIDER=voyage.")
+            res = await client.post(
+                "https://api.voyageai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {VOYAGE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": VOYAGE_EMBED_MODEL, "input": [text], "input_type": "document"}
+            )
+            res.raise_for_status()
+            data = res.json()
+            embedding = data["data"][0]["embedding"]
+            return [float(x) for x in embedding]
+
+        if provider == "openai":
+            if not OPENAI_API_KEY:
+                raise ValueError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai.")
+            res = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": OPENAI_EMBED_MODEL, "input": text}
+            )
+            res.raise_for_status()
+            data = res.json()
+            embedding = data["data"][0]["embedding"]
+            return [float(x) for x in embedding]
+
+        raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
 
 async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
     if not supabase_client:

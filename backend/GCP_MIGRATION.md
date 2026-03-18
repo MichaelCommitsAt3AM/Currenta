@@ -106,9 +106,16 @@ gcloud run deploy $SERVICE \
   --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true"
 ```
 
-If you keep OpenAI embeddings in production, also map:
+For embeddings in production, also map:
+- `EMBEDDING_PROVIDER`
+
+If using OpenAI embeddings, map:
 - `OPENAI_API_KEY`
 - `OPENAI_EMBED_MODEL`
+
+If using Voyage embeddings, map:
+- `VOYAGE_API_KEY`
+- `VOYAGE_EMBED_MODEL`
 
 ## 5. IAM Authentication (Vertex AI)
 No API Key is required for Vertex AI when running on GCP.
