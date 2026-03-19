@@ -16,6 +16,9 @@ class AuthRepositoryImpl implements AuthRepository {
   final SupabaseClient _supabase;
   final Dio _dio;
 
+  // Session-level cache for country detection
+  String? _cachedCountry;
+
   @override
   Stream<bool> get authStateChanges => _supabase.auth.onAuthStateChange.map(
         (event) =>
@@ -203,6 +206,9 @@ class AuthRepositoryImpl implements AuthRepository {
         googleSignIn.signOut(),
       ]);
 
+      // Clear the country cache on sign out
+      _cachedCountry = null;
+
       // Since we rely on anonymous sessions for tracking, immediately create a new one
       if (_supabase.auth.currentSession == null) {
         await _supabase.auth.signInAnonymously();
@@ -365,6 +371,8 @@ class AuthRepositoryImpl implements AuthRepository {
         'preferred_country': countryCode,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
+      // Update cache
+      _cachedCountry = countryCode;
     } catch (e) {
       debugPrint('[Auth] Error saving preferred country: $e');
       throw ServerException('Failed to save country preference: $e');
@@ -373,6 +381,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<String?> getPreferredCountry() async {
+    // Use session-level cache if available
+    if (_cachedCountry != null) return _cachedCountry;
+
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return null;
 
@@ -383,7 +394,8 @@ class AuthRepositoryImpl implements AuthRepository {
           .eq('user_id', uid)
           .maybeSingle();
       
-      return response?['preferred_country'] as String?;
+      _cachedCountry = response?['preferred_country'] as String?;
+      return _cachedCountry;
     } catch (e) {
       debugPrint('[Auth] Error fetching preferred country: $e');
       return null;
@@ -462,6 +474,11 @@ class AuthRepositoryImpl implements AuthRepository {
 
       final response = await _dio.get(url, options: options);
       final country = response.data['country'] as String?;
+      
+      if (country != null) {
+        _cachedCountry = country;
+      }
+
       debugPrint('[Auth] Background location detection result: $country');
       return country;
     } catch (e) {

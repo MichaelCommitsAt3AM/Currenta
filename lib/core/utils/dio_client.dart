@@ -2,6 +2,7 @@
 // Singleton Dio client with structured logging + error interceptors.
 
 import 'package:dio/dio.dart';
+import 'package:dio_http2_adapter/dio_http2_adapter.dart';
 import 'package:flutter/foundation.dart';
 import '../errors/app_exception.dart';
 
@@ -11,6 +12,15 @@ class DioClient {
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 30),
     ));
+    
+    // Enable HTTP/2 for better performance (multiplexing)
+    _dio.httpClientAdapter = Http2Adapter(
+      ConnectionManager(
+        idleTimeout: const Duration(seconds: 15),
+        onClientCreate: (_, config) => config.onBadCertificate = (_) => true, // Only for debugging if needed
+      ),
+    );
+
     _dio.interceptors.addAll([
       _LoggingInterceptor(),
       _ErrorInterceptor(),

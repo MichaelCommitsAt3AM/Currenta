@@ -38,6 +38,12 @@ OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 NGROK_API_PORT="${NGROK_API_PORT:-4040}"      # ngrok local API for URL extraction
 AUTO_UPDATE_SECRET="${AUTO_UPDATE_SECRET:-0}" # set to 1 to skip the prompt
 
+# ── Load Environment ──────────────────────────────────────────────────────────
+if [[ -f "${PROJECT_ROOT}/.env" ]]; then
+  # Source .env but ignore comments/blank lines
+  export $(grep -v '^#' "${PROJECT_ROOT}/.env" | xargs)
+fi
+
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 hr
@@ -52,8 +58,6 @@ command -v ollama >/dev/null 2>&1 || die "ollama not found. Install from https:/
 command -v ngrok  >/dev/null 2>&1 || die "ngrok not found. Install from https://ngrok.com/download"
 command -v curl   >/dev/null 2>&1 || die "curl not found. Please install curl."
 command -v jq     >/dev/null 2>&1 || warn "jq not found — ngrok URL extraction may fall back to grep. (sudo apt install jq)"
-
-[[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
 
 [[ -f "${NGROK_CONFIG}" ]] || die "ngrok config not found at ${NGROK_CONFIG}"
 
@@ -126,11 +130,30 @@ else
   fi
 fi
 
-# Verify OpenAI embedding key is configured
-if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  warn "OPENAI_API_KEY is not set. Deduplication embeddings will fail at runtime."
-else
-  ok "OPENAI_API_KEY is set for OpenAI embeddings"
+# Verify Embedding model is available (if local)
+if [[ "${EMBEDDING_PROVIDER:-}" == "local" ]]; then
+  OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
+  info "Checking for Embedding model '${OLLAMA_EMBED_MODEL}'..."
+  if ollama list 2>/dev/null | grep -q "^${OLLAMA_EMBED_MODEL}"; then
+    ok "Embedding model '${OLLAMA_EMBED_MODEL}' is available"
+  else
+    warn "Embedding model '${OLLAMA_EMBED_MODEL}' not found locally."
+    read -rp "  Pull it now? [Y/n] " pull_embed_answer
+    if [[ "${pull_embed_answer:-Y}" =~ ^[Yy]$ ]]; then
+      info "Pulling '${OLLAMA_EMBED_MODEL}'..."
+      ollama pull "${OLLAMA_EMBED_MODEL}"
+      ok "Embedding model ready"
+    else
+      warn "Skipping — deduplication will fail at runtime."
+    fi
+  fi
+elif [[ "${EMBEDDING_PROVIDER:-}" == "voyage" ]]; then
+  # Verify Voyage embedding key is configured
+  if [[ -z "${VOYAGE_API_KEY:-}" ]]; then
+    warn "VOYAGE_API_KEY is not set. Deduplication embeddings will fail at runtime."
+  else
+    ok "VOYAGE_API_KEY is set for Voyage embeddings"
+  fi
 fi
 echo ""
 
@@ -148,7 +171,7 @@ if curl -sf "http://localhost:${BACKEND_PORT}/health" > /dev/null 2>&1; then
   BACKEND_READY=true
 else
   info "Starting Backend via Docker Compose..."
-  docker compose up -d api redis
+  docker compose up -d api redis caddy
   
   info "Waiting for Backend Service to be ready..."
   HEALTH_JSON=""

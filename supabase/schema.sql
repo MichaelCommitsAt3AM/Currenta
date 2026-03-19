@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS articles (
   cluster_id        UUID,
   content_hash      TEXT UNIQUE,
   summary_model     TEXT,
-  -- 1024-dim default for Voyage voyage-3.5-lite
-  embedding         vector(1024),
+  -- 768-dim default for Nomic nomic-embed-text
+  embedding         vector(768),
   country_code      VARCHAR(2),
   trend_score      DOUBLE PRECISION DEFAULT 0.0,
   ranking_score    DOUBLE PRECISION DEFAULT 0.0,
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 -- 3. IVFFlat index for fast cosine similarity search
---    voyage-3.5-lite = 1024 dims, within the 2000-dim IVFFlat limit.
+--    nomic-embed-text = 768 dims, within the 2000-dim IVFFlat limit.
 --    lists=10 is fine for dev; bump to 100+ once you have >10k rows.
 CREATE INDEX IF NOT EXISTS articles_embedding_idx
   ON articles
@@ -66,7 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_category_country ON articles (country_co
 
 -- 8. Database Function for vector similarity search
 CREATE OR REPLACE FUNCTION match_recent_articles(
-  query_embedding vector(1024),
+  query_embedding vector(768),
   similarity_threshold float,
   match_count int
 )

@@ -1,0 +1,22 @@
+{
+    # Global options
+}
+
+:80 {
+    # Reverse proxy to our FastAPI container
+    reverse_proxy api:8080 {
+        # Preserve and forward original client IP chain for app-side GeoIP lookup.
+        # Caddy's defaults may overwrite X-Forwarded-For in some ingress chains.
+        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+        header_up X-Real-IP {http.request.remote.host}
+    }
+
+    # Compression is already handled by our backend Brotli middleware,
+    # but Caddy can also handle Gzip as a fallback if needed.
+    encode gzip zstd
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+    }
+}

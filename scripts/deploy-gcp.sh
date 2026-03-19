@@ -12,7 +12,8 @@ PROJECT_ID="${PROJECT_ID:-gen-lang-client-0685906896}"
 REGION="${REGION:-europe-west3}"
 SERVICE="${SERVICE:-currenta-backend}"
 REPO="${REPO:-currenta-repo}"
-RUNTIME_SA="${RUNTIME_SA:-currenta-runtime@${PROJECT_ID}.iam.gserviceaccount.com}"
+# Optional: set RUNTIME_SA="" to keep existing Cloud Run runtime service account.
+RUNTIME_SA="${RUNTIME_SA-currenta-runtime@${PROJECT_ID}.iam.gserviceaccount.com}"
 IMAGE="${IMAGE:-${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/backend}"
 SKIP_BUILD="${SKIP_BUILD:-false}"
 SKIP_PRECHECKS="${SKIP_PRECHECKS:-false}"
@@ -63,14 +64,23 @@ else
 fi
 
 echo "[deploy] Deploying Cloud Run service: ${SERVICE}"
-gcloud run deploy "${SERVICE}" \
-  --image "${IMAGE}" \
-  --platform managed \
-  --region "${REGION}" \
-  --service-account "${RUNTIME_SA}" \
-  --no-allow-unauthenticated \
-  --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true" \
+DEPLOY_ARGS=(
+  "${SERVICE}"
+  --image "${IMAGE}"
+  --platform managed
+  --region "${REGION}"
+  --no-allow-unauthenticated
+  --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true"
   --update-secrets="DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,REDIS_URL=REDIS_URL:latest,VERTEX_PROJECT=VERTEX_PROJECT:latest,VERTEX_LOCATION=VERTEX_LOCATION:latest"
+)
+
+if [[ -n "${RUNTIME_SA}" ]]; then
+  DEPLOY_ARGS+=(--service-account "${RUNTIME_SA}")
+else
+  echo "[deploy] RUNTIME_SA is empty; keeping existing Cloud Run runtime service account."
+fi
+
+gcloud run deploy "${DEPLOY_ARGS[@]}"
 
 if [[ "${VERIFY}" == "true" ]]; then
   echo "[deploy] Service summary"

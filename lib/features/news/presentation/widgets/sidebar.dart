@@ -19,11 +19,29 @@ class Sidebar extends ConsumerWidget {
     required this.catColor,
   });
 
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour >= 5 && hour < 12) {
+      return 'Morning';
+    } else if (hour >= 12 && hour < 17) {
+      return 'Afternoon';
+    } else if (hour >= 17 && hour < 24) {
+      return 'Evening';
+    } else {
+      return 'Hi';
+    }
+  }
+
+  String _getFirstName(String? displayName) {
+    if (displayName == null || displayName.trim().isEmpty) return 'there';
+    return displayName.trim().split(' ').first;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authNotifierProvider);
     final size = MediaQuery.sizeOf(context);
-    
+
     // Calculate themed background color derived from article's category
     final sidebarBg = Color.lerp(const Color(0xFF0A0C14), catColor, 0.15)!;
     final accentColor = catColor;
@@ -122,7 +140,8 @@ class Sidebar extends ConsumerWidget {
                                   width: 64,
                                   height: 64,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => Icon(
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Icon(
                                     Icons.person_outline_rounded,
                                     size: 32,
                                     color: accentColor,
@@ -138,8 +157,8 @@ class Sidebar extends ConsumerWidget {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      authState.isAuthenticated 
-                          ? 'Hi ${authState.displayName ?? 'there'},' 
+                      authState.isAuthenticated
+                          ? '${_getGreeting()} ${_getFirstName(authState.displayName)}'
                           : 'Welcome back',
                       style: const TextStyle(
                         color: Colors.white,
@@ -149,8 +168,8 @@ class Sidebar extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      authState.isAuthenticated 
-                          ? 'Signed in as member' 
+                      authState.isAuthenticated
+                          ? 'Signed in as member'
                           : 'Your Daily News Pulse',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.5),
@@ -163,7 +182,10 @@ class Sidebar extends ConsumerWidget {
               ),
 
               const SizedBox(height: 8),
-              Divider(color: Colors.white.withValues(alpha: 0.05), indent: 24, endIndent: 24),
+              Divider(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  indent: 24,
+                  endIndent: 24),
               const SizedBox(height: 8),
 
               Expanded(
@@ -179,15 +201,18 @@ class Sidebar extends ConsumerWidget {
                             Navigator.pop(context); // Close drawer
                             Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (context) => const TrendingScreen()),
+                              MaterialPageRoute(
+                                  builder: (context) => const TrendingScreen()),
                             );
                           },
                           borderRadius: BorderRadius.circular(12),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
                             child: Row(
                               children: [
-                                const Icon(Icons.trending_up_rounded, color: Colors.orangeAccent, size: 18),
+                                const Icon(Icons.trending_up_rounded,
+                                    color: Colors.orangeAccent, size: 18),
                                 const SizedBox(width: 8),
                                 const Text(
                                   'Trending Now',
@@ -212,17 +237,20 @@ class Sidebar extends ConsumerWidget {
                       const SizedBox(height: 8),
                       Consumer(
                         builder: (context, ref, child) {
-                          final trendingAsync = ref.watch(trendingNotifierProvider);
+                          final trendingAsync =
+                              ref.watch(trendingNotifierProvider);
 
                           return trendingAsync.when(
                             data: (articles) {
                               if (articles.isEmpty) {
                                 return Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24),
                                   child: Text(
                                     'Stay tuned for trending stories...',
                                     style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.3),
+                                      color:
+                                          Colors.white.withValues(alpha: 0.3),
                                       fontSize: 13,
                                     ),
                                   ),
@@ -230,18 +258,22 @@ class Sidebar extends ConsumerWidget {
                               }
 
                               return ListView.separated(
-                                padding: const EdgeInsets.symmetric(horizontal: 24),
-                                itemCount: articles.length.clamp(0, 5), // Show top 5 in sidebar
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 24),
+                                itemCount: articles.length
+                                    .clamp(0, 5), // Show top 5 in sidebar
                                 physics: const NeverScrollableScrollPhysics(),
                                 shrinkWrap: true,
-                                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 12),
                                 itemBuilder: (context, index) {
                                   final article = articles[index];
                                   return _TrendingTile(
                                     article: article,
                                     onTap: () {
                                       Navigator.pop(context); // Close drawer
-                                      ref.read(browserServiceProvider).openUrl(context, article.originalUrl);
+                                      ref.read(browserServiceProvider).openUrl(
+                                          context, article.originalUrl);
                                     },
                                   );
                                 },
@@ -250,7 +282,8 @@ class Sidebar extends ConsumerWidget {
                             loading: () => const Padding(
                               padding: EdgeInsets.symmetric(vertical: 24),
                               child: Center(
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               ),
                             ),
                             error: (e, st) => const SizedBox.shrink(),
@@ -264,7 +297,10 @@ class Sidebar extends ConsumerWidget {
               ),
 
               // ── Bottom Section ─────────────────────────────────────────
-              Divider(color: Colors.white.withValues(alpha: 0.05), indent: 24, endIndent: 24),
+              Divider(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  indent: 24,
+                  endIndent: 24),
               _SidebarTile(
                 icon: Icons.settings_outlined,
                 label: 'Settings',
@@ -273,15 +309,16 @@ class Sidebar extends ConsumerWidget {
                   Navigator.pop(context); // Close drawer first
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const SettingsScreen()),
                   );
                 },
               ),
-              
-              
+
               const SizedBox(height: 12),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 child: Text(
                   'v1.2.0 • Premium',
                   style: TextStyle(
@@ -312,7 +349,8 @@ class _TrendingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primaryCategory = article.categories.isNotEmpty ? article.categories.first : null;
+    final primaryCategory =
+        article.categories.isNotEmpty ? article.categories.first : null;
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
 
     return InkWell(

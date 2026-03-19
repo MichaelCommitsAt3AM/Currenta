@@ -27,17 +27,14 @@ async def test_embed():
                     },
                     json={"model": VOYAGE_EMBED_MODEL, "input": ["Hello world"], "input_type": "document"}
                 )
-            elif EMBEDDING_PROVIDER == "openai":
-                if not OPENAI_API_KEY:
-                    raise ValueError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai.")
-                print(f"Testing OpenAI embedding model: {OPENAI_EMBED_MODEL}...")
+            elif EMBEDDING_PROVIDER == "local":
+                LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
+                OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+                print(f"Testing local embedding model: {OLLAMA_EMBED_MODEL} via {LOCAL_LLM_BASE_URL}...")
                 res = await client.post(
-                    "https://api.openai.com/v1/embeddings",
-                    headers={
-                        "Authorization": f"Bearer {OPENAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={"model": OPENAI_EMBED_MODEL, "input": "Hello world"}
+                    f"{LOCAL_LLM_BASE_URL}/embeddings",
+                    headers={"Content-Type": "application/json"},
+                    json={"model": OLLAMA_EMBED_MODEL, "input": "Hello world"}
                 )
             else:
                 raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {EMBEDDING_PROVIDER}")

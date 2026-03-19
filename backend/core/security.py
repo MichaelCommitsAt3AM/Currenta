@@ -20,6 +20,52 @@ def _is_valid_ip(ip: str) -> bool:
         return False
 
 
+def _is_public_ip(ip: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        return not (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_reserved
+            or ip_obj.is_multicast
+            or ip_obj.is_link_local
+            or ip_obj.is_unspecified
+        )
+    except ValueError:
+        return False
+
+
+def _normalize_ip_token(token: str) -> str:
+    value = token.strip().strip('"')
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if value.startswith("for="):
+        value = value[4:]
+    return value.strip().strip('"')
+
+
+def _parse_forwarded_for_list(header_value: str) -> list[str]:
+    if not header_value:
+        return []
+    return [_normalize_ip_token(part) for part in header_value.split(",") if part.strip()]
+
+
+def _parse_forwarded_header(header_value: str) -> list[str]:
+    """
+    Parse RFC 7239 Forwarded header values and extract all `for=` IP candidates.
+    """
+    if not header_value:
+        return []
+
+    candidates: list[str] = []
+    for item in header_value.split(","):
+        for part in item.split(";"):
+            token = part.strip()
+            if token.lower().startswith("for="):
+                candidates.append(_normalize_ip_token(token))
+    return candidates
+
+
 def get_client_ip(request: Request) -> str:
     """
     Returns the client IP address in a proxy-aware but safe way.
@@ -33,6 +79,7 @@ def get_client_ip(request: Request) -> str:
         return "unknown"
 
     trust_proxy_headers = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+    logger.debug("IP detection peer=%s trust_proxy_headers=%s", peer_ip, trust_proxy_headers)
     if not trust_proxy_headers:
         return peer_ip
 
@@ -41,17 +88,25 @@ def get_client_ip(request: Request) -> str:
 
     # If a trusted proxy allowlist exists, only honor X-Forwarded-For when the
     # immediate caller is a trusted proxy.
-    if trusted_proxy_ips and peer_ip not in trusted_proxy_ips:
+    if trusted_proxy_ips and "*" not in trusted_proxy_ips and peer_ip not in trusted_proxy_ips:
         return peer_ip
 
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if not forwarded_for:
-        return peer_ip
+    candidates: list[str] = []
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("X-Forwarded-For", "")))
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("X-Real-IP", "")))
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("X-Original-Forwarded-For", "")))
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("X-Envoy-External-Address", "")))
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("CF-Connecting-IP", "")))
+    candidates.extend(_parse_forwarded_for_list(request.headers.get("True-Client-IP", "")))
+    candidates.extend(_parse_forwarded_header(request.headers.get("Forwarded", "")))
 
-    # X-Forwarded-For can be a chain: client, proxy1, proxy2
-    candidate_ip = forwarded_for.split(",")[0].strip()
-    if _is_valid_ip(candidate_ip):
-        return candidate_ip
+    for candidate_ip in candidates:
+        if _is_public_ip(candidate_ip):
+            return candidate_ip
+
+    for candidate_ip in candidates:
+        if _is_valid_ip(candidate_ip):
+            return candidate_ip
 
     return peer_ip
 

@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 from typing import Optional, List
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 import httpx
 from supabase import create_client, Client
@@ -27,11 +28,10 @@ if not LOCAL_LLM_BASE_URL.endswith("/v1"):
     LOCAL_LLM_BASE_URL += "/v1"
 
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_EMBED_MODEL = os.environ.get("OPENAI_EMBED_MODEL", "text-embedding-3-small")
 VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
 VOYAGE_EMBED_MODEL = os.environ.get("VOYAGE_EMBED_MODEL", "voyage-3.5-lite")
-EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "openai").strip().lower()
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "voyage").strip().lower()
+OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 # --- Google Gen-AI Clients (Unified SDK) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
@@ -161,17 +161,32 @@ FEEDS = [
 
 # Supported regions for localized news ingestion
 SUPPORTED_LOCAL_REGIONS = [
-    {"code": "KE", "lang": "en"},  # Kenya
+    {
+        "code": "KE", 
+        "lang": "en", 
+        "locations": ["Kenya", "Nairobi"]
+    },
 ]
 
-def build_google_news_rss_url(country_code: str = "US", language_code: str = "en") -> str:
+def build_google_news_rss_url(
+    country_code: str = "US", 
+    language_code: str = "en",
+    location: Optional[str] = None
+) -> str:
     """
     Builds a localized Google News RSS URL.
+    If location is provided, uses the geo-headlines endpoint.
     Example for Kenya: hl=en-KE, gl=KE, ceid=KE:en
     """
     cc = country_code.upper()
     lc = language_code.lower()
-    return f"https://news.google.com/rss?hl={lc}-{cc}&gl={cc}&ceid={cc}:{lc}"
+    locale_params = f"hl={lc}-{cc}&gl={cc}&ceid={cc}:{lc}"
+    
+    if location:
+        loc = quote_plus(location)
+        return f"https://news.google.com/rss/headlines/section/geo/{loc}?{locale_params}"
+        
+    return f"https://news.google.com/rss?{locale_params}"
 
 SUMMARIZATION_PROMPT = """You are a factual news summarizer and multi-label classifier.
 1. Generate a strict, non-clickbait title.
@@ -301,7 +316,162 @@ def is_scraper_error_page(text: str) -> bool:
     lower = text.lower()
     return any(signal in lower for signal in (PAYWALL_SIGNALS + TECHNICAL_ERROR_SIGNALS))
 
-def is_junk_content(text: str, title: str) -> Optional[str]:
+
+BETTING_STRONG_SIGNALS = [
+    "odds", "bet now", "free bet", "bookmaker", "wager", "stake", "parlay", "betting tips",
+    "sportsbook", "moneyline", "over/under", "point spread", "best bets", "expert picks",
+    "bonus bets", "promo code", "sports betting promo", "betting promo"
+]
+
+BETTING_WEAK_SIGNALS = [
+    "prediction", "forecast", "spread", "tips"
+]
+
+SAFE_CONTEXT_SIGNALS = [
+    "oil", "stocks", "gdp", "inflation", "weather", "economy", "market", "analysis", "report", "research"
+]
+
+SPORTS_TERMS = [
+    "vs", "match", "fixture", "team", "league", "playoff", "kickoff", "season", "club"
+]
+
+BAD_DOMAIN_HINTS = [
+    "draftkings", "fanduel", "betmgm", "pointsbet", "bet365", "bovada", "sportsbook", "oddschecker"
+]
+
+GOOD_DOMAIN_HINTS = [
+    "reuters", "bloomberg", "ft.com", "wsj.com", "cnbc.com", "economist", "marketwatch", "apnews"
+]
+
+BETTING_PATTERNS = [
+    r"\bvs\b.*\bodds\b",
+    r"\bbest bets\b",
+    r"\bbetting tips\b",
+    r"\bodds\b.*\bprediction\b",
+    r"\bmatch\b.*\bprediction\b",
+    r"\bgame\b.*\bodds\b"
+]
+
+AFFILIATE_DISCLOSURE_SIGNALS = [
+    "affiliate link",
+    "affiliate disclosure",
+    "advertiser disclosure",
+    "we may earn a commission",
+    "we earn from qualifying purchases"
+]
+
+COMMERCIAL_INTENT_SIGNALS = [
+    "deal", "deals", "buy now", "shop now", "buying guide", "gift guide",
+    "coupon", "promo code", "discount", "best price", "sale", "offers"
+]
+
+
+def _domain_from_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    m = re.search(r"https?://([^/]+)", url.lower())
+    return m.group(1) if m else ""
+
+
+def _junk_score(text: str, source_url: Optional[str] = None) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+
+    # Strong signals
+    for phrase in BETTING_STRONG_SIGNALS:
+        if phrase in text:
+            score += 3
+            reasons.append(f"strong:{phrase}")
+
+    # Weak ambiguous signals
+    for phrase in BETTING_WEAK_SIGNALS:
+        if phrase in text:
+            score += 1
+            reasons.append(f"weak:{phrase}")
+
+    # Context cancellation for legitimate analytical content
+    for phrase in SAFE_CONTEXT_SIGNALS:
+        if phrase in text:
+            score -= 2
+            reasons.append(f"safe:{phrase}")
+
+    # Sports + betting co-occurrence is a strong junk indicator
+    has_sports_context = any(term in text for term in SPORTS_TERMS)
+    has_betting_context = any(term in text for term in BETTING_STRONG_SIGNALS + ["bet", "odds"])
+    if has_sports_context and has_betting_context:
+        score += 3
+        reasons.append("cooccurrence:sports+betting")
+
+    # Domain reputation
+    domain = _domain_from_url(source_url)
+    if domain:
+        if any(bad in domain for bad in BAD_DOMAIN_HINTS):
+            score += 3
+            reasons.append(f"bad_domain:{domain}")
+        elif any(good in domain for good in GOOD_DOMAIN_HINTS):
+            score -= 1
+            reasons.append(f"good_domain:{domain}")
+
+    # Pattern-based high precision rules
+    for pattern in BETTING_PATTERNS:
+        if re.search(pattern, text):
+            score += 3
+            reasons.append(f"pattern:{pattern}")
+
+    # Generic affiliate disclosures are common site boilerplate. Only score them
+    # as junk when commercial intent is also present.
+    has_affiliate_disclosure = any(sig in text for sig in AFFILIATE_DISCLOSURE_SIGNALS)
+    has_commercial_intent = any(sig in text for sig in COMMERCIAL_INTENT_SIGNALS)
+    if has_affiliate_disclosure and has_commercial_intent:
+        score += 3
+        reasons.append("affiliate+commercial")
+
+    return score, reasons
+
+
+def _first_matching_phrase(text: str, phrases: list[str]) -> Optional[str]:
+    for phrase in phrases:
+        if phrase in text:
+            return phrase
+    return None
+
+
+def _contextual_betting_reason(text: str) -> Optional[str]:
+    tokens = set(re.findall(r"[a-z0-9']+", text))
+
+    betting_core = {
+        "bet", "bets", "betting", "sportsbook", "parlay", "moneyline",
+        "wager", "wagering", "odds", "bookmaker", "bookmakers", "spread"
+    }
+    promo_terms = {
+        "promo", "bonus", "code", "coupon", "deposit", "freebet", "free", "offer"
+    }
+    sports_terms = {
+        "match", "game", "games", "team", "teams", "player", "players",
+        "nfl", "nba", "mlb", "nhl", "soccer", "football", "baseball", "basketball"
+    }
+
+    matched_core = sorted([t for t in betting_core if t in tokens])
+    has_promo = any(t in tokens for t in promo_terms)
+    has_sports = any(t in tokens for t in sports_terms)
+
+    # Promotional betting language is almost always junk for this app.
+    if matched_core and has_promo:
+        return f"Contextual betting promo: core={matched_core}"
+
+    # Sports + multiple betting terms indicates odds/picks style content.
+    if len(matched_core) >= 1 and has_sports and has_promo:
+        return f"Contextual betting promo: core={matched_core}"
+    
+    if len(matched_core) >= 2 and has_sports:
+        return f"Contextual betting article: core={matched_core}"
+    
+    if "vs" in tokens and any(t in tokens for t in ["odds", "spread", "parlay", "moneyline", "wager", "picks"]):
+         return f"Sports comparison with betting context: {matched_core}"
+
+    return None
+
+def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> Optional[str]:
     """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
     combined = " " + (title + " " + text).lower() + " "
     hard_signals = [
@@ -311,8 +481,7 @@ def is_junk_content(text: str, title: str) -> Optional[str]:
         "barstool sportsbook", "sports betting promo", "betting promo",
         "sportsbook promo", "gambling promo", "place a bet", "your first bet",
         "if your first bet", "bet $", "sponsored by", "this is a sponsored",
-        "paid partnership", "affiliate disclosure", "advertiser disclosure",
-        "affiliate link", "we may earn a commission", "we earn from qualifying purchases",
+        "paid partnership",
         "use our promo code", "use code ", "enter code ", "redeem code", "discount code",
         "coupon code", "please gamble responsibly", "responsible gambling",
         "problem gambling helpline", "1-800-gambler", "gambling helpline",
@@ -336,17 +505,25 @@ def is_junk_content(text: str, title: str) -> Optional[str]:
         "best tracker", "best earbud", "best headphone", "best camera", "we've tested", "our tests showed",
         "best smart", "best of 202",
         "winning numbers", "drawn in", "evening draw", "pick 3", "pick 4", "lottery result", "lotto result", "jackpot winner",
-        "mega millions", "powerball", "lottery update", "prediction", "match preview", "game preview", "betting tips",
-        "expert picks", "score prediction", "forecast", "injury report", "lineup update", "live scoreboard", 
+        "mega millions", "powerball", "lottery update", "injury report", "lineup update", "live scoreboard",
         "real-time updates", "minute-by-minute", "live commentary", "full time results", "half-time score",
-        " betting ", " sportsbook ", " oddsmaker ", " parlay ", " moneyline ", " point spread ", " spread ", " over/under ",
-        " wagering ", " wagering ", " betting odds ", " free picks ", " expert predictions ", " game odds ", " v.s. ", " vs. ",
+        " wagering ", " betting odds ", " free picks ", " expert predictions ", " game odds ",
         "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream",
         "quiz", "trivia", "test your knowledge", "test your skills", "how well do you know", "guess the ", "take our poll", "interactive poll"
     ]
-    for signal in hard_signals:
-        if signal in combined:
-            return f"Matched hard signal: {signal}"
+    matched_hard_signal = _first_matching_phrase(combined, hard_signals)
+    if matched_hard_signal:
+        return f"Matched hard signal: {matched_hard_signal}"
+
+    # Contextual check for betting/sports promo
+    betting_reason = _contextual_betting_reason(combined)
+    if betting_reason:
+        return betting_reason
+
+    # Tiered scoring for betting-like content with context cancellation.
+    score, score_reasons = _junk_score(combined, source_url)
+    if score >= 3:
+        return f"Junk score {score} ({'; '.join(score_reasons[:6])})"
 
     # Check for multi-topic title patterns (too many unrelated items)
     # Titles like "Apple Event, LG TV, and Blu-ray Sales"
@@ -355,9 +532,8 @@ def is_junk_content(text: str, title: str) -> Optional[str]:
         return "Multi-topic title pattern (roundup)"
 
     soft_signals = [
-        "promo", "sportsbook", "oddsmaker", "parlay", "moneyline", "point spread",
-        "over/under", "wagering", "sweepstakes", "giveaway", "refer a friend",
-        "loyalty points", "cash back offer", "podcast", "episode", " betting ", " odds "
+        "promo", "sweepstakes", "giveaway", "refer a friend",
+        "loyalty points", "cash back offer", "podcast summary", "listen on"
     ]
     matches = [signal for signal in soft_signals if signal in combined]
     if len(matches) >= 2:
@@ -538,39 +714,85 @@ def parse_llm_response(raw_str: str) -> dict:
 
 async def embed_text(text: str) -> list[float]:
     provider = EMBEDDING_PROVIDER
+    max_retries = 5
+    base_delay = 2.0
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         if provider == "voyage":
             if not VOYAGE_API_KEY:
                 raise ValueError("VOYAGE_API_KEY is required when EMBEDDING_PROVIDER=voyage.")
-            res = await client.post(
-                "https://api.voyageai.com/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {VOYAGE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": VOYAGE_EMBED_MODEL, "input": [text], "input_type": "document"}
-            )
-            res.raise_for_status()
-            data = res.json()
-            embedding = data["data"][0]["embedding"]
-            return [float(x) for x in embedding]
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    res = await client.post(
+                        "https://api.voyageai.com/v1/embeddings",
+                        headers={
+                            "Authorization": f"Bearer {VOYAGE_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"model": VOYAGE_EMBED_MODEL, "input": [text], "input_type": "document"}
+                    )
+                    
+                    if res.status_code == 429:
+                        if attempt < max_retries:
+                            import random
+                            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                            logger.warning(f"[embed_text] Voyage AI rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries})")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            logger.error(f"[embed_text] Voyage AI rate limit hit (429) and exhausted retries.")
+                            res.raise_for_status()
+                    
+                    res.raise_for_status()
+                    data = res.json()
+                    embedding = data["data"][0]["embedding"]
+                    return [float(x) for x in embedding]
+                    
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:
+                        # Handled above, but just in case raise_for_status was called
+                        if attempt < max_retries:
+                            continue
+                        raise e
+                    raise e
+                except (httpx.ConnectError, httpx.TimeoutException) as e:
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[embed_text] Connection/Timeout error: {e}. Retrying in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    raise e
 
-        if provider == "openai":
-            if not OPENAI_API_KEY:
-                raise ValueError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai.")
-            res = await client.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": OPENAI_EMBED_MODEL, "input": text}
-            )
-            res.raise_for_status()
-            data = res.json()
-            embedding = data["data"][0]["embedding"]
-            return [float(x) for x in embedding]
+
+            raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
+
+        elif provider == "local":
+            # Ollama / Local Embedding
+            for attempt in range(max_retries + 1):
+                try:
+                    # Note: Using the base endpoint and appending /embeddings or /v1/embeddings.
+                    # Ollama's /v1/embeddings is OpenAI-compatible if LOCAL_LLM_BASE_URL points to /v1.
+                    res = await client.post(
+                        f"{LOCAL_LLM_BASE_URL}/embeddings",
+                        headers={"Content-Type": "application/json", "ngrok-skip-browser-warning": "true"},
+                        json={
+                            "model": OLLAMA_EMBED_MODEL,
+                            "input": text
+                        }
+                    )
+                    res.raise_for_status()
+                    data = res.json()
+                    # OpenAI /v1 format: {"data": [{"embedding": [...]}]}
+                    embedding = data["data"][0]["embedding"]
+                    return [float(x) for x in embedding]
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        logger.warning(f"[embed_text] Local (Ollama) error: {e}. Retrying in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    raise e
 
         raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
 
@@ -923,7 +1145,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     results["skipped"] += 1
                     continue
 
-                junk_reason = is_junk_content(article_text, item["title"])
+                junk_reason = is_junk_content(article_text, item["title"], item["link"])
                 if junk_reason:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SKIPPED_JUNK", error_message=junk_reason)
                     results["skipped"] += 1
@@ -1060,11 +1282,11 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
 
             # Use shared Redis client if provided, else create a short-lived one
             if redis_client:
-                await redis_client.set(f"feed:v3:{country_key}:{category}", orjson.dumps(result), ex=10800)
+                await redis_client.set(f"feed:v4:{country_key}:{category}", orjson.dumps(result), ex=10800)
             else:
                 import redis.asyncio as redis_lib
                 r_client = redis_lib.from_url(redis_url, decode_responses=True)
-                await r_client.set(f"feed:v3:{country_key}:{category}", orjson.dumps(result), ex=10800)
+                await r_client.set(f"feed:v4:{country_key}:{category}", orjson.dumps(result), ex=10800)
                 await r_client.close()
             # print(f"[Cache-Warming] Updated cache for {country_key}:{category}")
             
@@ -1103,8 +1325,11 @@ async def orchestrate():
     
     # Add tasks for supported local regions
     for region in SUPPORTED_LOCAL_REGIONS:
-        rss_url = build_google_news_rss_url(region["code"], region["lang"])
-        tasks.append(safe_process(rss_url, "local", "strong", country=region["code"]))
+        locations = region.get("locations", [None])
+        lang = region.get("lang", "en")
+        for loc in locations:
+            rss_url = build_google_news_rss_url(region["code"], lang, location=loc)
+            tasks.append(safe_process(rss_url, "local", "strong", country=region["code"]))
     
     await asyncio.gather(*tasks)
 
@@ -1131,6 +1356,10 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
     Called by the feed API.
     """
     country_code = country_code.upper()
+    if len(country_code) != 2:
+        logger.warning(f"LocalIngest: Invalid country_code '{country_code}' for on-demand fetch. Skipping.")
+        return
+
     async with db_pool.acquire() as conn:
         # Check if we fetched recently (within last 1 hour)
         last_sync = await conn.fetchrow(
@@ -1149,10 +1378,11 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
             return
             
         logger.info(f"LocalIngest: Triggering on-demand fetch for {country_code}...")
-        rss_url = build_google_news_rss_url(country_code)
         
-        # Limit to 10 items for local news to avoid bloat
-        # We handle this inside process_feed or parse_rss? parse_rss already limits to 10.
+        region_info = next((r for r in SUPPORTED_LOCAL_REGIONS if r["code"] == country_code), None)
+        locations = region_info.get("locations", [None]) if region_info else [None]
+        lang = region_info.get("lang", "en") if region_info else "en"
+
         try:
             # Upsert sync status
             await conn.execute('''
@@ -1163,7 +1393,9 @@ async def fetch_local_news_on_demand(country_code: str, db_pool):
             
             # Use BackgroundTasks if possible, but for simplicity here we just wait or start task
             # Actually we'll call this in a way that doesn't block the UI.
-            await process_feed(rss_url, "local", "strong", db_pool, country_code=country_code)
+            for loc in locations:
+                rss_url = build_google_news_rss_url(country_code, lang, location=loc)
+                await process_feed(rss_url, "local", "strong", db_pool, country_code=country_code)
         except Exception as e:
             logger.error(f"LocalIngest: Error during on-demand fetch for {country_code}: {e}")
 
@@ -1191,7 +1423,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
 
         # Determine if it's junk
         title = scraper_result.get("title", "News Update")
-        junk_reason = is_junk_content(scraped_text, title)
+        junk_reason = is_junk_content(scraped_text, title, url)
         if junk_reason:
             await log_ingestion_event(conn, url, "FAILED", error_type="SKIPPED_JUNK", error_message=junk_reason)
             return None

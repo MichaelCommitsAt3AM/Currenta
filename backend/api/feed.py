@@ -90,6 +90,7 @@ async def get_feed(
                         country_source = "auto_ip"
                         logger.info(f"Automatically detected country '{country}' from IP {ip}")
                     else:
+                        country = None
                         logger.warning(f"Failed to automatically detect country for IP {ip}")
             else:
                 country_source = "parameter"

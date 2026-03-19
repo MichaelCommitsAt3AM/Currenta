@@ -16,6 +16,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import redis.asyncio as redis
+from brotli_asgi import BrotliMiddleware
 
 from .core.logging_config import setup_logging
 
@@ -60,26 +61,34 @@ async def lifespan(app: FastAPI):
 
     database_url = os.environ.get("DATABASE_URL")
     if database_url:
-        try:
-            logger.info("Connecting to PostgreSQL...")
-            # min_size/max_size tuned for Supabase PgBouncer in transaction mode.
-            # statement_cache_size=0 is REQUIRED for pgbouncer transaction mode.
-            db_pool = await asyncio.wait_for(
-                asyncpg.create_pool(
-                    dsn=database_url,
-                    ssl='require',
-                    statement_cache_size=0,
-                    min_size=2,
-                    max_size=8,
-                ),
-                timeout=10.0
-            )
-            app.state.db_pool = db_pool
-            logger.info("Connected to PostgreSQL (pool min=2, max=8).")
-        except asyncio.TimeoutError:
-            logger.error("Connection to PostgreSQL timed out after 10s. Check DATABASE_URL and network.")
-        except Exception as e:
-            logger.error("Failed to connect to database: %s", e)
+        max_retries = 5
+        base_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Connecting to PostgreSQL (Attempt {attempt+1}/{max_retries})...")
+                # min_size/max_size tuned for Supabase PgBouncer in transaction mode.
+                # statement_cache_size=0 is REQUIRED for pgbouncer transaction mode.
+                db_pool = await asyncio.wait_for(
+                    asyncpg.create_pool(
+                        dsn=database_url,
+                        ssl='require',
+                        statement_cache_size=0,
+                        min_size=2,
+                        max_size=8,
+                    ),
+                    timeout=10.0
+                )
+                app.state.db_pool = db_pool
+                logger.info("Connected to PostgreSQL (pool min=2, max=8).")
+                break
+            except (asyncio.TimeoutError, asyncpg.PostgresError, OSError) as e:
+                wait_time = base_delay * (2 ** attempt)
+                if attempt < max_retries - 1:
+                    logger.error(f"Failed to connect to database (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to connect to database after {max_retries} attempts: {e}. Backend features will be unavailable.")
     else:
         logger.warning("DATABASE_URL is not set — database features will be unavailable.")
 
@@ -116,7 +125,7 @@ app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
 # --- Middleware stack (order matters: outermost = last added) ---
 
 # 1. Trust forwarded headers from reverse proxy / ngrok
-app.add_middleware(ProxyHeadersMiddleware)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # 2. Security response headers on every reply
 app.add_middleware(SecurityHeadersMiddleware)
@@ -134,6 +143,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
+
+# 4. Compression — Reduces JSON payload size by ~30% for article feeds.
+#    Must be after CORS to avoid issues with headers.
+app.add_middleware(BrotliMiddleware, minimum_size=1000)
 
 # --- Rate limiting ---
 app.state.limiter = limiter
