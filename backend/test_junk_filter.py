@@ -45,3 +45,21 @@ def test_affiliate_disclosure_with_commercial_intent_is_junk():
     )
     reason = is_junk_content(text, title, "https://9to5mac.com/2026/03/18/macbook-deals")
     assert reason is not None
+
+
+def test_skysports_live_blog_url_is_junk():
+    title = "Championship live scores, match updates and free highlights"
+    text = "Live coverage and rolling updates for tonight's football fixtures."
+    reason = is_junk_content(
+        text,
+        title,
+        "https://www.skysports.com/football/live-blog/12040/13521733/championship-live-scores-match-updates"
+    )
+    assert reason is not None
+
+
+def test_live_scores_match_updates_phrase_is_junk_without_url():
+    title = "EFL live scores and match updates"
+    text = "Get minute-by-minute updates, full-time results, and live commentary."
+    reason = is_junk_content(text, title)
+    assert reason is not None

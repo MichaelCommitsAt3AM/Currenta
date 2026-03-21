@@ -1,6 +1,7 @@
 // lib/features/news/application/news_feed_notifier.dart
 // Paginated feed state — 10 articles per batch, with two-tier category sort.
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
@@ -82,22 +83,25 @@ class FeedState {
 @riverpod
 class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
-  LocalPersistenceRepository get _persistence => ref.read(localPersistenceRepositoryProvider);
+  LocalPersistenceRepository get _persistence =>
+      ref.read(localPersistenceRepositoryProvider);
+  Future<void>? _refreshInFlight;
 
   @override
   Future<FeedState> build() async {
-    // 1. Listen for auth changes to handle transitions (login/logout) without 
-    // triggering a full provider rebuild. This preserves the in-memory feed 
+    // 1. Listen for auth changes to handle transitions (login/logout) without
+    // triggering a full provider rebuild. This preserves the in-memory feed
     // and current scroll position (currentIndex) during the auth process.
     ref.listen(authNotifierProvider, (previous, next) {
       if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
-        debugPrint('[Feed] Auth state changed to authenticated. Processing pending actions.');
+        debugPrint(
+            '[Feed] Auth state changed to authenticated. Processing pending actions.');
         final pending = ref.read(pendingActivityNotifierProvider);
         if (pending != null) {
           ref.read(pendingActivityNotifierProvider.notifier).clear();
           _handlePendingActivity(pending);
         }
-        
+
         // Perform a background refresh to fetch articles tailored to the new user session.
         // This will show the 'New Stories' badge if new content is available.
         _backgroundRefresh();
@@ -114,21 +118,21 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
 
-    // 3. Since we are no longer using ref.watch(authNotifierProvider), 
-    // this build() method will only run when the provider is first created 
+    // 3. Since we are no longer using ref.watch(authNotifierProvider),
+    // this build() method will only run when the provider is first created
     // or explicitly invalidated. We check for persisted state to restore the session.
     final savedCategoryId = _persistence.getCurrentCategory();
     final savedArticleId = _persistence.getCurrentArticleId();
 
-    // 4. Fetch from local cache for initial load. 
+    // 4. Fetch from local cache for initial load.
     // If we have a saved article ID, we MUST include viewed articles to find it.
     // Otherwise, we exclude viewed articles to keep the feed fresh.
     final includeViewed = savedArticleId != null;
-    
+
     final firstPage = await _repo.fetchPage(
       category: savedCategoryId,
-      limit: _kPageSize, 
-      offset: 0, 
+      limit: _kPageSize,
+      offset: 0,
       includeViewed: includeViewed,
     );
 
@@ -139,7 +143,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         await _repo.refreshFeed();
         final freshPage = await _repo.fetchPage(
           category: savedCategoryId,
-          limit: _kPageSize, 
+          limit: _kPageSize,
           offset: 0,
         );
         return FeedState(
@@ -149,7 +153,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         );
       } catch (e) {
         debugPrint('[Feed] Initial remote refresh failed: $e');
-        return FeedState(articles: [], hasMore: false, selectedCategory: savedCategoryId);
+        return FeedState(
+            articles: [], hasMore: false, selectedCategory: savedCategoryId);
       }
     }
 
@@ -164,12 +169,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
 
-    // SILENT refresh in background. 
+    // SILENT refresh in background.
     Future.microtask(_backgroundRefresh);
-    
+
     return FeedState(
       articles: firstPage,
-      hasMore: true, // Always allow at least one pagination attempt to trigger remote sync if needed
+      hasMore:
+          true, // Always allow at least one pagination attempt to trigger remote sync if needed
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
     );
@@ -180,13 +186,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Appends the next batch of articles to the current list.
   Future<void> loadNextPage() async {
     final startState = state.valueOrNull;
-    if (startState == null || startState.isLoadingMore || !startState.hasMore) return;
+    if (startState == null || startState.isLoadingMore || !startState.hasMore)
+      return;
 
     state = AsyncData(startState.copyWith(isLoadingMore: true));
 
     try {
       final category = startState.selectedCategory;
-      final last = startState.articles.isEmpty ? null : startState.articles.last;
+      final last =
+          startState.articles.isEmpty ? null : startState.articles.last;
 
       var nextPage = await _repo.fetchPage(
         category: category,
@@ -198,7 +206,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // If local cache is exhausted or sparse, sync from remote
       if (nextPage.length < _kPageSize) {
-        debugPrint('[Feed] Local cache sparse for ${category?.name ?? 'all'}. Syncing from remote...');
+        debugPrint(
+            '[Feed] Local cache sparse for ${category?.name ?? 'all'}. Syncing from remote...');
         final syncedCount = await _repo.syncMoreFromRemote(
           category: category,
           before: last?.publishedAt,
@@ -222,12 +231,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // Deduplicate against already loaded articles
       final existingIds = current.articles.map((a) => a.id).toSet();
-      final uniqueNextPage = nextPage.where((a) => !existingIds.contains(a.id)).toList();
+      final uniqueNextPage =
+          nextPage.where((a) => !existingIds.contains(a.id)).toList();
 
       state = AsyncData(current.copyWith(
         articles: [...current.articles, ...uniqueNextPage],
         isLoadingMore: false,
-        hasMore: nextPage.isNotEmpty, // Only stop if we really got nothing even after sync
+        hasMore: nextPage
+            .isNotEmpty, // Only stop if we really got nothing even after sync
       ));
     } catch (e, st) {
       debugPrint('[Feed] loadNextPage error: $e\n$st');
@@ -237,7 +248,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
   }
-
 
   /// Filter by category, resetting pagination to page 0.
   /// Auto-fetches a second page if the first returns fewer than [_kPageSize].
@@ -254,11 +264,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // 2. If local is sparse/empty and we have a category, sync from remote
       // We check if we have at least half a page, otherwise we trigger sync.
       if (articles.length < _kPageSize / 2 && category != null) {
-        debugPrint('[Feed] Sparse local cache for ${category.name}. Syncing from remote...');
+        debugPrint(
+            '[Feed] Sparse local cache for ${category.name}. Syncing from remote...');
         try {
           // Sync a larger batch to fill the cache
           await _repo.syncMoreFromRemote(category: category, limit: 30);
-          
+
           // Refresh local list after sync
           articles = await _repo.fetchPage(
             category: category,
@@ -295,8 +306,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// If already viewing articles, it performs a silent refresh to avoid losing place.
   Future<void> refresh() async {
     final startState = state.valueOrNull;
-    
-    // If we have nothing, show full loading. 
+
+    // If we have nothing, show full loading.
     // Otherwise, do a silent refresh to preserve the current view.
     if (startState == null || startState.articles.isEmpty) {
       state = const AsyncLoading();
@@ -338,7 +349,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       debugPrint('[Feed] toggleLike error: $e');
       // Revert if still on same state
       if (state.valueOrNull == current) {
-         state = AsyncData(current);
+        state = AsyncData(current);
       }
     }
   }
@@ -382,10 +393,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (current == null || current.pendingArticles.isEmpty) return;
 
     // 1. Identify the currently visible article
-    final currentArticle =
-        (current.currentIndex >= 0 && current.currentIndex < current.articles.length)
-            ? current.articles[current.currentIndex]
-            : null;
+    final currentArticle = (current.currentIndex >= 0 &&
+            current.currentIndex < current.articles.length)
+        ? current.articles[current.currentIndex]
+        : null;
 
     // 2. Filter out already viewed articles from the old list
     // (excluding the current one since we want to keep it)
@@ -450,7 +461,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current != null && current.currentIndex != index) {
       state = AsyncData(current.copyWith(currentIndex: index));
-      
+
       // Persist the current article ID
       if (index >= 0 && index < current.articles.length) {
         _persistence.saveCurrentArticleId(current.articles[index].id);
@@ -469,7 +480,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   // ── Private ─────────────────────────────────────────────────────
 
   Future<void> _handlePendingActivity(PendingActivity pending) async {
-    debugPrint('[Feed] Executing pending action: ${pending.action} for ${pending.articleId}');
+    debugPrint(
+        '[Feed] Executing pending action: ${pending.action} for ${pending.articleId}');
     switch (pending.action) {
       case PendingAction.like:
         await toggleLike(pending.articleId);
@@ -480,7 +492,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       case PendingAction.chat:
         final current = state.valueOrNull;
         if (current != null) {
-          state = AsyncData(current.copyWith(showChatForArticleId: () => pending.articleId));
+          state = AsyncData(
+              current.copyWith(showChatForArticleId: () => pending.articleId));
         }
         break;
     }
@@ -489,6 +502,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Silently checks for new articles in the background.
   /// Instead of replacing the current list, it stores them in [pendingArticles].
   Future<void> _backgroundRefresh({NewsCategory? forcedCategory}) async {
+    // Collapse concurrent startup/auth-triggered refreshes into one network request.
+    if (_refreshInFlight != null) {
+      await _refreshInFlight;
+      return;
+    }
+
+    final completer = Completer<void>();
+    _refreshInFlight = completer.future;
+
     final startState = state.valueOrNull;
     final category = forcedCategory ?? startState?.selectedCategory;
     final isInitial = startState == null || startState.articles.isEmpty;
@@ -501,11 +523,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         category: category,
         limit: _kPageSize,
         offset: 0,
-        includeViewed: true, 
+        includeViewed: true,
       );
 
       final current = state.valueOrNull;
-      
+
       // If the category has changed since we started, discard the results to prevent mixing feeds.
       if (current != null && current.selectedCategory != category) {
         debugPrint('[Feed] backgroundRefresh discarded: category changed.');
@@ -524,7 +546,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // Already have data: Find NEW articles that we don't have yet.
       final currentTopId = current.articles.firstOrNull?.id;
-      if (currentTopId == null) return; 
+      if (currentTopId == null) return;
 
       final newArticles = <NewsArticle>[];
       for (final article in freshPage) {
@@ -547,6 +569,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       } else {
         debugPrint('[Feed] Silent background sync failed: $e');
       }
+    } finally {
+      completer.complete();
+      _refreshInFlight = null;
     }
   }
 }

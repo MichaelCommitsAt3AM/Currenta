@@ -12,6 +12,7 @@ part 'trending_notifier.g.dart';
 class TrendingNotifier extends _$TrendingNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
   DateTime? _lastFetchTime;
+  static const Duration _cacheTtl = Duration(minutes: 10);
 
   @override
   Future<List<NewsArticle>> build() async {
@@ -25,10 +26,11 @@ class TrendingNotifier extends _$TrendingNotifier {
     // 1. Check if we have valid cached data
     if (!force && _lastFetchTime != null) {
       final difference = now.difference(_lastFetchTime!);
-      if (difference < const Duration(minutes: 30)) {
+      if (difference < _cacheTtl) {
         final currentData = state.valueOrNull;
         if (currentData != null && currentData.isNotEmpty) {
-          debugPrint('[Trending] Serving from cache (${difference.inMinutes}m old)');
+          debugPrint(
+              '[Trending] Serving from cache (${difference.inMinutes}m old)');
           return currentData;
         }
       }

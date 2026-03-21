@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import '../../../../core/providers/providers.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../application/ai_chat_notifier.dart';
@@ -60,19 +62,41 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     if (message.isEmpty) return;
 
     ref
-        .read(aiChatNotifierProvider(widget.article.id, widget.article.title).notifier)
+        .read(aiChatNotifierProvider(widget.article.id, widget.article.title)
+            .notifier)
         .sendMessage(message);
     _controller.clear();
     _scrollToBottom();
   }
 
+  Future<void> _startNewChat() async {
+    await ref.read(chatRepositoryProvider).deleteChatSession(widget.article.id);
+    ref.invalidate(
+        aiChatNotifierProvider(widget.article.id, widget.article.title));
+
+    if (!mounted) return;
+    _controller.clear();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Started a new chat'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final chatState = ref.watch(aiChatNotifierProvider(widget.article.id, widget.article.title));
+    final chatState = ref
+        .watch(aiChatNotifierProvider(widget.article.id, widget.article.title));
     final messages = chatState.messages;
+    final visibleMessages = messages
+        .where((m) => !(m.role == 'model' && m.content.trim().isEmpty))
+        .toList(growable: false);
     final isLoading = chatState.isLoading;
 
-    ref.listen(aiChatNotifierProvider(widget.article.id, widget.article.title), (previous, next) {
+    ref.listen(aiChatNotifierProvider(widget.article.id, widget.article.title),
+        (previous, next) {
       final prevMsgs = previous?.messages ?? [];
       final nextMsgs = next.messages;
       if (nextMsgs.isNotEmpty &&
@@ -94,6 +118,13 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'New chat',
+            icon: const Icon(Icons.add_comment_outlined, color: Colors.white),
+            onPressed: _startNewChat,
+          ),
+        ],
         title: Row(
           children: [
             const CircleAvatar(
@@ -136,20 +167,20 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: messages.isEmpty
+              itemCount: visibleMessages.isEmpty
                   ? (isLoading ? 1 : 1)
-                  : messages.length + (isLoading ? 1 : 0),
+                  : visibleMessages.length + (isLoading ? 1 : 0),
               itemBuilder: (context, index) {
-                if (messages.isEmpty && !isLoading) {
+                if (visibleMessages.isEmpty && !isLoading) {
                   return _EmptyState(articleTitle: widget.article.title);
                 }
 
-                if (isLoading && index == messages.length) {
+                if (isLoading && index == visibleMessages.length) {
                   return const _TypingIndicator();
                 }
 
-                if (index < messages.length) {
-                  final msg = messages[index];
+                if (index < visibleMessages.length) {
+                  final msg = visibleMessages[index];
                   return _ChatBubble(message: msg);
                 }
 
@@ -158,10 +189,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             ),
           ),
 
-
-
           // ── Suggestions ────────────────────────────────────────────────
-          if (messages.isEmpty)
+          if (visibleMessages.isEmpty && !isLoading)
             _PromptsList(
               prompts: _suggestedPrompts,
               onTap: _sendMessage,
@@ -359,6 +388,7 @@ class _InputArea extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                inputFormatters: [LengthLimitingTextInputFormatter(500)],
                 style: const TextStyle(color: Colors.white, fontSize: 15),
                 decoration: InputDecoration(
                   hintText: 'Ask about this story...',

@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import '../../../core/utils/dio_client.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/app_exception.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,6 +12,10 @@ import '../domain/entities/chat_session.dart';
 import '../../../core/providers/providers.dart';
 
 part 'ai_chat_notifier.g.dart';
+
+const int _maxInputChars = 500;
+const int _maxHistoryMessages = 7; // latest user + up to 6 prior turns
+const int _maxHistoryMessageChars = 1200;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 // Using a proper state class instead of plain instance fields so Riverpod
@@ -48,10 +52,10 @@ class AiChatNotifier extends _$AiChatNotifier {
   AiChatState build(String articleId, String articleTitle) {
     // Clean up any in-flight stream when the provider is disposed.
     ref.onDispose(() => _streamSub?.cancel());
-    
+
     // Load existing messages if any
     _loadMessages();
-    
+
     return const AiChatState();
   }
 
@@ -67,21 +71,40 @@ class AiChatNotifier extends _$AiChatNotifier {
   bool get isLoading => state.isLoading;
 
   Future<void> sendMessage(String text) async {
-    if (text.trim().isEmpty) return;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
 
-    final userMessage = ChatMessage(role: 'user', content: text);
+    // Avoid concurrent stream requests that can corrupt message ordering.
+    if (state.isLoading) return;
+
+    if (trimmed.length > _maxInputChars) {
+      state = state.copyWith(
+        messages: [
+          ...state.messages,
+          ChatMessage(
+            role: 'model',
+            content:
+                'The message is too long. Please keep it under $_maxInputChars characters.',
+          ),
+        ],
+      );
+      return;
+    }
+
+    final userMessage = ChatMessage(role: 'user', content: trimmed);
+    final nextMessages = [...state.messages, userMessage];
     state = state.copyWith(
-      messages: [...state.messages, userMessage],
+      messages: nextMessages,
       isLoading: true,
     );
 
     // Save user message
     final repository = ref.read(chatRepositoryProvider);
-    if (state.messages.length == 1 && this.articleTitle != null) {
+    if (state.messages.length == 1) {
       await repository.saveChatSession(ChatSession(
         id: this.articleId,
         articleId: this.articleId,
-        articleTitle: this.articleTitle!,
+        articleTitle: this.articleTitle,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ));
@@ -90,30 +113,43 @@ class AiChatNotifier extends _$AiChatNotifier {
 
     try {
       final session = Supabase.instance.client.auth.currentSession;
-      final response = await DioClient.instance.dio.post<ResponseBody>(
+      // Streaming can be buffered under some HTTP/2 adapters; use the default
+      // IO adapter for this endpoint to preserve incremental chunk delivery.
+      final streamingDio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 0),
+        ),
+      );
+      streamingDio.httpClientAdapter = IOHttpClientAdapter();
+
+      final response = await streamingDio.post<ResponseBody>(
         '${AppConfig.apiBaseUrl}/api/chat',
         data: {
           'article_id': articleId,
-          'messages': state.messages.map((m) => m.toJson()).toList(),
+          'messages': _buildPayloadMessages(nextMessages)
+              .map((m) => m.toJson())
+              .toList(),
         },
         options: Options(
           responseType: ResponseType.stream,
           headers: {
-            if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+            if (session != null)
+              'Authorization': 'Bearer ${session.accessToken}',
           },
         ),
       );
 
-      // Add an initial empty model message to stream into and clear the
-      // loading flag so the typing indicator is replaced by the bubble.
+      // Add an initial empty model message to stream into. We keep loading
+      // true until the first token arrives so the UI can show a pre-response
+      // animation instead of an empty bubble.
       state = state.copyWith(
         messages: [...state.messages, ChatMessage(role: 'model', content: '')],
-        isLoading: false,
+        isLoading: true,
       );
 
-      final lineStream = utf8.decoder
+      final chunkStream = utf8.decoder
           .bind(response.data!.stream)
-          .transform(const LineSplitter())
           // ── #17 Fix: bound the entire stream to 90 seconds ────────────────
           // Dio's receiveTimeout does not apply to streaming responses; without
           // this the await-for could hang indefinitely if the backend stalls.
@@ -123,33 +159,72 @@ class AiChatNotifier extends _$AiChatNotifier {
           );
 
       bool receivedContent = false;
-      await for (final line in lineStream) {
-        if (line.trim().isEmpty) continue;
+      String buffer = '';
 
-        try {
-          final Map<String, dynamic> data = jsonDecode(line);
+      await for (final chunkText in chunkStream) {
+        buffer += chunkText;
 
-          if (data.containsKey('error')) {
-            _updateLastMessage('Sorry, I encountered an error: ${data['error']}');
-            break;
+        int newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) != -1) {
+          final line = buffer.substring(0, newlineIndex).trim();
+          buffer = buffer.substring(newlineIndex + 1);
+
+          if (line.isEmpty) continue;
+
+          try {
+            final Map<String, dynamic> data = jsonDecode(line);
+
+            if (data.containsKey('error')) {
+              _updateLastMessage(
+                  'Sorry, I encountered an error: ${data['error']}');
+              break;
+            }
+
+            if (data.containsKey('content')) {
+              final String token = data['content'];
+              if (token.isEmpty) continue;
+
+              _appendToLastMessage(token);
+              if (!receivedContent) {
+                receivedContent = true;
+                state = state.copyWith(isLoading: false);
+              }
+            }
+          } catch (e) {
+            // Ignore individual malformed chunks — log only in debug.
+            debugPrint('[Chat] Error parsing chunk: $e');
           }
+        }
+      }
 
-          if (data.containsKey('content')) {
-            final String chunk = data['content'];
-            _appendToLastMessage(chunk);
-            receivedContent = true;
+      final trailing = buffer.trim();
+      if (trailing.isNotEmpty) {
+        try {
+          final Map<String, dynamic> data = jsonDecode(trailing);
+          if (data.containsKey('error')) {
+            _updateLastMessage(
+                'Sorry, I encountered an error: ${data['error']}');
+          } else if (data.containsKey('content')) {
+            final String token = data['content'];
+            if (token.isNotEmpty) {
+              _appendToLastMessage(token);
+              if (!receivedContent) {
+                receivedContent = true;
+                state = state.copyWith(isLoading: false);
+              }
+            }
           }
         } catch (e) {
-          // Ignore individual malformed chunks — log only in debug.
-          debugPrint('[Chat] Error parsing chunk: $e');
+          debugPrint('[Chat] Error parsing trailing chunk: $e');
         }
       }
 
       if (!receivedContent) {
         _updateLastMessage(
             'No response was received. The request may have timed out. Please try again.');
+        state = state.copyWith(isLoading: false);
       }
-      
+
       // Save AI message
       await repository.saveChatMessage(articleId, state.messages.last);
     } catch (e) {
@@ -158,12 +233,21 @@ class AiChatNotifier extends _$AiChatNotifier {
 
       if (e is DioException) {
         final statusCode = e.response?.statusCode;
+        final detail = _extractErrorDetail(e.response?.data);
+
         if (statusCode == 429) {
           errorMessage =
               "You've reached the chat limit. Please wait a moment before sending more messages.";
+        } else if (statusCode == 400 && detail != null) {
+          if (detail.toLowerCase().contains('too long')) {
+            errorMessage =
+                'The message is too long. Please try a shorter question.';
+          } else {
+            errorMessage = detail;
+          }
         } else if (statusCode == 400) {
           errorMessage =
-              'The message is too long. Please try a shorter question.';
+              'The request could not be processed. Please try again.';
         } else if (e.error is AppException) {
           errorMessage = (e.error as AppException).message;
         }
@@ -200,5 +284,38 @@ class AiChatNotifier extends _$AiChatNotifier {
         msgs.last.copyWith(content: content),
       ],
     );
+  }
+
+  List<ChatMessage> _buildPayloadMessages(List<ChatMessage> messages) {
+    final start = messages.length > _maxHistoryMessages
+        ? messages.length - _maxHistoryMessages
+        : 0;
+
+    final sliced = messages.sublist(start);
+    return sliced
+        .where((m) => (m.role == 'user' || m.role == 'model'))
+        .map((m) {
+      final content = m.content;
+      final isLatestUser = identical(m, sliced.last) && m.role == 'user';
+      final maxLen = isLatestUser ? _maxInputChars : _maxHistoryMessageChars;
+
+      if (content.length <= maxLen) return m;
+      return m.copyWith(content: content.substring(0, maxLen));
+    }).toList(growable: false);
+  }
+
+  String? _extractErrorDetail(dynamic responseData) {
+    if (responseData is Map<String, dynamic>) {
+      final detail = responseData['detail'];
+      if (detail is String && detail.trim().isNotEmpty) {
+        return detail.trim();
+      }
+    }
+
+    if (responseData is String && responseData.trim().isNotEmpty) {
+      return responseData.trim();
+    }
+
+    return null;
   }
 }

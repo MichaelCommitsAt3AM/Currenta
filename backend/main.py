@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
                         statement_cache_size=0,
                         min_size=2,
                         max_size=8,
+                        max_inactive_connection_lifetime=300,
                     ),
                     timeout=10.0
                 )

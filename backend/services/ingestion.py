@@ -55,7 +55,7 @@ if LLM_PROVIDER == "vertex" or VERTEX_PROJECT:
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-SIMILARITY_THRESHOLD = 0.92
+SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.88"))
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
 
@@ -139,7 +139,7 @@ FEEDS = [
     { "feedUrl": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=40&id=100011491", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://finance.yahoo.com/news/rssindex", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://fortune.com/feed/", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "http://feeds.marketwatch.com/marketwatch/topstories/", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://www.investing.com/rss/news_11.rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.businessinsider.com/rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.fastcompany.com/latest/rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "defaultCategory": "business", "categoryBias": "strong" },
@@ -373,6 +373,29 @@ def _domain_from_url(url: Optional[str]) -> str:
     return m.group(1) if m else ""
 
 
+def _live_blog_reason(title: str, source_url: Optional[str]) -> Optional[str]:
+    if not source_url:
+        return None
+
+    url = source_url.lower()
+    title_lc = (title or "").lower()
+
+    if "skysports.com" in url and "/live-blog/" in url:
+        return "Sky Sports live-blog format"
+
+    # Generic fallback for minute-by-minute pages from sports sites.
+    sports_site_hints = [
+        "skysports.com", "espn.com", "cbssports.com", "goal.com", "90min.com", "talksport.com"
+    ]
+    if "/live-blog/" in url and any(site in url for site in sports_site_hints):
+        return "Sports live-blog URL"
+
+    if "live-blog" in title_lc and any(word in title_lc for word in ["live", "scores", "updates"]):
+        return "Live-blog title pattern"
+
+    return None
+
+
 def _junk_score(text: str, source_url: Optional[str] = None) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
@@ -474,6 +497,11 @@ def _contextual_betting_reason(text: str) -> Optional[str]:
 def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> Optional[str]:
     """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
     combined = " " + (title + " " + text).lower() + " "
+
+    live_blog_reason = _live_blog_reason(title, source_url)
+    if live_blog_reason:
+        return f"Matched hard signal: {live_blog_reason}"
+
     hard_signals = [
         "promo code", "bonus bets", "bonus bet", "sign-up bonus", "sign up bonus",
         "signup bonus", "welcome bonus", "first deposit bonus", "draftkings",
@@ -495,6 +523,7 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> 
         "news roundup", "summary of the day", "what we're reading", "recap", "news in brief",
         "the morning download", "daily briefing", "around the web", "recommended reading",
         "score update", "live update", "game tracker", "live blog", "play-by-play",
+        "live scores", "match updates", "live scores and match updates", "live scores match updates",
         "half-time report", "halftime report", "mid-game", "scoring summary", "live scoring",
         "things to know", "stories you missed", "daily news digest", "today's top stories",
         "books in brief", "book review", "summaries of books", "best books of", "reading list",
@@ -947,7 +976,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
                 continue
         
         # 3. Common non-article paths
-        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/", "/video-clips/", "/video/quotable/", "/video/"]
+        non_article_paths = ["/tag/", "/category/", "/author/", "/archives/", "/labels/", "/search/", "/video-clips/", "/video/quotable/", "/video/", "/live-blog/"]
         if any(p in link.lower() for p in non_article_paths):
             print(f"[parseRss] Skipping Non-article Path: {link}")
             continue
@@ -1070,6 +1099,14 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             # Combined duplicate detection logic optimization
             content_hash = generate_content_hash(item["link"], item["title"])
             if item["link"] in existing_urls or content_hash in existing_hashes:
+                await log_ingestion_event(
+                    conn,
+                    item["link"],
+                    "SKIPPED",
+                    source_name=item.get("source"),
+                    error_type="DUPLICATE_URL_OR_HASH",
+                    error_message="Skipped because URL or content hash already exists in articles table."
+                )
                 results["skipped"] += 1
                 continue
 
@@ -1166,12 +1203,27 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     continue
 
                 if llm_res["title"].strip().lower() == "news update":
+                    await log_ingestion_event(
+                        conn,
+                        item["link"],
+                        "SKIPPED",
+                        source_name=item.get("source"),
+                        error_type="LOW_SIGNAL_TITLE",
+                        error_message="LLM returned generic fallback title 'News Update'."
+                    )
                     results["skipped"] += 1
                     continue
 
                 allowed_types = ["hard_news", "analysis"]
                 if llm_res["type"] not in allowed_types:
-                    # Skip silently or log as LOW_SIGNAL
+                    await log_ingestion_event(
+                        conn,
+                        item["link"],
+                        "SKIPPED",
+                        source_name=item.get("source"),
+                        error_type="LOW_SIGNAL_TYPE",
+                        error_message=f"LLM type '{llm_res['type']}' is not allowed."
+                    )
                     results["skipped"] += 1
                     continue
 
@@ -1179,8 +1231,14 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 
                 # Check for semantic duplicate using the same connection
                 if await is_duplicate(conn, embedding):
-                    # We don't always need to log duplicates as they are noisy, but let's do it for tracking
-                    # await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item["source"], error_type="DUPLICATE")
+                    await log_ingestion_event(
+                        conn,
+                        item["link"],
+                        "SKIPPED",
+                        source_name=item.get("source"),
+                        error_type="DUPLICATE_EMBEDDING",
+                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD})."
+                    )
                     results["skipped"] += 1
                     continue
 
@@ -1408,7 +1466,13 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         # Check duplicate
         existing = await conn.fetchval("SELECT 1 FROM articles WHERE original_url = $1", url)
         if existing:
-            # await log_ingestion_event(conn, url, "SKIPPED", error_type="DUPLICATE_URL")
+            await log_ingestion_event(
+                conn,
+                url,
+                "SKIPPED",
+                error_type="DUPLICATE_URL",
+                error_message="Skipped because URL already exists in articles table."
+            )
             return None
 
         scraper_result = await asyncio.to_thread(scrape_article_sync, url)
@@ -1437,13 +1501,25 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             return None
 
         if llm_res["type"] not in ["hard_news", "analysis"]:
-            await log_ingestion_event(conn, url, "FAILED", error_type="LOW_SIGNAL_TYPE")
+            await log_ingestion_event(
+                conn,
+                url,
+                "SKIPPED",
+                error_type="LOW_SIGNAL_TYPE",
+                error_message=f"LLM type '{llm_res['type']}' is not allowed."
+            )
             return None
 
         # Embed
         embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
         if await is_duplicate(conn, embedding):
-            await log_ingestion_event(conn, url, "FAILED", error_type="DUPLICATE_EMBEDDING")
+            await log_ingestion_event(
+                conn,
+                url,
+                "SKIPPED",
+                error_type="DUPLICATE_EMBEDDING",
+                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD})."
+            )
             return None
 
         # Image

@@ -38,10 +38,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   @override
   void initState() {
     super.initState();
-    final initialIndex = ref.read(newsFeedNotifierProvider).valueOrNull?.currentIndex ?? 0;
+    final initialIndex =
+        ref.read(newsFeedNotifierProvider).valueOrNull?.currentIndex ?? 0;
     _pageController = PageController(initialPage: initialIndex);
     _currentIndex = initialIndex;
-    _selectedCategory = ref.read(newsFeedNotifierProvider).valueOrNull?.selectedCategory;
+    _selectedCategory =
+        ref.read(newsFeedNotifierProvider).valueOrNull?.selectedCategory;
     _pageController.addListener(_onPageScroll);
 
     // Mark the very first article as viewed
@@ -130,10 +132,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       final nextFeed = next.valueOrNull;
       if (nextFeed == null) return;
 
+      // Keep local chip state aligned with notifier state across relaunch/restoration.
+      if (_selectedCategory != nextFeed.selectedCategory && mounted) {
+        setState(() {
+          _selectedCategory = nextFeed.selectedCategory;
+        });
+      }
+
       // 1. Sync PageController if state changed index independently (e.g., restoration or refresh)
       final prevIndex = previous?.valueOrNull?.currentIndex;
       final nextIndex = nextFeed.currentIndex;
-      final controllerPage = _pageController.hasClients ? _pageController.page?.round() : null;
+      final controllerPage =
+          _pageController.hasClients ? _pageController.page?.round() : null;
 
       if (nextIndex != prevIndex && nextIndex != controllerPage) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -160,7 +170,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
         final article = nextFeed.articles.firstWhere((a) => a.id == articleId);
-        
+
         // Clear immediately so it doesn't re-open on next rebuild
         ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
 
@@ -201,12 +211,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
             data: (feed) {
-              // If we are mid-category-switch (state is data but category hasn't updated yet),
-              // show shimmer to avoid displaying the old category's feed.
-              if (feed.selectedCategory != _selectedCategory) {
-                return const ShimmerFeed();
-              }
-
               if (feed.articles.isEmpty && !feed.isLoadingMore) {
                 return EmptyStateScreen(
                   onRetry: () =>
@@ -260,7 +264,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               selectedCategory: _selectedCategory,
               onCategoryChanged: (cat) {
                 if (_selectedCategory == cat) return;
-                
+
                 setState(() {
                   _selectedCategory = cat;
                   _currentIndex = 0; // Reset index tracker
@@ -270,7 +274,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 ref
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
-                
+
                 if (_pageController.hasClients) {
                   _pageController.jumpToPage(0);
                 }
@@ -458,8 +462,11 @@ class _CategoryBar extends ConsumerWidget {
                     const SizedBox(width: 8),
                     ..._getSortedCategories(ref)
                         .where((cat) => cat.isSupported(
-                          ref.watch(authNotifierProvider).preferredCountry ?? 
-                          View.of(context).platformDispatcher.locale.countryCode))
+                            ref.watch(authNotifierProvider).preferredCountry ??
+                                View.of(context)
+                                    .platformDispatcher
+                                    .locale
+                                    .countryCode))
                         .map((cat) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: _FilterChip(

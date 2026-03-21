@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import re
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, BackgroundTasks
 from uuid import UUID
 import asyncpg
@@ -23,6 +26,106 @@ ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
     published_at, created_at, categories, subcategory, is_paywalled, country_code, trend_score
 """
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_TEXT_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "for", "of", "on", "in", "to", "with",
+    "from", "by", "at", "as", "after", "before", "amid", "into", "over", "under",
+    "about", "says", "say", "new", "update", "latest", "report", "reports", "this",
+    "that", "their", "they", "them", "while", "could", "would", "into", "than", "then"
+}
+_MIN_TOKEN_LEN = 3
+_NEAR_DUP_MIN_SHARED_TOKENS = 4
+_NEAR_DUP_JACCARD_THRESHOLD = 0.30
+_TOKEN_NORMALIZATION_MAP = {
+    "misled": "mislead",
+    "misleading": "mislead",
+    "investor": "invest",
+    "investors": "invest",
+    "lawsuit": "legal",
+    "jury": "legal",
+    "damages": "damage",
+    "acquisition": "acquire",
+    "acquired": "acquire",
+    "acquiring": "acquire",
+}
+
+
+def _normalize_token(token: str) -> str:
+    if token in _TOKEN_NORMALIZATION_MAP:
+        return _TOKEN_NORMALIZATION_MAP[token]
+    # Very light stemming to align small wording changes across sources.
+    if len(token) > 6 and token.endswith("ing"):
+        token = token[:-3]
+    elif len(token) > 5 and token.endswith("ed"):
+        token = token[:-2]
+    elif len(token) > 5 and token.endswith("es"):
+        token = token[:-2]
+    elif len(token) > 4 and token.endswith("s"):
+        token = token[:-1]
+    return token
+
+
+def _extract_url_slug(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    try:
+        path = urlparse(url).path or ""
+        return path.replace("-", " ").replace("_", " ").replace("/", " ")
+    except Exception:
+        return ""
+
+
+def _article_tokens(article: dict) -> set[str]:
+    parts = [
+        article.get("title") or "",
+        article.get("summary") or "",
+        _extract_url_slug(article.get("original_url")),
+    ]
+    raw_tokens = _WORD_RE.findall(" ".join(parts).lower())
+    cleaned = set()
+    for token in raw_tokens:
+        if len(token) < _MIN_TOKEN_LEN or token in _TEXT_STOPWORDS:
+            continue
+        cleaned.add(_normalize_token(token))
+    return cleaned
+
+
+def _token_jaccard_similarity(tokens_a: set[str], tokens_b: set[str]) -> float:
+    if not tokens_a or not tokens_b:
+        return 0.0
+    union = tokens_a | tokens_b
+    if not union:
+        return 0.0
+    return len(tokens_a & tokens_b) / len(union)
+
+
+def _collapse_near_duplicate_articles(articles: list[dict]) -> list[dict]:
+    """
+    Keeps higher-ranked articles and suppresses near-duplicate headlines
+    from other sources in the same feed response.
+    """
+    kept: list[dict] = []
+    kept_tokens: list[set[str]] = []
+
+    for article in articles:
+        candidate_tokens = _article_tokens(article)
+        is_near_duplicate = False
+        for existing_tokens in kept_tokens:
+            shared_tokens = len(candidate_tokens & existing_tokens)
+            similarity = _token_jaccard_similarity(candidate_tokens, existing_tokens)
+            if (
+                shared_tokens >= _NEAR_DUP_MIN_SHARED_TOKENS
+                and similarity >= _NEAR_DUP_JACCARD_THRESHOLD
+            ):
+                is_near_duplicate = True
+                break
+
+        if not is_near_duplicate:
+            kept.append(article)
+            kept_tokens.append(candidate_tokens)
+
+    return kept
 
 def get_db(request: Request) -> asyncpg.Pool:
     pool = getattr(request.app.state, "db_pool", None)
@@ -133,7 +236,6 @@ async def get_feed(
             missing_categories = []
             
             if redis_client:
-                import asyncio
                 # Use normalized lowercase keys
                 keys = [f"feed:v4:{country_key}:{cat}" for cat in categories_to_fetch]
                 try:
@@ -261,21 +363,27 @@ async def get_feed(
                                 if len(temp_results[cat]) < 150: # Keep Redis caches lean
                                     temp_results[cat].append(r)
 
-                    # Store back in Redis
-                    if redis_client:
+                    # Store back in Redis.
+                    # Cache only the first-page baseline (no cursor/offset pagination)
+                    # to avoid polluting canonical feed:v4 keys with partial slices.
+                    should_write_cache = before is None and offset == 0
+                    if redis_client and should_write_cache:
                         for cat, cat_articles in temp_results.items():
-                            if cat_articles:
-                                # ONLY cache if it's a specific category request (named_categories)
-                                # AND if we are reasonably sure we have a good slice.
-                                # If we were doing an 'all' fetch, named_categories is empty or partial.
-                                # To be safe: only cache if the category was the main one requested or part of a full query.
-                                if cat == category or (category is None and cat == "all"):
-                                    try:
-                                        await redis_client.set(f"feed:v4:{country_key}:{cat}", orjson.dumps(cat_articles), ex=10800)
-                                    except Exception as e:
-                                        logger.warning("Redis cache write error for %s: %s", cat, e)
+                            if not cat_articles:
+                                continue
+                            try:
+                                await redis_client.set(
+                                    f"feed:v4:{country_key}:{cat}",
+                                    orjson.dumps(cat_articles),
+                                    ex=10800,
+                                )
+                            except Exception as e:
+                                logger.warning("Redis cache write error for %s: %s", cat, e)
 
-        # 5. Deduplicate, filter viewed, filter before, sort
+        # 5. Sort first so dedupe keeps the highest-ranked representative.
+        all_articles.sort(key=lambda x: x.get('ranking_score', 0.0), reverse=True)
+
+        # 6. Deduplicate, filter viewed, filter before, collapse near-duplicates
         seen = set()
         unique_filtered = []
         for a in all_articles:
@@ -293,15 +401,13 @@ async def get_feed(
             
             seen.add(aid)
             unique_filtered.append(a)
-            
-        # For 'For You' (all categories or personalized), sort by ranking score.
-        # For specific categories, we still want to benefit from the trend boost.
-        unique_filtered.sort(key=lambda x: x.get('ranking_score', 0.0), reverse=True)
+
+        unique_filtered = _collapse_near_duplicate_articles(unique_filtered)
         
-        # 6. Apply pagination
+        # 7. Apply pagination
         final_result = unique_filtered[offset:offset+limit]
 
-        # 7. Metrics Logging (Observability)
+        # 8. Metrics Logging (Observability)
         logger.info(
             f"Feed request: categories={len(categories_to_fetch)} "
             f"country={country} (method={country_source}) "
@@ -328,16 +434,22 @@ async def track_view(
     """
     Records a view for the given article and user.
     """
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO article_views (user_id, article_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                user.id, article_id
-            )
-        return {"status": "ok"}
-    except Exception as e:
-        logger.error("Failed to track view for article %s: %s", article_id, e)
-        raise HTTPException(status_code=500, detail="Failed to record view")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO article_views (user_id, article_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    user.id, article_id
+                )
+            return {"status": "ok"}
+        except (asyncpg.PostgresError, OSError) as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database operation failed in track_view (attempt {attempt+1}/{max_retries}): {e}. Retrying...")
+                await asyncio.sleep(0.2 * (2 ** attempt))
+                continue
+            logger.error("Failed to track view for article %s: %s", article_id, e)
+            raise HTTPException(status_code=500, detail="Failed to record view")
 
 
 @router.get("/detect-location")
@@ -355,22 +467,29 @@ async def detect_location(
     country = await get_country_from_ip(ip)
     
     if country and user:
-        try:
-            async with db_pool.acquire() as conn:
-                # Check if they already have a preference
-                existing = await conn.fetchval(
-                    "SELECT preferred_country FROM user_profiles WHERE user_id = $1",
-                    user.id
-                )
-                if not existing:
-                    await conn.execute(
-                        "INSERT INTO user_profiles (user_id, preferred_country) VALUES ($1, $2) "
-                        "ON CONFLICT (user_id) DO UPDATE SET preferred_country = EXCLUDED.preferred_country",
-                        user.id, country
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                async with db_pool.acquire() as conn:
+                    # Check if they already have a preference
+                    existing = await conn.fetchval(
+                        "SELECT preferred_country FROM user_profiles WHERE user_id = $1",
+                        user.id
                     )
-                    logger.info(f"Background location detection: saved {country} for user {user.id}")
-        except Exception as e:
-            logger.warning(f"Failed to save background detected country: {e}")
+                    if not existing:
+                        await conn.execute(
+                            "INSERT INTO user_profiles (user_id, preferred_country) VALUES ($1, $2) "
+                            "ON CONFLICT (user_id) DO UPDATE SET preferred_country = EXCLUDED.preferred_country",
+                            user.id, country
+                        )
+                        logger.info(f"Background location detection: saved {country} for user {user.id}")
+                    break # Success
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to save background detected country (attempt {attempt+1}/{max_retries}): {e}")
+                    await asyncio.sleep(0.5)
+                    continue
+                logger.warning(f"Failed to save background detected country after retries: {e}")
             
     return {"country": country}
 
@@ -389,29 +508,34 @@ async def toggle_favorite(
     """
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    try:
-        async with db_pool.acquire() as conn:
-            # We use a single query with a CTE or just check and swap.
-            # Simplified: check if exists, then delete or insert.
-            exists = await conn.fetchval(
-                "SELECT 1 FROM article_favorites WHERE user_id = $1 AND article_id = $2",
-                user.id, str(article_id)
-            )
-            
-            if exists:
-                await conn.execute(
-                    "DELETE FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            async with db_pool.acquire() as conn:
+                # We use a single query with a CTE or just check and swap.
+                # Simplified: check if exists, then delete or insert.
+                exists = await conn.fetchval(
+                    "SELECT 1 FROM article_favorites WHERE user_id = $1 AND article_id = $2",
                     user.id, str(article_id)
                 )
-                return {"status": "unfavorited"}
-            else:
-                await conn.execute(
-                    "INSERT INTO article_favorites (user_id, article_id) VALUES ($1, $2)",
-                    user.id, str(article_id)
-                )
-                return {"status": "favorited"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error toggling favorite: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to toggle favorite")
+                
+                if exists:
+                    await conn.execute(
+                        "DELETE FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+                        user.id, str(article_id)
+                    )
+                    return {"status": "unfavorited"}
+                else:
+                    await conn.execute(
+                        "INSERT INTO article_favorites (user_id, article_id) VALUES ($1, $2)",
+                        user.id, str(article_id)
+                    )
+                    return {"status": "favorited"}
+        except (asyncpg.PostgresError, OSError) as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Database operation failed in toggle_favorite (attempt {attempt+1}/{max_retries}): {e}. Retrying...")
+                await asyncio.sleep(0.2 * (2 ** attempt))
+                continue
+            logger.error("Error toggling favorite: %s", e)
+            raise HTTPException(status_code=500, detail="Failed to toggle favorite")

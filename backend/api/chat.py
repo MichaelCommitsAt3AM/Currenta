@@ -11,6 +11,7 @@ from datetime import date
 
 from google import genai
 from google.genai import types as genai_types
+import asyncio
 
 from ..core.security import limiter, verify_supabase_jwt, User
 
@@ -134,41 +135,56 @@ async def chat_with_article(
         )
 
     try:
-        async with db_pool.acquire() as conn:
-            # 2. Check/Update Daily Quota
-            today = date.today()
-            usage = await conn.fetchrow(
-                "SELECT daily_count, last_reset_at FROM user_ai_usage WHERE user_id = $1",
-                user.id
-            )
-
-            if usage:
-                if usage['last_reset_at'] < today:
-                    await conn.execute(
-                        "UPDATE user_ai_usage SET daily_count = 1, last_reset_at = $1 WHERE user_id = $2",
-                        today, user.id
-                    )
-                elif usage['daily_count'] >= DAILY_MESSAGE_LIMIT:
-                    raise HTTPException(
-                        status_code=429,
-                        detail=f"Daily chat limit of {DAILY_MESSAGE_LIMIT} messages reached."
-                    )
-                else:
-                    await conn.execute(
-                        "UPDATE user_ai_usage SET daily_count = daily_count + 1 WHERE user_id = $1",
+        article = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with db_pool.acquire() as conn:
+                    # 2. Check/Update Daily Quota
+                    today = date.today()
+                    usage = await conn.fetchrow(
+                        "SELECT daily_count, last_reset_at FROM user_ai_usage WHERE user_id = $1",
                         user.id
                     )
-            else:
-                await conn.execute(
-                    "INSERT INTO user_ai_usage (user_id, daily_count, last_reset_at) VALUES ($1, 1, $2)",
-                    user.id, today
-                )
 
-            # 3. Fetch article context
-            article = await conn.fetchrow(
-                "SELECT title, summary, source_name FROM articles WHERE id = $1",
-                str(chat_req.article_id)
-            )
+                    if usage:
+                        if usage['last_reset_at'] < today:
+                            await conn.execute(
+                                "UPDATE user_ai_usage SET daily_count = 1, last_reset_at = $1 WHERE user_id = $2",
+                                today, user.id
+                            )
+                        elif usage['daily_count'] >= DAILY_MESSAGE_LIMIT:
+                            raise HTTPException(
+                                status_code=429,
+                                detail=f"Daily chat limit of {DAILY_MESSAGE_LIMIT} messages reached."
+                            )
+                        else:
+                            await conn.execute(
+                                "UPDATE user_ai_usage SET daily_count = daily_count + 1 WHERE user_id = $1",
+                                user.id
+                            )
+                    else:
+                        await conn.execute(
+                            "INSERT INTO user_ai_usage (user_id, daily_count, last_reset_at) VALUES ($1, 1, $2)",
+                            user.id, today
+                        )
+
+                    # 3. Fetch article context
+                    article = await conn.fetchrow(
+                        "SELECT title, summary, source_name FROM articles WHERE id = $1",
+                        str(chat_req.article_id)
+                    )
+                    break # Success
+            except (asyncpg.PostgresError, OSError) as e:
+                # Re-raise HTTPException (like the rate limit 429) so it's not caught by the generic DB retry
+                if isinstance(e, HTTPException):
+                    raise
+                if attempt < max_retries - 1:
+                    logger.warning(f"Database operation failed in chat_with_article (attempt {attempt+1}/{max_retries}): {e}. Retrying...")
+                    await asyncio.sleep(0.2 * (2 ** attempt))
+                    continue
+                logger.error("Error in chat_with_article DB operations: %s", e)
+                raise HTTPException(status_code=500, detail="Database connection error.")
 
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
