@@ -5,7 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
-from .ingestion import embed_text, ingest_from_url, is_junk_content
+from .ingestion import embed_text, ingest_from_url, is_junk_content, is_junk_url
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,12 @@ async def fetch_google_trends(region: str = "US") -> List[Dict]:
             for ni in news_items:
                 ni_title = ni.find('ht:news_item_title').text if ni.find('ht:news_item_title') else ""
                 ni_url = ni.find('ht:news_item_url').text if ni.find('ht:news_item_url') else ""
+
+                # Fast URL pre-check to block betting/prediction links before any heavier processing.
+                url_reason = is_junk_url(ni_url, ni_title, query)
+                if url_reason:
+                    logger.debug(f"[{region}] Skipping URL-junk story in trend '{query}': {ni_url} ({url_reason})")
+                    continue
                 
                 # Verify if this specific news story is junk
                 reason = is_junk_content(ni_title, query)
@@ -137,8 +143,8 @@ async def update_trending_scores(db_pool):
                         SELECT id, cluster_id, title, 1 - (embedding <=> $1::float8[]::vector) as similarity
                         FROM articles 
                         WHERE published_at > NOW() - INTERVAL '48 hours'
-                        AND 1 - (embedding <=> $1::float8[]::vector) > 0.70
-                        ORDER BY 1 - (embedding <=> $1::float8[]::vector) DESC
+                        AND (embedding <=> $1::float8[]::vector) < 0.30
+                        ORDER BY (embedding <=> $1::float8[]::vector) ASC
                         LIMIT 5
                     """, embedding)
                     
@@ -157,6 +163,21 @@ async def update_trending_scores(db_pool):
                                                 anchor_url=trend['anchor_url'], match_count=len(matches))
                     else:
                         if trend['anchor_url']:
+                            anchor_url_reason = is_junk_url(trend['anchor_url'], trend.get('anchor_title', ''), trend.get('query', ''))
+                            if anchor_url_reason:
+                                logger.info(f"[{region}] Skipping ingest for trend '{trend['query']}': {anchor_url_reason} ({trend['anchor_url']})")
+                                await log_trending_event(
+                                    conn,
+                                    region,
+                                    trend['query'],
+                                    "SKIPPED",
+                                    traffic=trend['traffic'],
+                                    anchor_title=trend['anchor_title'],
+                                    anchor_url=trend['anchor_url'],
+                                    error_message=anchor_url_reason,
+                                )
+                                continue
+
                             logger.info(f"[{region}] Trend '{trend['query']}' not found. Ingesting: {trend['anchor_url']}")
                             await log_trending_event(conn, region, trend['query'], "INGEST_TRIGGERED", 
                                                     traffic=trend['traffic'], anchor_title=trend['anchor_title'], 
@@ -198,11 +219,11 @@ async def update_trending_scores(db_pool):
     # even if they weren't boosted this run.
     async with db_pool.acquire() as conn:
         try:
-            logger.info("Refreshing ranking scores for all articles from last 7 days...")
+            logger.info("Refreshing ranking scores for all articles from last 72 hours...")
             await conn.execute("""
                 UPDATE articles 
                 SET ranking_score = ((1.0 + trend_score) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
-                WHERE published_at > NOW() - INTERVAL '7 days'
+                WHERE published_at > NOW() - INTERVAL '72 hours'
             """)
         except Exception as e:
             logger.error(f"Failed to refresh ranking scores: {e}")

@@ -11,15 +11,19 @@ def start_scheduler():
     from .ingestion import orchestrate_sync_wrapper
     from .trending import update_trending_scores
     
-    # Run orchestration every ~3 hours like the Flutter Background Fetch used to
+    # Run orchestration every ~3 hours
     scheduler.add_job(orchestrate_sync_wrapper, 'interval', minutes=180, id='orchestrate_news', replace_existing=True)
     
-    # Run trending updates every 15 minutes
-    from ..main import db_pool
-    scheduler.add_job(update_trending_scores, 'interval', minutes=15, id='update_trends', args=[db_pool], replace_existing=True)
+    # Run trending updates every 12 hours (Audit Recommendation)
+    from ..main import db_pool, redis_client
+    scheduler.add_job(update_trending_scores, 'interval', hours=12, id='update_trends', args=[db_pool], replace_existing=True)
+
+    # Flush view buffer every 60 seconds (Audit Recommendation)
+    from .ingestion import flush_view_buffer
+    scheduler.add_job(flush_view_buffer, 'interval', seconds=60, id='flush_views', args=[db_pool, redis_client], replace_existing=True)
 
     scheduler.start()
-    logger.info("Background scheduler started: orchestration (180m) and trends (15m).")
+    logger.info("Background scheduler started: orchestration (180m), trends (12h), view-flush (60s).")
 
 def stop_scheduler():
     scheduler.shutdown(wait=False)

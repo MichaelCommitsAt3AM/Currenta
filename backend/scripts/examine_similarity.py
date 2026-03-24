@@ -33,7 +33,7 @@ async def test_similarity():
                 SELECT title, 1 - (embedding <=> $1::vector) as similarity
                 FROM articles 
                 WHERE published_at > NOW() - INTERVAL '72 hours'
-                ORDER BY 1 - (embedding <=> $1::vector) DESC
+                ORDER BY embedding <=> $1::vector ASC
                 LIMIT 1
             """, embedding_str)
             

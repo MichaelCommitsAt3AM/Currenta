@@ -11,7 +11,7 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),
       body: Stack(
@@ -34,15 +34,16 @@ class WelcomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          
+
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 40.0, vertical: 24.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   const Spacer(flex: 3),
-                  
+
                   // Minimal Logo Container
                   TweenAnimationBuilder(
                     duration: const Duration(seconds: 1),
@@ -75,9 +76,9 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 40),
-                  
+
                   // Brand Name
                   const Text(
                     'Currenta',
@@ -90,9 +91,9 @@ class WelcomeScreen extends StatelessWidget {
                       height: 1,
                     ),
                   ),
-                  
+
                   const SizedBox(height: 12),
-                  
+
                   // Tagline
                   const Text(
                     'Modern news, simplified.',
@@ -104,9 +105,9 @@ class WelcomeScreen extends StatelessWidget {
                       letterSpacing: 0.2,
                     ),
                   ),
-                  
+
                   const Spacer(flex: 4),
-                  
+
                   // Start Button
                   SizedBox(
                     width: double.infinity,
@@ -114,13 +115,16 @@ class WelcomeScreen extends StatelessWidget {
                       onPressed: () {
                         Navigator.of(context).pushReplacement(
                           PageRouteBuilder(
-                            pageBuilder: (context, animation, secondaryAnimation) =>
-                                const OnboardingScreen(),
-                            transitionsBuilder:
-                                (context, animation, secondaryAnimation, child) {
-                              return FadeTransition(opacity: animation, child: child);
+                            pageBuilder:
+                                (context, animation, secondaryAnimation) =>
+                                    const OnboardingScreen(),
+                            transitionsBuilder: (context, animation,
+                                secondaryAnimation, child) {
+                              return FadeTransition(
+                                  opacity: animation, child: child);
                             },
-                            transitionDuration: const Duration(milliseconds: 500),
+                            transitionDuration:
+                                const Duration(milliseconds: 500),
                           ),
                         );
                       },
@@ -143,15 +147,16 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 24),
-                  
+
                   // Login Link
                   GestureDetector(
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => const LoginScreen(),
+                          builder: (context) =>
+                              const LoginScreen(redirectToFeedOnSuccess: true),
                         ),
                       );
                     },
@@ -175,7 +180,7 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
+
                   const SizedBox(height: 12),
                 ],
               ),
@@ -186,4 +191,3 @@ class WelcomeScreen extends StatelessWidget {
     );
   }
 }
-

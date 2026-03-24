@@ -66,3 +66,6 @@ __pycache__/
 .env
 implementation_plan.md
 devtools_options.yaml
+
+# GeoIP database binaries
+backend/core/*.mmdb

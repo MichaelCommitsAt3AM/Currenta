@@ -63,7 +63,12 @@ class AiChatNotifier extends _$AiChatNotifier {
     final repository = ref.read(chatRepositoryProvider);
     final session = await repository.getChatSession(articleId);
     if (session != null && session.messages != null) {
-      state = state.copyWith(messages: session.messages);
+      // Only update messages if the current state is still empty.
+      // This prevents overwriting a new message if the user sends one
+      // while the initial history is still being fetched from the database.
+      if (state.messages.isEmpty) {
+        state = state.copyWith(messages: session.messages);
+      }
     }
   }
 
@@ -140,11 +145,11 @@ class AiChatNotifier extends _$AiChatNotifier {
         ),
       );
 
-      // Add an initial empty model message to stream into. We keep loading
-      // true until the first token arrives so the UI can show a pre-response
-      // animation instead of an empty bubble.
+      // Add an initial empty model message to stream into.
+      // Use nextMessages here to ensure we don't lose the user prompt if 
+      // state.messages was somehow reset by a parallel operation.
       state = state.copyWith(
-        messages: [...state.messages, ChatMessage(role: 'model', content: '')],
+        messages: [...nextMessages, ChatMessage(role: 'model', content: '')],
         isLoading: true,
       );
 

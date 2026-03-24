@@ -89,6 +89,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   @override
   Future<FeedState> build() async {
+    // 0. Trigger cache cleaning on startup.
+    // Since periodic background cleaning is disabled, we do it here.
+    unawaited(_repo.clearOldCache());
+
     // 1. Listen for auth changes to handle transitions (login/logout) without
     // triggering a full provider rebuild. This preserves the in-memory feed
     // and current scroll position (currentIndex) during the auth process.
@@ -118,15 +122,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
 
-    // 3. Since we are no longer using ref.watch(authNotifierProvider),
-    // this build() method will only run when the provider is first created
-    // or explicitly invalidated. We check for persisted state to restore the session.
-    final savedCategoryId = _persistence.getCurrentCategory();
+    // 3. Restore persisted article position (we always default to 'For You' category on startup)
+    const NewsCategory? savedCategoryId = null; // Always default to 'For You'
     final savedArticleId = _persistence.getCurrentArticleId();
 
     // 4. Fetch from local cache for initial load.
-    // If we have a saved article ID, we MUST include viewed articles to find it.
-    // Otherwise, we exclude viewed articles to keep the feed fresh.
+    // If we are restoring a session, we MUST include viewed articles to find our place.
     final includeViewed = savedArticleId != null;
 
     final firstPage = await _repo.fetchPage(
@@ -136,36 +137,30 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       includeViewed: includeViewed,
     );
 
-    // If cache is empty, wait for the first refresh to complete before showing data.
-    if (firstPage.isEmpty) {
+    // 4. Load articles: try local cache first, then remote if empty.
+    List<NewsArticle> articles = firstPage;
+
+    if (articles.isEmpty) {
       debugPrint('[Feed] Cache empty. Performing initial remote sync...');
       try {
         await _repo.refreshFeed();
-        final freshPage = await _repo.fetchPage(
+        articles = await _repo.fetchPage(
           category: savedCategoryId,
           limit: _kPageSize,
           offset: 0,
-        );
-        return FeedState(
-          articles: freshPage,
-          hasMore: freshPage.length >= _kPageSize,
-          selectedCategory: savedCategoryId,
+          includeViewed: includeViewed,
         );
       } catch (e) {
         debugPrint('[Feed] Initial remote refresh failed: $e');
-        return FeedState(
-            articles: [], hasMore: false, selectedCategory: savedCategoryId);
       }
     }
 
-    // Find the current index if we saved an article ID
+    // 5. Calculate initial index if we saved an article ID
     int initialIndex = 0;
-    if (savedArticleId != null) {
-      initialIndex = firstPage.indexWhere((a) => a.id == savedArticleId);
-      if (initialIndex == -1) {
-        // If not in first page, just start from 0 or try to fetch it?
-        // For now, let's keep it simple. If it's old/gone, start at 0.
-        initialIndex = 0;
+    if (savedArticleId != null && articles.isNotEmpty) {
+      final index = articles.indexWhere((a) => a.id == savedArticleId);
+      if (index != -1) {
+        initialIndex = index;
       }
     }
 
@@ -173,9 +168,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     Future.microtask(_backgroundRefresh);
 
     return FeedState(
-      articles: firstPage,
-      hasMore:
-          true, // Always allow at least one pagination attempt to trigger remote sync if needed
+      articles: articles,
+      hasMore: true, // Always allow pagination to trigger remote sync
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
     );
@@ -205,10 +199,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
 
       // If local cache is exhausted or sparse, sync from remote
+      int syncedCount = 0;
       if (nextPage.length < _kPageSize) {
         debugPrint(
             '[Feed] Local cache sparse for ${category?.name ?? 'all'}. Syncing from remote...');
-        final syncedCount = await _repo.syncMoreFromRemote(
+        syncedCount = await _repo.syncMoreFromRemote(
           category: category,
           before: last?.publishedAt,
           limit: 30, // Fetch a healthy batch
@@ -237,8 +232,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       state = AsyncData(current.copyWith(
         articles: [...current.articles, ...uniqueNextPage],
         isLoadingMore: false,
-        hasMore: nextPage
-            .isNotEmpty, // Only stop if we really got nothing even after sync
+        hasMore: (nextPage.isNotEmpty || syncedCount > 0),
       ));
     } catch (e, st) {
       debugPrint('[Feed] loadNextPage error: $e\n$st');
@@ -252,49 +246,46 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Filter by category, resetting pagination to page 0.
   /// Auto-fetches a second page if the first returns fewer than [_kPageSize].
   Future<void> filterByCategory(NewsCategory? category) async {
-    state = const AsyncLoading();
+    // 2. Immediately update state to loading carrying the target category
+    state = AsyncLoading<FeedState>().copyWithPrevious(AsyncData(FeedState(
+      articles: [], // Clear articles to show whole-screen shimmer
+      selectedCategory: category,
+    )));
+
     try {
-      // 1. Fetch from local cache first
-      var articles = await _repo.fetchPage(
+      // 3. Fetch from local cache first
+      final articles = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         offset: 0,
       );
 
-      // 2. If local is sparse/empty and we have a category, sync from remote
-      // We check if we have at least half a page, otherwise we trigger sync.
-      if (articles.length < _kPageSize / 2 && category != null) {
-        debugPrint(
-            '[Feed] Sparse local cache for ${category.name}. Syncing from remote...');
-        try {
-          // Sync a larger batch to fill the cache
-          await _repo.syncMoreFromRemote(category: category, limit: 30);
+      // 4. Update memory state
+      final currentState = FeedState(
+        articles: articles,
+        hasMore: true,
+        selectedCategory: category,
+        isLoadingMore: false, // Set to false so loadNextPage can start
+      );
 
-          // Refresh local list after sync
-          articles = await _repo.fetchPage(
-            category: category,
-            limit: _kPageSize,
-            offset: 0,
-          );
-        } catch (e) {
-          debugPrint('[Feed] Remote sync failed for category: $e');
-          // Non-blocking error, we show what we have
+      // 5. If cache is empty, we must keep the UI in a loading state while we fetch remote.
+      if (articles.isEmpty) {
+        state =
+            AsyncLoading<FeedState>().copyWithPrevious(AsyncData(currentState));
+        await loadNextPage();
+      } else {
+        // We have articles! Show them immediately.
+        state = AsyncData(currentState);
+
+        // If we have very few articles, proactively load the next batch in background
+        if (articles.length < _kPageSize) {
+          unawaited(loadNextPage());
         }
       }
 
-      state = AsyncData(FeedState(
-        articles: articles,
-        hasMore: true, // Allow pagination to attempt remote sync
-        selectedCategory: category,
-      ));
-
-      // Persist category selection
-      _persistence.saveCurrentCategory(category);
-      _persistence.saveCurrentArticleId(articles.firstOrNull?.id);
-
-      // 3. If we still have very few articles, try to load one more page locally (if any)
-      if (articles.isNotEmpty && articles.length < _kPageSize) {
-        await loadNextPage();
+      // Persist the first article ID of this new feed if available
+      if (articles.isNotEmpty) {
+        _persistence.saveCurrentArticleId(articles.firstOrNull?.id);
       }
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -516,7 +507,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final isInitial = startState == null || startState.articles.isEmpty;
 
     try {
-      await _repo.refreshFeed();
+      // Keep refresh aligned with the active category; otherwise category tabs
+      // can appear stale even when remote has more items.
+      if (category != null) {
+        await _repo.syncMoreFromRemote(
+          category: category,
+          remoteOffset: 0,
+          limit: 30,
+        );
+      } else {
+        await _repo.refreshFeed();
+      }
 
       // Fetch the top articles for the relevant category
       final freshPage = await _repo.fetchPage(

@@ -1,3 +1,4 @@
+// lib/features/news/presentation/widgets/news_card.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,16 +16,18 @@ import 'ai_quick_chat_sheet.dart';
 import '../../application/pending_activity_provider.dart';
 
 class NewsCard extends ConsumerStatefulWidget {
+  final NewsArticle article;
+  final int index;
+  final int total;
+  final double? topPadding;
+
   const NewsCard({
     super.key,
     required this.article,
     required this.index,
     required this.total,
+    this.topPadding,
   });
-
-  final NewsArticle article;
-  final int index;
-  final int total;
 
   @override
   ConsumerState<NewsCard> createState() => _NewsCardState();
@@ -280,7 +283,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
             Padding(
               padding: EdgeInsets.fromLTRB(
                 24,
-                MediaQuery.paddingOf(context).top + 56,
+                MediaQuery.paddingOf(context).top + (widget.topPadding ?? 56),
                 24,
                 24,
               ),

@@ -34,6 +34,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   final Set<String> _viewedIdsInSession = {};
   bool _hasWarmedUpBrowser = false;
   Timer? _viewTimer;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -62,23 +63,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   int _lastTriggeredPage = -1;
 
+  void _maybeLoadMore({int? pageHint}) {
+    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    if (feed == null || feed.isLoadingMore || !feed.hasMore) return;
+
+    final totalPages = feed.articles.length;
+    if (totalPages <= 0) return;
+
+    final currentPage = pageHint ??
+        (_pageController.hasClients ? (_pageController.page?.round() ?? 0) : 0);
+    final nearEnd = currentPage >= totalPages - 5;
+    if (!nearEnd) return;
+
+    // Deduplicate by page index, but allow fresh triggers when category/feed resets
+    // by resetting _lastTriggeredPage in the relevant state transitions.
+    if (currentPage == _lastTriggeredPage) return;
+
+    _lastTriggeredPage = currentPage;
+    ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
+  }
+
   /// Triggers next-page load when we are within 5 pages of the end.
   void _onPageScroll() {
     if (!_pageController.hasClients) return;
-    final feedAsync = ref.read(newsFeedNotifierProvider);
-    final feed = feedAsync.valueOrNull;
-    if (feed == null || feed.isLoadingMore || !feed.hasMore) return;
-
-    final currentPage = _pageController.page?.round() ?? 0;
-    final totalPages = feed.articles.length;
-
-    // Deduplicate: only trigger once for each unique page threshold
-    if (currentPage != _lastTriggeredPage &&
-        totalPages > 0 &&
-        currentPage >= totalPages - 5) {
-      _lastTriggeredPage = currentPage;
-      ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
-    }
+    _maybeLoadMore();
   }
 
   void _onPageChanged(int index) {
@@ -106,6 +114,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
     // 2. Track view
     _trackPageView(index);
+
+    // 3. Double-check load-more on discrete page changes.
+    // This prevents missing pagination when the scroll listener doesn't produce
+    // a new rounded page value near the list end.
+    _maybeLoadMore(pageHint: index);
   }
 
   void _trackPageView(int index) {
@@ -132,14 +145,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       final nextFeed = next.valueOrNull;
       if (nextFeed == null) return;
 
-      // Keep local chip state aligned with notifier state across relaunch/restoration.
-      if (_selectedCategory != nextFeed.selectedCategory && mounted) {
+      // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
+      if (nextFeed.selectedCategory != _selectedCategory && mounted) {
         setState(() {
           _selectedCategory = nextFeed.selectedCategory;
         });
+        // Reset pagination trigger marker when feed scope changes.
+        _lastTriggeredPage = -1;
       }
 
-      // 1. Sync PageController if state changed index independently (e.g., restoration or refresh)
+      // 2. Sync PageController if state changed index independently (e.g., restoration or refresh)
       final prevIndex = previous?.valueOrNull?.currentIndex;
       final nextIndex = nextFeed.currentIndex;
       final controllerPage =
@@ -198,6 +213,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: const Color(0xFF0A0C14),
       drawer: Sidebar(catColor: catColor),
       body: Stack(
@@ -211,7 +227,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
             data: (feed) {
-              if (feed.articles.isEmpty && !feed.isLoadingMore) {
+              // ── Conditional UI: Shimmer vs Empty vs Articles ──
+              // If we have no articles, show shimmer if we are still loading,
+              // or empty state if we are truly done and have nothing.
+              if (feed.articles.isEmpty) {
+                if (feed.isLoadingMore || feedAsync.isLoading) {
+                  return const ShimmerFeed();
+                }
                 return EmptyStateScreen(
                   onRetry: () =>
                       ref.read(newsFeedNotifierProvider.notifier).refresh(),
@@ -259,30 +281,28 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           ),
 
           // ── Category filter bar ──────────────────────────────────
-          Builder(
-            builder: (context) => _CategoryBar(
-              selectedCategory: _selectedCategory,
-              onCategoryChanged: (cat) {
-                if (_selectedCategory == cat) return;
+          _CategoryBar(
+            selectedCategory: _selectedCategory,
+            onCategoryChanged: (cat) {
+              if (_selectedCategory == cat) return;
 
-                setState(() {
-                  _selectedCategory = cat;
-                  _currentIndex = 0; // Reset index tracker
-                });
+              // Sync UI state immediately for instant feedback
+              setState(() {
+                _selectedCategory = cat;
+                _currentIndex = 0;
+              });
+              _lastTriggeredPage = -1;
 
-                // Set notifier to loading state immediately to trigger shimmer
-                ref
-                    .read(newsFeedNotifierProvider.notifier)
-                    .filterByCategory(cat);
+              // Trigger feed loading immediately
+              ref.read(newsFeedNotifierProvider.notifier).filterByCategory(cat);
 
-                if (_pageController.hasClients) {
-                  _pageController.jumpToPage(0);
-                }
-              },
-              onRefresh: () =>
-                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
-              onOpenDrawer: () => Scaffold.of(context).openDrawer(),
-            ),
+              if (_pageController.hasClients && _pageController.page != 0) {
+                _pageController.jumpToPage(0);
+              }
+            },
+            onRefresh: () =>
+                ref.read(newsFeedNotifierProvider.notifier).refresh(),
+            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
           ),
 
           // ── New Stories Badge ─────────────────────────────────────
@@ -393,7 +413,7 @@ class _LoadingMorePage extends StatelessWidget {
 
 // ── Category filter bar ───────────────────────────────────────────────────────
 
-class _CategoryBar extends ConsumerWidget {
+class _CategoryBar extends ConsumerStatefulWidget {
   const _CategoryBar({
     required this.selectedCategory,
     required this.onCategoryChanged,
@@ -407,8 +427,58 @@ class _CategoryBar extends ConsumerWidget {
   final VoidCallback onOpenDrawer;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CategoryBar> createState() => _CategoryBarState();
+}
+
+class _CategoryBarState extends ConsumerState<_CategoryBar> {
+  final ScrollController _scrollController = ScrollController();
+  final Map<NewsCategory?, GlobalKey> _itemKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToSelected(animated: false);
+  }
+
+  @override
+  void didUpdateWidget(_CategoryBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedCategory != oldWidget.selectedCategory) {
+      _scrollToSelected();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToSelected({bool animated = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      final key = _itemKeys[widget.selectedCategory];
+      if (key?.currentContext == null) return;
+
+      Scrollable.ensureVisible(
+        key!.currentContext!,
+        alignment: 0.5,
+        duration: animated ? const Duration(milliseconds: 400) : Duration.zero,
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top;
+
+    // Ensure we have keys for all categories + null
+    _itemKeys.putIfAbsent(null, () => GlobalKey());
+    for (final cat in NewsCategory.values) {
+      _itemKeys.putIfAbsent(cat, () => GlobalKey());
+    }
 
     return Container(
       padding: EdgeInsets.only(top: topPadding),
@@ -430,7 +500,7 @@ class _CategoryBar extends ConsumerWidget {
           children: [
             // Fixed Sidebar Menu Button (Left)
             GestureDetector(
-              onTap: onOpenDrawer,
+              onTap: widget.onOpenDrawer,
               child: Container(
                 height: 32,
                 width: 36,
@@ -451,13 +521,15 @@ class _CategoryBar extends ConsumerWidget {
               child: SizedBox(
                 height: 32,
                 child: ListView(
+                  controller: _scrollController,
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
                   children: [
                     _FilterChip(
+                      key: _itemKeys[null],
                       label: '✨ For You',
-                      isSelected: selectedCategory == null,
-                      onTap: () => onCategoryChanged(null),
+                      isSelected: widget.selectedCategory == null,
+                      onTap: () => widget.onCategoryChanged(null),
                     ),
                     const SizedBox(width: 8),
                     ..._getSortedCategories(ref)
@@ -470,14 +542,15 @@ class _CategoryBar extends ConsumerWidget {
                         .map((cat) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: _FilterChip(
+                                key: _itemKeys[cat],
                                 label: '${cat.emoji}  ${cat.displayName}',
-                                isSelected: selectedCategory == cat,
-                                onTap: () => onCategoryChanged(cat),
+                                isSelected: widget.selectedCategory == cat,
+                                onTap: () => widget.onCategoryChanged(cat),
                               ),
                             )),
                     // Refresh button at the very end of chip row
                     GestureDetector(
-                      onTap: onRefresh,
+                      onTap: widget.onRefresh,
                       child: Container(
                         height: 32,
                         width: 36,
@@ -519,6 +592,7 @@ class _CategoryBar extends ConsumerWidget {
 
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
+    super.key,
     required this.label,
     required this.isSelected,
     required this.onTap,
@@ -533,8 +607,8 @@ class _FilterChip extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeInCirc,
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(

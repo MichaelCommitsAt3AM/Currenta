@@ -75,13 +75,13 @@ async def lifespan(app: FastAPI):
                         ssl='require',
                         statement_cache_size=0,
                         min_size=2,
-                        max_size=8,
+                        max_size=12,
                         max_inactive_connection_lifetime=300,
                     ),
                     timeout=10.0
                 )
                 app.state.db_pool = db_pool
-                logger.info("Connected to PostgreSQL (pool min=2, max=8).")
+                logger.info("Connected to PostgreSQL (pool min=2, max=12).")
                 break
             except (asyncio.TimeoutError, asyncpg.PostgresError, OSError) as e:
                 wait_time = base_delay * (2 ** attempt)

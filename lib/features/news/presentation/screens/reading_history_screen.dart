@@ -106,6 +106,7 @@ class _ReadingHistoryScreenState extends ConsumerState<ReadingHistoryScreen> {
                   article: article,
                   index: i,
                   total: articles.length,
+                  topPadding: 36,
                 ),
               );
             },

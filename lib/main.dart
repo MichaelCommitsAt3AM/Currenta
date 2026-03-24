@@ -13,7 +13,6 @@ import 'core/providers/providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme/theme.dart';
-import 'features/news/application/background_fetch_service.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
 
@@ -105,20 +104,18 @@ Future<void> main() async {
 /// Tasks that can run after the app has started or in the background
 /// to improve the 'Time to Interactive'.
 Future<void> _initializeDeferredTasks() async {
-  try {
-    // 1. Register background tasks
-    await registerBackgroundTasks();
-
-    // 2. Sign in anonymously if no session exists to track 'seen' state
-    final supabase = Supabase.instance.client;
-    if (supabase.auth.currentSession == null) {
-      debugPrint('[Auth] No session found. Signing in anonymously (deferred)...');
-      await supabase.auth.signInAnonymously();
+    try {
+      // Sign in anonymously if no session exists to track 'seen' state
+      final supabase = Supabase.instance.client;
+      if (supabase.auth.currentSession == null) {
+        debugPrint(
+            '[Auth] No session found. Signing in anonymously (deferred)...');
+        await supabase.auth.signInAnonymously();
+      }
+    } catch (e) {
+      debugPrint('[Init] Deferred initialization failed: $e');
     }
-  } catch (e) {
-    debugPrint('[Init] Deferred initialization failed: $e');
   }
-}
 
 class CurrentaApp extends StatelessWidget {
   const CurrentaApp({super.key, required this.initialScreen});

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../../../core/providers/providers.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/chat_message.dart';
@@ -20,6 +21,12 @@ class AiChatScreen extends ConsumerStatefulWidget {
 class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _pendingUserMessageKey = GlobalKey();
+
+  bool _pendingAnchorRequested = false;
+  bool _hasAnchoredPendingMessage = false;
+  bool _userScrolledAway = false;
+  int? _pendingUserIndex;
 
   static const List<String> _suggestedPrompts = [
     'Context of this story',
@@ -31,6 +38,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_handleScrollPosition);
     if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _sendMessage(widget.initialMessage);
@@ -40,33 +48,84 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScrollPosition);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _scrollToBottom() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+  bool _isNearBottom() {
+    if (!_scrollController.hasClients) return true;
+    return _scrollController.position.extentAfter < 80;
+  }
+
+  void _handleScrollPosition() {
+    _userScrolledAway = !_isNearBottom();
+  }
+
+  bool _hasNonEmptyModelAfter(List<ChatMessage> messages, int userIndex) {
+    for (var i = userIndex + 1; i < messages.length; i++) {
+      final m = messages[i];
+      if (m.role == 'model' && m.content.trim().isNotEmpty) {
+        return true;
       }
+    }
+    return false;
+  }
+
+  void _anchorPendingMessageNearTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasAnchoredPendingMessage) return;
+
+      final ctx = _pendingUserMessageKey.currentContext;
+      if (ctx == null) return;
+
+      _hasAnchoredPendingMessage = true;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.08,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
+
+  void _tryAutoFollowBottom() {
+    if (!mounted || !_scrollController.hasClients || _userScrolledAway) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients || _userScrolledAway) {
+        return;
+      }
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
     });
   }
 
   void _sendMessage([String? text]) {
-    final message = text ?? _controller.text;
+    final message = (text ?? _controller.text).trim();
     if (message.isEmpty) return;
 
-    ref
-        .read(aiChatNotifierProvider(widget.article.id, widget.article.title)
-            .notifier)
-        .sendMessage(message);
+    // Retract keyboard immediately on send.
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    final provider =
+        aiChatNotifierProvider(widget.article.id, widget.article.title);
+    final currentMessages = ref.read(provider).messages;
+
+    _pendingAnchorRequested = true;
+    _hasAnchoredPendingMessage = false;
+    _pendingUserIndex = currentMessages.length;
+    _userScrolledAway = false;
+
+    ref.read(provider.notifier).sendMessage(message);
     _controller.clear();
-    _scrollToBottom();
+
+    // Schedule anchor immediately so the sent user message moves near top
+    // as soon as the next frame containing it is laid out.
+    _anchorPendingMessageNearTop();
   }
 
   Future<void> _startNewChat() async {
@@ -76,13 +135,10 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
     if (!mounted) return;
     _controller.clear();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Started a new chat'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+    _pendingAnchorRequested = false;
+    _hasAnchoredPendingMessage = false;
+    _pendingUserIndex = null;
+    _userScrolledAway = false;
   }
 
   @override
@@ -90,20 +146,44 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     final chatState = ref
         .watch(aiChatNotifierProvider(widget.article.id, widget.article.title));
     final messages = chatState.messages;
-    final visibleMessages = messages
-        .where((m) => !(m.role == 'model' && m.content.trim().isEmpty))
-        .toList(growable: false);
     final isLoading = chatState.isLoading;
+
+    final showPendingPlaceholder = _pendingUserIndex != null &&
+        _pendingUserIndex! >= 0 &&
+        _pendingUserIndex! < messages.length &&
+        !_hasNonEmptyModelAfter(messages, _pendingUserIndex!) &&
+        !messages.skip(_pendingUserIndex! + 1).any((m) => m.role == 'model');
 
     ref.listen(aiChatNotifierProvider(widget.article.id, widget.article.title),
         (previous, next) {
       final prevMsgs = previous?.messages ?? [];
       final nextMsgs = next.messages;
-      if (nextMsgs.isNotEmpty &&
+
+      if (_pendingAnchorRequested && nextMsgs.isNotEmpty) {
+        for (var i = nextMsgs.length - 1; i >= 0; i--) {
+          if (nextMsgs[i].role == 'user') {
+            _pendingUserIndex = i;
+            break;
+          }
+        }
+
+        if (_pendingUserIndex != null) {
+          _anchorPendingMessageNearTop();
+        }
+      }
+
+      if (_pendingUserIndex != null &&
+          _hasNonEmptyModelAfter(nextMsgs, _pendingUserIndex!)) {
+        _pendingAnchorRequested = false;
+      }
+
+      final changed = nextMsgs.isNotEmpty &&
           (prevMsgs.length != nextMsgs.length ||
               (prevMsgs.isNotEmpty &&
-                  prevMsgs.last.content != nextMsgs.last.content))) {
-        _scrollToBottom();
+                  prevMsgs.last.content != nextMsgs.last.content));
+
+      if (changed && !_pendingAnchorRequested) {
+        _tryAutoFollowBottom();
       }
     });
 
@@ -167,30 +247,48 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             child: ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(16),
-              itemCount: visibleMessages.isEmpty
-                  ? (isLoading ? 1 : 1)
-                  : visibleMessages.length + (isLoading ? 1 : 0),
+              itemCount: messages.isEmpty
+                  ? 1
+                  : messages.length + (showPendingPlaceholder ? 1 : 0),
               itemBuilder: (context, index) {
-                if (visibleMessages.isEmpty && !isLoading) {
+                if (messages.isEmpty && !isLoading) {
                   return _EmptyState(articleTitle: widget.article.title);
                 }
 
-                if (isLoading && index == visibleMessages.length) {
-                  return const _TypingIndicator();
+                if (messages.isEmpty) {
+                  return const _ReservedResponseArea();
                 }
 
-                if (index < visibleMessages.length) {
-                  final msg = visibleMessages[index];
-                  return _ChatBubble(message: msg);
+                if (showPendingPlaceholder &&
+                    index == (_pendingUserIndex! + 1)) {
+                  return const _ReservedResponseArea();
                 }
 
-                return const SizedBox.shrink();
+                final msgIndex =
+                    showPendingPlaceholder && index > (_pendingUserIndex! + 1)
+                        ? index - 1
+                        : index;
+
+                if (msgIndex < 0 || msgIndex >= messages.length) {
+                  return const SizedBox.shrink();
+                }
+
+                final msg = messages[msgIndex];
+                final messageKey = msgIndex == _pendingUserIndex
+                    ? _pendingUserMessageKey
+                    : ValueKey(
+                        'msg_${msgIndex}_${msg.role}_${msg.content.hashCode}');
+
+                return _ChatBubble(
+                  key: messageKey,
+                  message: msg,
+                );
               },
             ),
           ),
 
           // ── Suggestions ────────────────────────────────────────────────
-          if (visibleMessages.isEmpty && !isLoading)
+          if (messages.isEmpty && !isLoading)
             _PromptsList(
               prompts: _suggestedPrompts,
               onTap: _sendMessage,
@@ -210,7 +308,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 class _ChatBubble extends StatelessWidget {
   final ChatMessage message;
 
-  const _ChatBubble({required this.message});
+  const _ChatBubble({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -236,6 +334,9 @@ class _ChatBubble extends StatelessWidget {
           ),
           child: Text(
             message.content,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            softWrap: true,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 15,
@@ -244,6 +345,10 @@ class _ChatBubble extends StatelessWidget {
           ),
         ),
       );
+    }
+
+    if (message.content.trim().isEmpty) {
+      return const _ReservedResponseArea();
     }
 
     // AI Response - Full Screen style like ChatGPT
@@ -347,6 +452,55 @@ class _ChatBubble extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReservedResponseArea extends StatelessWidget {
+  const _ReservedResponseArea();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 24),
+      constraints: const BoxConstraints(minHeight: 132),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 14,
+                  color: Color(0xFF6C63FF),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Shimmer.fromColors(
+                baseColor: const Color(0xFF6C63FF),
+                highlightColor: Colors.white,
+                period: const Duration(milliseconds: 2000),
+                child: const Text(
+                  'Assistant is thinking...',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const SizedBox(height: 88),
         ],
       ),
     );
@@ -494,8 +648,31 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _TypingIndicator extends StatelessWidget {
+class _TypingIndicator extends StatefulWidget {
   const _TypingIndicator();
+
+  @override
+  State<_TypingIndicator> createState() => _TypingIndicatorState();
+}
+
+class _TypingIndicatorState extends State<_TypingIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -520,12 +697,16 @@ class _TypingIndicator extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Text(
-                'Assistant is thinking...',
-                style: TextStyle(
-                  color: Color(0xFF6C63FF),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+              Shimmer.fromColors(
+                baseColor: const Color(0xFF6C63FF),
+                highlightColor: Colors.white,
+                period: const Duration(milliseconds: 2000),
+                child: const Text(
+                  'Assistant is thinking...',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -534,14 +715,41 @@ class _TypingIndicator extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: List.generate(3, (index) {
-              return Container(
-                margin: const EdgeInsets.only(right: 4),
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
-                  shape: BoxShape.circle,
-                ),
+              return AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  final double begin = index * 0.2;
+                  final double end = (begin + 0.6).clamp(0.0, 1.0);
+                  final double value = _controller.value;
+
+                  double shift = 0.0;
+                  if (value >= begin && value <= end) {
+                    final double relative = (value - begin) / (end - begin);
+                    shift =
+                        (relative < 0.5 ? relative * 2 : (1.0 - relative) * 2);
+                  }
+
+                  return Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6C63FF)
+                          .withValues(alpha: 0.3 + (shift * 0.7)),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        if (shift > 0.1)
+                          BoxShadow(
+                            color: const Color(0xFF6C63FF)
+                                .withValues(alpha: 0.4 * shift),
+                            blurRadius: 4,
+                            spreadRadius: 1 * shift,
+                          ),
+                      ],
+                    ),
+                    transform: Matrix4.translationValues(0, -shift * 4, 0),
+                  );
+                },
               );
             }),
           ),

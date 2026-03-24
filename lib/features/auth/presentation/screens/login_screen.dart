@@ -7,9 +7,15 @@ import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
 import 'otp_verification_screen.dart';
+import '../../../news/presentation/screens/feed_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({
+    super.key,
+    this.redirectToFeedOnSuccess = false,
+  });
+
+  final bool redirectToFeedOnSuccess;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -47,7 +53,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // If authenticated, we can optionally pop or navigate away.
     // However, handling it via a router listener might be better long-term.
     ref.listen(authNotifierProvider, (previous, next) {
-      debugPrint('[Login] Auth state changed: auth=${next.isAuthenticated}, loading=${next.isLoading}, error=${next.error != null}');
+      debugPrint(
+          '[Login] Auth state changed: auth=${next.isAuthenticated}, loading=${next.isLoading}, error=${next.error != null}');
       if (next.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -58,12 +65,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
       if (next.isAuthenticated) {
-        debugPrint('[Login] Authenticated! Attempting to pop...');
-        // Assuming we came to this screen by pushing it, we can pop back to Feed.
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);
+        if (widget.redirectToFeedOnSuccess) {
+          debugPrint('[Login] Authenticated! Redirecting to Feed...');
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const FeedScreen()),
+            (route) => false,
+          );
         } else {
-          debugPrint('[Login] Cannot pop! Maybe we are at the root?');
+          debugPrint('[Login] Authenticated! Attempting to pop...');
+          // Assuming we came to this screen by pushing it, we can pop back.
+          if (Navigator.canPop(context)) {
+            Navigator.pop(context);
+          } else {
+            debugPrint('[Login] Cannot pop! Maybe we are at the root?');
+          }
         }
       } else if (next.needsOtp && next.pendingEmail != null) {
         Navigator.push(
@@ -301,20 +316,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: () async {
               if (formKey.currentState!.validate()) {
                 final email = controller.text.trim();
                 Navigator.pop(context); // Close dialog
-                await ref.read(authNotifierProvider.notifier).sendPasswordResetEmail(email);
+                await ref
+                    .read(authNotifierProvider.notifier)
+                    .sendPasswordResetEmail(email);
               }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6C63FF),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
             child: const Text('Send Code'),
           ),

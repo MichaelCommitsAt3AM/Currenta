@@ -8,9 +8,13 @@ from datetime import datetime, timezone
 from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 import httpx
+import asyncpg
 from supabase import create_client, Client
 from .scraper import scrape_article_sync, discover_techcrunch_articles
 from dateutil import parser as date_parser
+import random
+import uuid
+from uuid import UUID
 
 import logging
 from google import genai
@@ -318,17 +322,18 @@ def is_scraper_error_page(text: str) -> bool:
 
 
 BETTING_STRONG_SIGNALS = [
-    "odds", "bet now", "free bet", "bookmaker", "wager", "stake", "parlay", "betting tips",
+    "odds", "bet now", "free bet", "bookmaker", "wager", "parlay", "betting tips",
     "sportsbook", "moneyline", "over/under", "point spread", "best bets", "expert picks",
     "bonus bets", "promo code", "sports betting promo", "betting promo"
 ]
 
 BETTING_WEAK_SIGNALS = [
-    "prediction", "forecast", "spread", "tips"
+    "prediction", "forecast", "stake", "tips"
 ]
 
 SAFE_CONTEXT_SIGNALS = [
-    "oil", "stocks", "gdp", "inflation", "weather", "economy", "market", "analysis", "report", "research"
+    "oil", "stocks", "gdp", "inflation", "weather", "economy", "market", "analysis", "report", "research",
+    "health", "disease", "medical", "treatment", "outbreak", "vaccine", "clinical", "governance", "policy"
 ]
 
 SPORTS_TERMS = [
@@ -339,8 +344,35 @@ BAD_DOMAIN_HINTS = [
     "draftkings", "fanduel", "betmgm", "pointsbet", "bet365", "bovada", "sportsbook", "oddschecker"
 ]
 
+BETTING_URL_HARD_SIGNALS = [
+    "/odds", "-odds-", "/betting", "/sportsbook", "/parlay", "/moneyline",
+    "/point-spread", "/wager", "/free-bet", "/bonus-bet", "/promo-code",
+    "/expert-picks", "/best-bets"
+]
+
+PREDICTION_URL_SIGNALS = [
+    "/prediction", "/predictions", "-prediction-", "-predictions-", "/tips", "-tips-", "/picks", "-picks-"
+]
+
+SPORTS_URL_CONTEXT_HINTS = [
+    "/football/", "/soccer/", "/nba/", "/nfl/", "/mlb/", "/nhl/", "/tennis/", "/cricket/",
+    "-vs-", "/vs/", " fixture", "fixtures", "match"
+]
+
+SPORTS_PREMATCH_SIGNALS = [
+    "/preview", "-preview-", "match-preview", "team-news", "predicted-lineup",
+    "starting-xi", "lineups", "kickoff", "kick-off", "how-to-watch", "where-to-watch",
+    "live-stream", "head-to-head", "h2h", "fans-attending", "tickets", "clash", "fixture"
+]
+
+SPORTS_POSTMATCH_ALLOW_SIGNALS = [
+    "result", "results", "wins", "win over", "defeats", "beat", "beaten",
+    "recap", "match report", "post-match", "highlights", "reaction"
+]
+
 GOOD_DOMAIN_HINTS = [
-    "reuters", "bloomberg", "ft.com", "wsj.com", "cnbc.com", "economist", "marketwatch", "apnews"
+    "reuters", "bloomberg", "ft.com", "wsj.com", "cnbc.com", "economist", "marketwatch", "apnews",
+    "who.int", "cdc.gov", "nih.gov", "un.org", "nature.com", "thelancet.com", "mayoclinic.org", "sciencedaily.com"
 ]
 
 BETTING_PATTERNS = [
@@ -372,6 +404,166 @@ def _domain_from_url(url: Optional[str]) -> str:
     m = re.search(r"https?://([^/]+)", url.lower())
     return m.group(1) if m else ""
 
+
+def is_sports_prematch_preview_url(url: str, title: str = "", context_text: str = "") -> Optional[str]:
+    if not url:
+        return None
+
+    url_lc = url.lower()
+    title_lc = (title or "").lower()
+    context_lc = (context_text or "").lower()
+    combined = f" {url_lc} {title_lc} {context_lc} "
+
+    has_prematch_signal = any(sig in combined for sig in SPORTS_PREMATCH_SIGNALS)
+    if not has_prematch_signal:
+        return None
+
+    has_sports_context = any(sig in combined for sig in [
+        " football ", " soccer ", " nba ", " nfl ", " mlb ", " nhl ", " cricket ", " tennis ",
+        " match ", " fixture ", " vs ", " club ", " afc ", " fc "
+    ])
+    has_vs_pattern = bool(re.search(r"\b[a-z0-9][a-z0-9\s\-]{0,30}\bvs\b[a-z0-9][a-z0-9\s\-]{0,30}", combined)) or "-vs-" in url_lc
+    has_postmatch_allow = any(sig in combined for sig in SPORTS_POSTMATCH_ALLOW_SIGNALS)
+
+    if (has_sports_context or has_vs_pattern) and not has_postmatch_allow:
+        return "Blocked sports pre-match preview URL"
+
+    return None
+
+
+def is_junk_url(url: str, title: str = "", context_text: str = "") -> Optional[str]:
+    """Fast pre-scrape URL filter for betting/prediction junk.
+
+    Keeps this check conservative to avoid false positives on non-sports
+    prediction content like weather/economic forecasts.
+    """
+    if not url:
+        return None
+
+    url_lc = url.lower()
+    title_lc = (title or "").lower()
+    context_lc = (context_text or "").lower()
+    domain = _domain_from_url(url_lc)
+
+    if domain and any(bad in domain for bad in BAD_DOMAIN_HINTS):
+        return f"Blocked betting domain hint: {domain}"
+
+    for signal in BETTING_URL_HARD_SIGNALS:
+        if signal in url_lc:
+            return f"Blocked betting URL signal: {signal}"
+
+    has_prediction_signal = any(signal in url_lc for signal in PREDICTION_URL_SIGNALS)
+    if has_prediction_signal:
+        has_sports_context = (
+            any(h in url_lc for h in SPORTS_URL_CONTEXT_HINTS)
+            or any(h in title_lc for h in [" vs ", "match", "fixture", "odds", "bet", "picks"])
+            or any(h in context_lc for h in [" vs ", "match", "fixture", "odds", "bet", "picks"])
+        )
+        if has_sports_context:
+            return "Blocked sports prediction URL"
+
+    if re.search(r"/[a-z0-9\-]+-vs-[a-z0-9\-]+", url_lc) and any(
+        token in url_lc for token in ("odds", "prediction", "predictions", "picks", "tips")
+    ):
+        return "Blocked head-to-head betting URL pattern"
+
+    prematch_reason = is_sports_prematch_preview_url(url, title, context_text)
+    if prematch_reason:
+        return prematch_reason
+
+    return None
+
+# ---------------------------------------------------------------------------
+# Stage 1: Ingest-time Blocklists (Managed via Supabase)
+# ---------------------------------------------------------------------------
+class IngestBlocklist:
+    def __init__(self):
+        self._blocks = []
+        self._last_refresh = datetime.min.replace(tzinfo=timezone.utc)
+        self._refresh_lock = asyncio.Lock()
+
+    async def _maybe_refresh(self, conn=None):
+        now = datetime.now(timezone.utc)
+        # Refresh every 10 minutes
+        if (now - self._last_refresh).total_seconds() < 600:
+            return
+
+        async with self._refresh_lock:
+            # Double-check inside lock
+            if (datetime.now(timezone.utc) - self._last_refresh).total_seconds() < 600:
+                return
+            
+            try:
+                # We use the provided connection if available, otherwise we can't refresh
+                if conn:
+                    records = await conn.fetch("SELECT pattern, type FROM ingestion_blocks WHERE is_active = true")
+                    self._blocks = [dict(r) for r in records]
+                    self._last_refresh = datetime.now(timezone.utc)
+                    logger.info(f"[Blocklist] Refreshed {len(self._blocks)} active rules.")
+            except Exception as e:
+                logger.error(f"[Blocklist] Refresh failed: {e}")
+
+    async def is_blocked(self, url: str, conn=None) -> Optional[str]:
+        await self._maybe_refresh(conn)
+        
+        url_lc = url.lower()
+        domain = _domain_from_url(url_lc)
+        
+        for block in self._blocks:
+            pattern = block["pattern"].lower()
+            btype = block["type"]
+            
+            if btype == "domain" and (domain == pattern or domain.endswith("." + pattern)):
+                return f"Blocked Domain: {pattern}"
+            elif btype == "path" and pattern in url_lc:
+                return f"Blocked Path Pattern: {pattern}"
+            elif btype == "regex":
+                try:
+                    if re.search(pattern, url_lc):
+                        return f"Blocked Regex Pattern: {pattern}"
+                except Exception:
+                    continue
+        return None
+
+BLOCKLIST_MANAGER = IngestBlocklist()
+
+# ---------------------------------------------------------------------------
+# Stage 2: Deterministic Feature Extraction (Pre-fetch)
+# ---------------------------------------------------------------------------
+def is_metadata_junk(item: dict) -> Optional[str]:
+    """Checks RSS metadata before fetching content."""
+    url = item.get("link", "").lower()
+    title = item.get("title", "").lower()
+    summary = item.get("description", "").lower()
+    
+    # URL Slug Patterns (Obvious commercial/junk slugs)
+    bad_slugs = [
+        "-deals-", "-coupon-", "-promo-", "-giveaway-", "/shop/", "/buy/",
+        "/promotions/", "/sponsored-", "-best-of-202", "/best-", "-cheap-",
+        "/reviews/buying-guide", "/odds/", "/betting/"
+    ]
+    for slug in bad_slugs:
+        if slug in url:
+            return f"Metadata junk slug: {slug}"
+
+    # RSS Category Filtering
+    categories = [str(c).lower() for c in item.get("categories", [])]
+    junk_categories = ["sponsored", "advertisement", "betting", "gambling", "promo", "deals", "shopping"]
+    for cat in categories:
+        if any(j in cat for j in junk_categories):
+            return f"Metadata junk category: {cat}"
+
+    # Title Patterns (Clickbait/Roundup)
+    bad_titles = [
+        "best deals", "gift guide", "buying guide", "how to watch", "streaming options",
+        "live updates", "live scores", "winners and losers", "today's top stories",
+        "news roundup", "morning briefing", "daily digest"
+    ]
+    for pattern in bad_titles:
+        if pattern in title:
+            return f"Metadata junk title pattern: {pattern}"
+
+    return None
 
 def _live_blog_reason(title: str, source_url: Optional[str]) -> Optional[str]:
     if not source_url:
@@ -517,7 +709,7 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> 
         "token and bonus bets", "non-withdrawable",
         "podcast summary", "latest episode", "new episode", "listen to the podcast",
         "listen on apple", "listen on spotify", "subscribe on", "full episode of",
-        "this episode of", "bonus episode", "transcript provided", "show notes",
+        "this episode of", "bonus episode", "transcript provided",
         "archive page", "daily summary", "weekly roundup", "morning newsletter",
         "evening newsletter", "weekend edition", "today's headlines", "top stories of the week",
         "news roundup", "summary of the day", "what we're reading", "recap", "news in brief",
@@ -578,7 +770,7 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> 
 
     return None
 
-async def summarize_article(text: str, provider: str, category_hint: str = None, category_bias: str = "neutral") -> dict:
+async def summarize_article(text: str, provider: str, category_hint: str = None, category_bias: str = "neutral", http_client: Optional[httpx.AsyncClient] = None) -> dict:
     category_context = ""
     if category_hint:
         if category_bias == "strong":
@@ -589,7 +781,13 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
     full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}\n\nArticle:\n{text}"
     raw_content = ""
 
-    async with httpx.AsyncClient(timeout=90.0) as client:
+    # Recommendation 3: Use shared http_client if provided to reduce connection overhead
+    client_ctx = None
+    if not http_client:
+        client_ctx = httpx.AsyncClient(timeout=90.0)
+    
+    client = http_client or client_ctx
+    try:
         if provider in ("gemini", "vertex"):
             # Use unified SDK for both Gemini (API Studio) and Vertex
             gen_client = _vertex_client if provider == "vertex" else _gemini_client
@@ -657,6 +855,10 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
             res.raise_for_status()
             data = res.json()
             raw_content = data["choices"][0]["message"]["content"].strip()
+            
+    finally:
+        if client_ctx:
+            await client_ctx.aclose()
 
     return parse_llm_response(raw_content)
 
@@ -741,12 +943,17 @@ def parse_llm_response(raw_str: str) -> dict:
             "subcategory": ""
         }
 
-async def embed_text(text: str) -> list[float]:
+async def embed_text(text: str, http_client: Optional[httpx.AsyncClient] = None) -> list[float]:
     provider = EMBEDDING_PROVIDER
     max_retries = 5
     base_delay = 2.0
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    client_ctx = None
+    if not http_client:
+        client_ctx = httpx.AsyncClient(timeout=60.0)
+        
+    client = http_client or client_ctx
+    try:
         if provider == "voyage":
             if not VOYAGE_API_KEY:
                 raise ValueError("VOYAGE_API_KEY is required when EMBEDDING_PROVIDER=voyage.")
@@ -824,35 +1031,53 @@ async def embed_text(text: str) -> list[float]:
                     raise e
 
         raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
+    
+    finally:
+        if client_ctx:
+            await client_ctx.aclose()
 
 async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
     if not supabase_client:
         print("[Image-Storage] CRITICAL: Supabase client not initialized. Cannot upload.")
         return None
-    try:
-        file_path = f"covers/{file_name}.jpg"
-        # print(f"[Image-Storage] Attempting upload of {file_path} ({len(image_bytes)/1024:.1f}KB)...")
         
-        # Check bucket before upload? Minimal approach: just attempt
-        res = supabase_client.storage.from_("article-images").upload(
-            file_path,
-            image_bytes,
-            file_options={"content-type": "image/jpeg", "upsert": "true"}
-        )
-        
-        # Supabase Python client returns the response object or raises an exception
-        # We need to see what's inside.
-        # print(f"[Image-Storage] Upload result: {res}")
-        
-        public_url = supabase_client.storage.from_("article-images").get_public_url(file_path)
-        # print(f"[Image-Storage] Generated Public URL: {public_url}")
-        
-        return public_url
-    except Exception as e:
-        print(f"[Image-Storage] ERROR during upload to Supabase: {type(e).__name__} - {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+    file_path = f"covers/{file_name}.jpg"
+    max_retries = 3
+    base_delay = 2.0
+    
+    for attempt in range(max_retries + 1):
+        try:
+            # Use asyncio.to_thread to avoid blocking the event loop — the SDK's storage calls are synchronous.
+            def _do_upload():
+                return supabase_client.storage.from_("article-images").upload(
+                    file_path,
+                    image_bytes,
+                    file_options={"content-type": "image/jpeg", "upsert": "true"}
+                )
+            
+            await asyncio.to_thread(_do_upload)
+            
+            # Generated locally by the SDK based on base URL and path
+            public_url = supabase_client.storage.from_("article-images").get_public_url(file_path)
+            return public_url
+            
+        except Exception as e:
+            err_msg = str(e)
+            # Handle transient errors like 544 Database Timeout or 504 Gateway Timeout
+            is_transient = any(sig in err_msg for sig in ["544", "504", "502", "timeout", "time out", "DatabaseTimeout"])
+            
+            if attempt < max_retries and is_transient:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(f"[Image-Storage] Upload transient error (attempt {attempt+1}/{max_retries}): {err_msg}. Retrying in {delay:.2f}s...")
+                await asyncio.sleep(delay)
+                continue
+
+            logger.error(f"[Image-Storage] Error during upload to Supabase: {type(e).__name__} - {e}")
+            if not is_transient:
+                 # For non-transient errors (like bucket not found, auth error), don't retry and just stop.
+                 break
+    
+    return None
 
 async def parse_rss(feed_url: str) -> list[dict]:
     async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -1017,23 +1242,32 @@ async def parse_rss(feed_url: str) -> list[dict]:
         
     return parsed_items
 
-async def is_duplicate(conn, embedding: list[float]) -> bool:
-    # Recommendation 3: Pass embedding list directly instead of stringifying.
-    # We use $1::vector in the query or ensure the function handles the cast.
+async def find_cluster_match(conn, embedding: list[float]) -> Optional[UUID]:
+    """
+    Checks if a near-duplicate article exists in the database within the last 7 days.
+    Returns the cluster_id of the matching article if found, else None.
+    Uses similarity search via pgvector.
+    """
     try:
         # Check similarity match (...)
-        # The match_recent_articles function expects the same embedding dimension
-        # as the configured embedding model.
-        # We cast the list (which asyncpg sends as float8[]) to ::vector.
+        # The match_recent_articles function returns (id, similarity)
+        # We also want to fetch the cluster_id to maintain the story cluster.
+        # But wait, match_recent_articles is a DB function we inspected.
+        # Let's call it and then fetch the cluster_id of that article.
         records = await conn.fetch(
-            "SELECT id FROM match_recent_articles($1::float8[]::vector, $2, $3)",
-            embedding, SIMILARITY_THRESHOLD, 1
+            """
+            SELECT id, cluster_id 
+            FROM match_recent_articles($1::float8[]::vector, $2, 1)
+            """,
+            embedding, SIMILARITY_THRESHOLD
         )
-        return len(records) > 0
+        if records:
+            # If the matching article has no cluster_id yet, we use its own ID as the cluster root.
+            return records[0]["cluster_id"] or records[0]["id"]
+        return None
     except Exception as e:
-        # Fallback log
-        print(f"[Duplicate Check] error: {e}")
-        return False
+        logger.error("[Cluster Match] error: %s", e)
+        return None
 
 def get_model_name(provider: str) -> str:
     if provider in ("gemini", "vertex"): return "gemini-2.5-flash-lite"
@@ -1051,7 +1285,7 @@ async def log_ingestion_event(conn, url, status, source_name=None, error_type=No
     except Exception as e:
         print(f"[Logger] Failed to write to ingestion_logs: {e}")
 
-async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss"):
+async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss", http_client: Optional[httpx.AsyncClient] = None):
     results = {"ingested": 0, "skipped": 0, "errors": 0}
     try:
         if method == "site_tc":
@@ -1107,6 +1341,20 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     error_type="DUPLICATE_URL_OR_HASH",
                     error_message="Skipped because URL or content hash already exists in articles table."
                 )
+                results["skipped"] += 1
+                continue
+
+            # Stage 1: Blocklist Check (Pre-fetch)
+            block_reason = await BLOCKLIST_MANAGER.is_blocked(item["link"], conn=conn)
+            if block_reason:
+                await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item.get("source"), error_type="BLOCKLISTED", error_message=block_reason)
+                results["skipped"] += 1
+                continue
+
+            # Stage 2: Metadata Junk Check (Pre-fetch)
+            meta_junk_reason = is_metadata_junk(item)
+            if meta_junk_reason:
+                await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item.get("source"), error_type="METADATA_JUNK", error_message=meta_junk_reason)
                 results["skipped"] += 1
                 continue
 
@@ -1190,7 +1438,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 # Summarize
                 try:
-                    llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias)
+                    llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias, http_client=http_client)
                 except Exception as llm_err:
                     print(f"[processFeed] LLM ERROR for {item['link']}: {llm_err}")
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="LLM_ERROR", error_message=str(llm_err))
@@ -1227,20 +1475,29 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     results["skipped"] += 1
                     continue
 
-                embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
+                embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"], http_client=http_client)
                 
                 # Check for semantic duplicate using the same connection
-                if await is_duplicate(conn, embedding):
+                # --- Clustering & Deduplication ---
+                matched_cluster_id = await find_cluster_match(conn, embedding)
+                if matched_cluster_id:
+                    # In this robust implementation, we skip duplicates to keep the primary feed high-signal.
+                    # We could also save them with the same cluster_id if we wanted to show 'Other Sources'.
+                    logger.info("[Ingest] Skipping duplicate: Article similar to cluster %s", matched_cluster_id)
                     await log_ingestion_event(
                         conn,
                         item["link"],
                         "SKIPPED",
                         source_name=item.get("source"),
                         error_type="DUPLICATE_EMBEDDING",
-                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD})."
+                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
                     )
                     results["skipped"] += 1
                     continue
+                
+                # New story: assign a fresh cluster_id (using the article's own ID as root)
+                article_id = uuid.uuid4() # Generate a new UUID for the article
+                target_cluster_id = article_id # Primary article is its own cluster root
 
                 # Insert using the same connection
                 try:
@@ -1248,19 +1505,30 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     ingestion_method = "scraper" if scraper_status == "SUCCESS" else "rss"
                     ranking_score = calculate_ranking_score(item["pubDate"], 0.0)
                     
-                    await conn.execute('''
-                        INSERT INTO articles (
-                            title, summary, original_url, image_url, source_name,
-                            published_at, categories, subcategory, embedding, content_hash, 
-                            summary_model, country_code, is_paywalled, ingestion_method, created_at,
-                            ranking_score
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15)
-                        ON CONFLICT (original_url) DO NOTHING
-                    ''', 
-                    llm_res["title"], llm_res["summary"], item["link"], article_image_url, item["source"],
-                    item["pubDate"], llm_res["categories"], llm_res["subcategory"],
-                    embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method,
-                    ranking_score)
+                    # Extract variables for clarity and new insert statement
+                    link = item["link"]
+                    image = article_image_url
+                    source_name = item["source"]
+                    # Assuming source_favicon_url might be available in item or derived
+                    favicon_url = item.get("source_favicon_url") # Placeholder, adjust as needed
+                    item_pub_date = item["pubDate"]
+                    categories = llm_res["categories"]
+                    subcategory = llm_res["subcategory"]
+
+                    await conn.execute(
+                    '''
+                    INSERT INTO articles (
+                        id, title, summary, original_url, image_url, source_name, source_favicon_url,
+                        published_at, categories, subcategory, embedding, content_hash, 
+                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17)
+                    ON CONFLICT (original_url) DO NOTHING
+                    ''',
+                    article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
+                    item_pub_date, categories, subcategory, embedding, content_hash, 
+                    get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method, target_cluster_id
+                )
                     
                     # Log successful ingestion with details
                     final_status = scraper_status
@@ -1365,31 +1633,33 @@ async def orchestrate():
     global SHOULD_STOP_INGESTION
     SHOULD_STOP_INGESTION = False
     
-    # 5. Orchestration Sequential Bottleneck: Use controlled concurrency
-    semaphore = asyncio.Semaphore(4) # Limit to 4 concurrent feeds to avoid overloading LLM/DB
+    # 5. Orchestration Concurrency: Increased to 8 (Audit Recommendation)
+    semaphore = asyncio.Semaphore(8) 
 
-    async def safe_process(url, cat, bias, country=None, method="rss"):
+    async def safe_process(url, cat, bias, country=None, method="rss", client=None):
         if SHOULD_STOP_INGESTION:
             return
         async with semaphore:
             logger.info(f"Orchestrator: Processing: {url} (Method: {method})")
             try:
-                await process_feed(url, cat, bias, db_pool, country_code=country, method=method)
+                await process_feed(url, cat, bias, db_pool, country_code=country, method=method, http_client=client)
             except Exception as e:
                 logger.error(f"Orchestrator: Error processing feed {url}: {e}")
 
-    # Create tasks for all global feeds
-    tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"], method=f.get("method", "rss")) for f in FEEDS]
-    
-    # Add tasks for supported local regions
-    for region in SUPPORTED_LOCAL_REGIONS:
-        locations = region.get("locations", [None])
-        lang = region.get("lang", "en")
-        for loc in locations:
-            rss_url = build_google_news_rss_url(region["code"], lang, location=loc)
-            tasks.append(safe_process(rss_url, "local", "strong", country=region["code"]))
-    
-    await asyncio.gather(*tasks)
+    # Recommendation 3: Use a single shared client for the entire run
+    async with httpx.AsyncClient(timeout=90.0) as shared_client:
+        # Create tasks for all global feeds
+        tasks = [safe_process(f["feedUrl"], f["defaultCategory"], f["categoryBias"], method=f.get("method", "rss"), client=shared_client) for f in FEEDS]
+        
+        # Add tasks for supported local regions
+        for region in SUPPORTED_LOCAL_REGIONS:
+            locations = region.get("locations", [None])
+            lang = region.get("lang", "en")
+            for loc in locations:
+                rss_url = build_google_news_rss_url(region["code"], lang, location=loc)
+                tasks.append(safe_process(rss_url, "local", "strong", country=region["code"], client=shared_client))
+        
+        await asyncio.gather(*tasks)
 
     logger.info("Orchestrator: Orchestration complete")
 
@@ -1403,10 +1673,72 @@ async def add_source_feed_to_queue(feed_url: str, category_hint: str = None):
         print("[ManualTrigger] Database pool not ready.")
         return
         
-    print(f"[ManualTrigger] Processing feed: {feed_url}")
     # Default category to 'world' if not provided
     cat = category_hint or 'world'
     await process_feed(feed_url, cat, "neutral", db_pool)
+
+async def flush_view_buffer(db_pool: asyncpg.Pool, redis_client):
+    """
+    Audit Recommendation: Persist article views from Redis buffer in batches.
+    Runs every 60 seconds via scheduler.
+    """
+    if not redis_client or not db_pool:
+        return
+
+    # Pop up to 1000 items from the buffer
+    views = []
+    try:
+        # Format: "user_id:article_id"
+        raw_views = await redis_client.lpop("pending_view_buffer", 1000)
+        if not raw_views:
+            return
+        
+        # aioredis/redis-py might return a list or a single string depending on version and count param
+        if isinstance(raw_views, str):
+            views = [raw_views]
+        else:
+            views = raw_views
+            
+    except Exception as e:
+        logger.warning("[View-Flush] Failed to pop views from Redis: %s", e)
+        return
+
+    if not views:
+        return
+
+    # De-duplicate views in this batch to reduce DB work further
+    unique_views = set(views)
+    
+    from uuid import UUID
+    parsed_views = []
+    for v in unique_views:
+        try:
+            uid_str, aid_str = v.split(":", 1)
+            parsed_views.append((UUID(uid_str), UUID(aid_str)))
+        except (ValueError, AttributeError):
+            continue
+
+    if not parsed_views:
+        return
+
+    logger.info("[View-Flush] Flushing %d article views to database", len(parsed_views))
+    
+    try:
+        async with db_pool.acquire() as conn:
+            # Batch insert using executemany. We use a subquery to ensure the article exists,
+            # preventing foreign key violations from failing the entire batch.
+            await conn.executemany(
+                """
+                INSERT INTO article_views (user_id, article_id)
+                SELECT v.uid, v.aid 
+                FROM (SELECT $1::uuid AS uid, $2::uuid AS aid) v
+                WHERE EXISTS (SELECT 1 FROM articles WHERE id = v.aid)
+                ON CONFLICT (user_id, article_id) DO NOTHING
+                """,
+                parsed_views
+            )
+    except Exception as e:
+        logger.error("[View-Flush] Failed to flush views to database: %s", e)
 
 async def fetch_local_news_on_demand(country_code: str, db_pool):
     """
@@ -1475,6 +1807,12 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             )
             return None
 
+        # Fast URL-level junk gate before any network-heavy scraping.
+        junk_url_reason = is_junk_url(url)
+        if junk_url_reason:
+            await log_ingestion_event(conn, url, "SKIPPED", error_type="SKIPPED_JUNK_URL", error_message=junk_url_reason)
+            return None
+
         scraper_result = await asyncio.to_thread(scrape_article_sync, url)
         if scraper_result.get("error"):
             await log_ingestion_event(conn, url, "FAILED", error_type="SCRAPER_ERROR", error_message=scraper_result.get("error"))
@@ -1512,15 +1850,20 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
 
         # Embed
         embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
-        if await is_duplicate(conn, embedding):
+        matched_cluster_id = await find_cluster_match(conn, embedding)
+        if matched_cluster_id:
             await log_ingestion_event(
                 conn,
                 url,
                 "SKIPPED",
                 error_type="DUPLICATE_EMBEDDING",
-                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD})."
+                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
             )
             return None
+        
+        # New cluster root
+        article_id = uuid.uuid4()
+        target_cluster_id = article_id
 
         # Image
         article_image_url = scraper_result.get("image_url")

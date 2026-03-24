@@ -22,7 +22,7 @@ router = APIRouter()
 # --- Abuse Prevention Constants ---
 MAX_HISTORY_DEPTH = 6
 MAX_INPUT_CHARS = 500
-DAILY_MESSAGE_LIMIT = 50
+DAILY_MESSAGE_LIMIT = 30
 
 # --- LLM Provider Selection ---
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").lower()
@@ -100,7 +100,9 @@ def _build_system_instruction(article: dict) -> str:
         f"3. NO FLUFF: Do not engage in coding, general advice, or unrelated creative tasks. Your domain is strictly news context.\n"
         f"4. FACTUALITY: If search results are unavailable or inconclusive, state that clearly.\n"
         f"5. CONCISENESS: Your responses MUST be extremely concise. Limit yourself to exactly ONE short paragraph or a few bullet points. "
-        f"Do not provide long-winded explanations even if the user asks for detail."
+        f"Do not provide long-winded explanations even if the user asks for detail.\n"
+        f"6. DIRECTNESS: Do not use meta-commentary like 'The article states', 'According to the summary', or 'Based on the provided information'. "
+        f"Answer the user's question directly and concisely as if you already have the knowledge."
     )
 
 
