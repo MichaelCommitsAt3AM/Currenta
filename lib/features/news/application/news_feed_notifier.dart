@@ -85,6 +85,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
   LocalPersistenceRepository get _persistence =>
       ref.read(localPersistenceRepositoryProvider);
+  
+  /// In-memory cache to preserve feed state (articles, index, pagination status) 
+  /// for each category durante the session.
+  final Map<NewsCategory?, FeedState> _feedCache = {};
+  
   Future<void>? _refreshInFlight;
 
   @override
@@ -167,12 +172,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // SILENT refresh in background.
     Future.microtask(_backgroundRefresh);
 
-    return FeedState(
+    final finalState = FeedState(
       articles: articles,
       hasMore: true, // Always allow pagination to trigger remote sync
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
     );
+
+    // Initial check-in to cache
+    _feedCache[savedCategoryId] = finalState;
+
+    return finalState;
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -234,6 +244,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isLoadingMore: false,
         hasMore: (nextPage.isNotEmpty || syncedCount > 0),
       ));
+
+      // Update cache with the new page data
+      _feedCache[category] = state.value!;
     } catch (e, st) {
       debugPrint('[Feed] loadNextPage error: $e\n$st');
       final current = state.valueOrNull;
@@ -243,32 +256,54 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
-  /// Filter by category, resetting pagination to page 0.
+  /// Filter by category, resetting pagination to page 0 if not cached.
   /// Auto-fetches a second page if the first returns fewer than [_kPageSize].
   Future<void> filterByCategory(NewsCategory? category) async {
-    // 2. Immediately update state to loading carrying the target category
+    // 1. Save current state to cache before switching away
+    final oldState = state.valueOrNull;
+    if (oldState != null) {
+      _feedCache[oldState.selectedCategory] = oldState;
+    }
+
+    // 2. Check if we have this category cached
+    if (_feedCache.containsKey(category)) {
+      final cached = _feedCache[category]!;
+      state = AsyncData(cached);
+
+      // Persist the current article ID of the restored feed
+      if (cached.articles.isNotEmpty &&
+          cached.currentIndex < cached.articles.length) {
+        _persistence.saveCurrentArticleId(cached.articles[cached.currentIndex].id);
+      }
+
+      // Proactively refresh in background to keep it fresh
+      unawaited(_backgroundRefresh(forcedCategory: category));
+      return;
+    }
+
+    // 3. Not in cache: Initialize fresh loading carrier
     state = AsyncLoading<FeedState>().copyWithPrevious(AsyncData(FeedState(
       articles: [], // Clear articles to show whole-screen shimmer
       selectedCategory: category,
     )));
 
     try {
-      // 3. Fetch from local cache first
+      // 4. Fetch from local cache first
       final articles = await _repo.fetchPage(
         category: category,
         limit: _kPageSize,
         offset: 0,
       );
 
-      // 4. Update memory state
+      // 5. Update memory state
       final currentState = FeedState(
         articles: articles,
         hasMore: true,
         selectedCategory: category,
-        isLoadingMore: false, // Set to false so loadNextPage can start
+        isLoadingMore: false,
       );
 
-      // 5. If cache is empty, we must keep the UI in a loading state while we fetch remote.
+      // 6. If cache is empty, we must keep the UI in a loading state while we fetch remote.
       if (articles.isEmpty) {
         state =
             AsyncLoading<FeedState>().copyWithPrevious(AsyncData(currentState));
@@ -281,6 +316,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         if (articles.length < _kPageSize) {
           unawaited(loadNextPage());
         }
+      }
+
+      // Update cache with the new result
+      if (state.hasValue) {
+        _feedCache[category] = state.value!;
       }
 
       // Persist the first article ID of this new feed if available
@@ -319,19 +359,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current == null) return;
 
-    // 1. Optimistic UI update
-    final updatedArticles = current.articles.map((a) {
-      if (a.id == articleId) {
-        final newIsLiked = !a.isLiked;
-        return a.copyWith(
-          isLiked: newIsLiked,
-          likesCount: newIsLiked ? a.likesCount + 1 : a.likesCount - 1,
-        );
-      }
-      return a;
-    }).toList();
-
-    state = AsyncData(current.copyWith(articles: updatedArticles));
+    _updateArticleInAllFeeds(articleId, (a) {
+      final newIsLiked = !a.isLiked;
+      return a.copyWith(
+        isLiked: newIsLiked,
+        likesCount: newIsLiked ? a.likesCount + 1 : a.likesCount - 1,
+      );
+    });
 
     // 2. Persist to DB
     try {
@@ -350,15 +384,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current == null) return;
 
-    // 1. Optimistic UI update
-    final updatedArticles = current.articles.map((a) {
-      if (a.id == articleId) {
-        return a.copyWith(isFavorited: !a.isFavorited);
-      }
-      return a;
-    }).toList();
-
-    state = AsyncData(current.copyWith(articles: updatedArticles));
+    _updateArticleInAllFeeds(articleId, (a) => a.copyWith(isFavorited: !a.isFavorited));
 
     // 2. Persist to DB
     try {
@@ -559,10 +585,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (newArticles.isNotEmpty) {
         debugPrint('[Feed] ${newArticles.length} new articles found silently.');
-        state = AsyncData(current.copyWith(
+        final nextState = current.copyWith(
           newArticlesCount: newArticles.length,
           pendingArticles: newArticles,
-        ));
+        );
+        state = AsyncData(nextState);
+        _feedCache[category] = nextState;
       }
     } catch (e, st) {
       if (isInitial && state.isLoading) {
@@ -573,6 +601,63 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     } finally {
       completer.complete();
       _refreshInFlight = null;
+    }
+  }
+
+  /// Helper to update an article across all cached category feeds to maintain consistency.
+  void _updateArticleInAllFeeds(
+      String articleId, NewsArticle Function(NewsArticle) update) {
+    // 1. Update all cached feeds
+    for (final cat in _feedCache.keys) {
+      final oldFeed = _feedCache[cat]!;
+      
+      // Update main articles
+      final articles = oldFeed.articles;
+      final idx = articles.indexWhere((a) => a.id == articleId);
+      
+      // Update pending articles
+      final pending = oldFeed.pendingArticles;
+      final pIdx = pending.indexWhere((a) => a.id == articleId);
+
+      if (idx != -1 || pIdx != -1) {
+        var newFeed = oldFeed;
+        if (idx != -1) {
+          final newArticles = List<NewsArticle>.from(articles);
+          newArticles[idx] = update(articles[idx]);
+          newFeed = newFeed.copyWith(articles: newArticles);
+        }
+        if (pIdx != -1) {
+          final newPending = List<NewsArticle>.from(pending);
+          newPending[pIdx] = update(pending[pIdx]);
+          newFeed = newFeed.copyWith(pendingArticles: newPending);
+        }
+        _feedCache[cat] = newFeed;
+      }
+    }
+
+    // 2. Update current state if it exists (it might be one of the cached ones)
+    final current = state.valueOrNull;
+    if (current != null) {
+      final articles = current.articles;
+      final idx = articles.indexWhere((a) => a.id == articleId);
+      
+      final pending = current.pendingArticles;
+      final pIdx = pending.indexWhere((a) => a.id == articleId);
+
+      if (idx != -1 || pIdx != -1) {
+        var nextState = current;
+        if (idx != -1) {
+          final newArticles = List<NewsArticle>.from(articles);
+          newArticles[idx] = update(articles[idx]);
+          nextState = nextState.copyWith(articles: newArticles);
+        }
+        if (pIdx != -1) {
+          final newPending = List<NewsArticle>.from(pending);
+          newPending[pIdx] = update(pending[pIdx]);
+          nextState = nextState.copyWith(pendingArticles: newPending);
+        }
+        state = AsyncData(nextState);
+      }
     }
   }
 }

@@ -14,9 +14,9 @@ def start_scheduler():
     # Run orchestration every ~3 hours
     scheduler.add_job(orchestrate_sync_wrapper, 'interval', minutes=180, id='orchestrate_news', replace_existing=True)
     
-    # Run trending updates every 12 hours (Audit Recommendation)
+    # Run trending updates every 60 minutes
     from ..main import db_pool, redis_client
-    scheduler.add_job(update_trending_scores, 'interval', hours=12, id='update_trends', args=[db_pool], replace_existing=True)
+    scheduler.add_job(update_trending_scores, 'interval', minutes=60, id='update_trends', args=[db_pool], replace_existing=True)
 
     # Flush view buffer every 60 seconds (Audit Recommendation)
     from .ingestion import flush_view_buffer

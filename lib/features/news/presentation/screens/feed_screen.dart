@@ -289,16 +289,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               // Sync UI state immediately for instant feedback
               setState(() {
                 _selectedCategory = cat;
-                _currentIndex = 0;
               });
               _lastTriggeredPage = -1;
 
               // Trigger feed loading immediately
               ref.read(newsFeedNotifierProvider.notifier).filterByCategory(cat);
-
-              if (_pageController.hasClients && _pageController.page != 0) {
-                _pageController.jumpToPage(0);
-              }
             },
             onRefresh: () =>
                 ref.read(newsFeedNotifierProvider.notifier).refresh(),
