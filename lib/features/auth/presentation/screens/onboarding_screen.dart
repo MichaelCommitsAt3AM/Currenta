@@ -211,7 +211,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => const LoginScreen(),
+                          builder: (context) => const LoginScreen(
+                            redirectToFeedOnSuccess: true,
+                          ),
                         ),
                       );
                     },

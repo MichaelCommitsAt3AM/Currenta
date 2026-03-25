@@ -8,6 +8,7 @@ import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
 import 'otp_verification_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
+import '../../../../core/providers/providers.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({
@@ -67,6 +68,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (next.isAuthenticated) {
         if (widget.redirectToFeedOnSuccess) {
           debugPrint('[Login] Authenticated! Redirecting to Feed...');
+          
+          // Mark onboarding as complete so we don't return here
+          ref.read(onboardingRepositoryProvider).completeOnboarding();
+          
+          // Clear news cache so the feed is refreshed for the newly logged-in user
+          ref.read(newsRepositoryProvider).clearCache();
+
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const FeedScreen()),
             (route) => false,
@@ -252,7 +260,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => const RegisterScreen(),
+                            builder: (_) => RegisterScreen(
+                              redirectToFeedOnSuccess:
+                                  widget.redirectToFeedOnSuccess,
+                            ),
                           ),
                         );
                       },

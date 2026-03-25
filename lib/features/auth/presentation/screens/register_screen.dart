@@ -6,9 +6,16 @@ import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'otp_verification_screen.dart';
+import '../../../news/presentation/screens/feed_screen.dart';
+import '../../../../core/providers/providers.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({
+    super.key,
+    this.redirectToFeedOnSuccess = false,
+  });
+
+  final bool redirectToFeedOnSuccess;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -72,8 +79,21 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         );
       }
       if (next.isAuthenticated) {
-        // Pop back to login then hopefully back to feed
-        Navigator.of(context).popUntil((route) => route.isFirst);
+        if (widget.redirectToFeedOnSuccess) {
+          // Mark onboarding as complete
+          ref.read(onboardingRepositoryProvider).completeOnboarding();
+          
+          // Clear news cache
+          ref.read(newsRepositoryProvider).clearCache();
+
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const FeedScreen()),
+            (route) => false,
+          );
+        } else {
+          // Pop back to login then hopefully back to feed
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
       } else if (next.needsOtp && next.pendingEmail != null) {
         Navigator.push(
           context,
