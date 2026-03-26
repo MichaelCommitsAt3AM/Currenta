@@ -2,11 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/trending_notifier.dart';
+import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
 
 class TrendingScreen extends ConsumerStatefulWidget {
-  const TrendingScreen({super.key});
+  final NewsArticle? initialArticle;
+  const TrendingScreen({super.key, this.initialArticle});
 
   @override
   ConsumerState<TrendingScreen> createState() => _TrendingScreenState();
@@ -76,7 +78,12 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
           ),
         ),
         data: (articles) {
-          if (articles.isEmpty) {
+          final displayArticles = [
+            if (widget.initialArticle != null) widget.initialArticle!,
+            ...articles.where((a) => a.id != widget.initialArticle?.id),
+          ];
+
+          if (displayArticles.isEmpty) {
             return EmptyStateScreen(
               title: 'Nothing Trending',
               message: "Check back later for trending stories.",
@@ -90,14 +97,14 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
             controller: _pageController,
             scrollDirection: Axis.vertical,
             physics: const BouncingScrollPhysics(),
-            itemCount: articles.length,
+            itemCount: displayArticles.length,
             itemBuilder: (context, i) {
-              final article = articles[i];
+              final article = displayArticles[i];
               return RepaintBoundary(
                 child: NewsCard(
                   article: article,
                   index: i,
-                  total: articles.length,
+                  total: displayArticles.length,
                 ),
               );
             },

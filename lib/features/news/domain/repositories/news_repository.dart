@@ -8,14 +8,17 @@ import '../entities/news_category.dart';
 abstract class NewsRepository {
   /// Returns a reactive stream of locally-cached articles.
   /// Optionally filter by [category].
-  Stream<List<NewsArticle>> watchFeed({NewsCategory? category});
+  Stream<List<NewsArticle>> watchFeed({
+    NewsCategory? category,
+    List<String>? preferredCategories,
+  });
 
   /// Returns a single page of locally-cached articles, newest-first.
-  /// When [category] is set, results are sorted two-tier:
-  ///   1. Articles where [category] is at index 0 (primary).
-  ///   2. Articles where [category] appears elsewhere in the list.
+  /// When [category] is set, results are sorted two-tier.
+  /// When [category] is null, [preferredCategories] are used to prioritize stories.
   Future<List<NewsArticle>> fetchPage({
     NewsCategory? category,
+    List<String>? preferredCategories,
     int limit = 10,
     int offset = 0,
     DateTime? before,
@@ -40,6 +43,9 @@ abstract class NewsRepository {
 
   /// Completely clears the local articles cache.
   Future<void> clearCache();
+
+  /// Removes articles from the local cache that match the specified category.
+  Future<void> deleteArticlesByCategory(String category);
 
   /// Pre-fetches the top [count] articles for offline availability.
   Future<void> prefetchTopArticles({int count = 20});

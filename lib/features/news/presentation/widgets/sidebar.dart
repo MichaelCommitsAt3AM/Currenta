@@ -7,7 +7,6 @@ import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
 import '../screens/trending_screen.dart';
 import '../../application/trending_notifier.dart';
-import '../../../../core/utils/browser_service.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 
@@ -272,8 +271,14 @@ class Sidebar extends ConsumerWidget {
                                     article: article,
                                     onTap: () {
                                       Navigator.pop(context); // Close drawer
-                                      ref.read(browserServiceProvider).openUrl(
-                                          context, article.originalUrl);
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => TrendingScreen(
+                                            initialArticle: article,
+                                          ),
+                                        ),
+                                      );
                                     },
                                   );
                                 },

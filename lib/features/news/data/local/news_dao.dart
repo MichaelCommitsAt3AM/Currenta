@@ -6,7 +6,8 @@ import 'app_database.dart';
 
 part 'news_dao.g.dart';
 
-@DriftAccessor(tables: [NewsArticlesTable, ViewedArticlesTable, ChatSessionsTable])
+@DriftAccessor(
+    tables: [NewsArticlesTable, ViewedArticlesTable, ChatSessionsTable])
 class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   NewsDao(super.db);
 
@@ -14,15 +15,30 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
 
   /// Watch all articles, ordered newest-first. Optionally filter by category.
   /// Uses JSON substring match to check if the stored categories list contains [category].
-  Stream<List<NewsArticlesTableData>> watchArticles({String? category}) {
+  Stream<List<NewsArticlesTableData>> watchArticles({
+    String? category,
+    List<String>? preferredCategories,
+  }) {
     final categoryPrefix = category != null ? '["$category"%' : '';
-    final priorityExpr = category != null 
-        ? CustomExpression<int>("CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END")
-        : const Constant(0);
+
+    Expression<int> priorityExpr;
+    if (category != null) {
+      priorityExpr = CustomExpression<int>(
+          "CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END");
+    } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
+      final likes = preferredCategories
+          .map((c) => "categories LIKE '%\"$c\"%'")
+          .join(' OR ');
+      priorityExpr =
+          CustomExpression<int>("CASE WHEN ($likes) THEN 0 ELSE 1 END");
+    } else {
+      priorityExpr = const Constant(0);
+    }
 
     return (select(newsArticlesTable)
           ..orderBy([
-            if (category != null) (_) => OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
+            (_) =>
+                OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
             (t) => OrderingTerm.desc(t.publishedAt),
             (t) => OrderingTerm.desc(t.id),
           ])
@@ -47,62 +63,91 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   }
 
   Future<NewsArticlesTableData?> getArticleById(String id) {
-    return (select(newsArticlesTable)..where((t) => t.id.equals(id))).getSingleOrNull();
+    return (select(newsArticlesTable)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
   }
 
   /// Paginated fetch: returns [limit] articles newest-first.
   /// Uses a robust compound cursor (publishedAt, id) for paging.
   Future<List<NewsArticle>> getArticlesPage({
     String? category,
+    List<String>? preferredCategories,
     int limit = 10,
     int offset = 0,
     DateTime? before,
     String? afterId,
     bool includeViewed = false,
   }) async {
-    // ... (rest of priority logic remains same)
     final categoryPrefix = category != null ? '["$category"%' : '';
-    
-    int lastPriority = 0;
-    if (afterId != null && category != null) {
-      final lastArticle = await (select(newsArticlesTable)..where((t) => t.id.equals(afterId))).getSingleOrNull();
-      if (lastArticle != null) {
-        lastPriority = (lastArticle.categories.isNotEmpty && lastArticle.categories.first.name == category) ? 0 : 1;
-      }
+
+    Expression<int> priorityExpr;
+    if (category != null) {
+      priorityExpr = CustomExpression<int>(
+          "CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END");
+    } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
+      final likes = preferredCategories
+          .map((c) => "categories LIKE '%\"$c\"%'")
+          .join(' OR ');
+      priorityExpr =
+          CustomExpression<int>("CASE WHEN ($likes) THEN 0 ELSE 1 END");
+    } else {
+      priorityExpr = const Constant(0);
     }
 
-    final priorityExpr = category != null 
-        ? CustomExpression<int>("CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END")
-        : const Constant(0);
+    int lastPriority = 0;
+    if (afterId != null) {
+      final lastArticle = await (select(newsArticlesTable)
+            ..where((t) => t.id.equals(afterId)))
+          .getSingleOrNull();
+
+      if (lastArticle != null) {
+        if (category != null) {
+          lastPriority =
+              (lastArticle.categories.any((c) => c.name == category)) ? 0 : 1;
+        } else if (preferredCategories != null &&
+            preferredCategories.isNotEmpty) {
+          lastPriority = (lastArticle.categories
+                  .any((c) => preferredCategories.contains(c.name)))
+              ? 0
+              : 1;
+        }
+      }
+    }
 
     final query = select(newsArticlesTable).join([
       leftOuterJoin(viewedArticlesTable,
           viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
     ])
       ..orderBy([
-        if (category != null)
-          OrderingTerm(
-            expression: priorityExpr,
-            mode: OrderingMode.asc,
-          ),
+        OrderingTerm(
+          expression: priorityExpr,
+          mode: OrderingMode.asc,
+        ),
         OrderingTerm.desc(newsArticlesTable.publishedAt),
         OrderingTerm.desc(newsArticlesTable.id),
       ])
       ..where(() {
         final catFilter = category != null
             ? newsArticlesTable.categories.like(categoryPrefix)
-            : const Constant(true);
+            : (preferredCategories != null && preferredCategories.isNotEmpty)
+                ? CustomExpression<bool>("(" +
+                    preferredCategories
+                        .map((c) => "categories LIKE '%\"$c\"%'")
+                        .join(' OR ') +
+                    ")")
+                : const Constant(true);
 
         Expression<bool> cursorFilter = const Constant(true);
         if (before != null) {
           if (afterId != null) {
-            final sameTierFilter = newsArticlesTable.publishedAt
-                    .isSmallerThanValue(before) |
-                (newsArticlesTable.publishedAt.equals(before) &
-                    newsArticlesTable.id.isSmallerThanValue(afterId));
+            final sameTierFilter =
+                newsArticlesTable.publishedAt.isSmallerThanValue(before) |
+                    (newsArticlesTable.publishedAt.equals(before) &
+                        newsArticlesTable.id.isSmallerThanValue(afterId));
 
-            cursorFilter = (priorityExpr.equals(lastPriority) & sameTierFilter) |
-                priorityExpr.isBiggerThanValue(lastPriority);
+            cursorFilter =
+                (priorityExpr.equals(lastPriority) & sameTierFilter) |
+                    priorityExpr.isBiggerThanValue(lastPriority);
           } else {
             cursorFilter =
                 newsArticlesTable.publishedAt.isSmallerThanValue(before);
@@ -231,14 +276,16 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final toDelete = selectOnly(newsArticlesTable)
       ..addColumns([newsArticlesTable.id])
       ..where(newsArticlesTable.publishedAt.isSmallerThanValue(threshold));
-    
-    final ids = (await toDelete.get()).map((r) => r.read(newsArticlesTable.id)!).toList();
+
+    final ids = (await toDelete.get())
+        .map((r) => r.read(newsArticlesTable.id)!)
+        .toList();
     if (ids.isEmpty) return 0;
 
     // 2. Cascade delete manually (since Drift doesn't always handle it on mobile without special config)
     await (delete(viewedArticlesTable)..where((t) => t.id.isIn(ids))).go();
     await (delete(chatSessionsTable)..where((t) => t.articleId.isIn(ids))).go();
-    
+
     // 3. Delete main articles
     return (delete(newsArticlesTable)..where((t) => t.id.isIn(ids))).go();
   }
@@ -246,6 +293,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   /// Clears the entire articles cache.
   Future<void> deleteAllArticles() async {
     await delete(newsArticlesTable).go();
+  }
+
+  Future<void> deleteArticlesByCategory(String category) async {
+    final containsCategory = '%"$category"%';
+    await (delete(newsArticlesTable)
+          ..where((t) => t.categories.like(containsCategory)))
+        .go();
   }
 
   // ── Reading History ───────────────────────────────────────────
@@ -282,7 +336,8 @@ extension NewsArticleMapper on NewsArticlesTableData {
         publishedAt: publishedAt,
         createdAt: createdAt,
         categories: categories, // already decoded by CategoryListConverter
-        subCategories: subCategories, // already decoded by SubCategoryListConverter
+        subCategories:
+            subCategories, // already decoded by SubCategoryListConverter
         isPaywalled: isPaywalled,
         isLiked: isLiked,
         likesCount: likesCount,

@@ -59,7 +59,8 @@ if LLM_PROVIDER == "vertex" or VERTEX_PROJECT:
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.88"))
+SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.80"))
+DUPLICATE_LOOKBACK_DAYS = int(os.environ.get("DUPLICATE_LOOKBACK_DAYS", "7"))
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
 
@@ -1242,46 +1243,94 @@ async def parse_rss(feed_url: str) -> list[dict]:
         
     return parsed_items
 
-async def find_cluster_match(conn, embedding: list[float]) -> Optional[UUID]:
+async def find_cluster_match(conn, embedding: list[float]) -> tuple[Optional[UUID], Optional[float], Optional[UUID]]:
     """
-    Checks if a near-duplicate article exists in the database within the last 7 days.
-    Returns the cluster_id of the matching article if found, else None.
-    Uses similarity search via pgvector.
+    Finds the best recent semantic candidate and applies the configured threshold.
+    Returns (matched_cluster_id, best_similarity, best_match_article_id).
+    matched_cluster_id is None when best_similarity is below threshold.
     """
     try:
-        # Check similarity match (...)
-        # The match_recent_articles function returns (id, similarity)
-        # We also want to fetch the cluster_id to maintain the story cluster.
-        # But wait, match_recent_articles is a DB function we inspected.
-        # Let's call it and then fetch the cluster_id of that article.
         records = await conn.fetch(
             """
-            SELECT id, cluster_id 
-            FROM match_recent_articles($1::float8[]::vector, $2, 1)
+            SELECT
+                id,
+                cluster_id,
+                1 - (embedding <=> $1::float8[]::vector) AS similarity
+            FROM articles
+            WHERE published_at > (now() - make_interval(days => $2::int))
+            ORDER BY embedding <=> $1::float8[]::vector
+            LIMIT 1
             """,
-            embedding, SIMILARITY_THRESHOLD
+            embedding, DUPLICATE_LOOKBACK_DAYS
         )
         if records:
-            # If the matching article has no cluster_id yet, we use its own ID as the cluster root.
-            return records[0]["cluster_id"] or records[0]["id"]
-        return None
+            best_match_id = records[0]["id"]
+            best_cluster_id = records[0]["cluster_id"]
+            best_similarity = float(records[0]["similarity"])
+            if best_similarity >= SIMILARITY_THRESHOLD:
+                # If the matching article has no cluster_id yet, use its own ID as the cluster root.
+                return best_cluster_id or best_match_id, best_similarity, best_match_id
+            return None, best_similarity, best_match_id
+        return None, None, None
     except Exception as e:
         logger.error("[Cluster Match] error: %s", e)
-        return None
+        return None, None, None
 
 def get_model_name(provider: str) -> str:
     if provider in ("gemini", "vertex"): return "gemini-2.5-flash-lite"
     if provider == "groq": return "llama-3.3-70b-versatile"
     return LOCAL_LLM_MODEL
 
-async def log_ingestion_event(conn, url, status, source_name=None, error_type=None, error_message=None, has_text=False, has_image=False, extracted_image_url=None, content_preview=None, resolved_url=None):
+async def log_ingestion_event(
+    conn,
+    url,
+    status,
+    source_name=None,
+    error_type=None,
+    error_message=None,
+    has_text=False,
+    has_image=False,
+    extracted_image_url=None,
+    content_preview=None,
+    resolved_url=None,
+    dedup_stage=None,
+    dedup_decision=None,
+    semantic_similarity=None,
+    similarity_threshold=None,
+    matched_article_id=None,
+    matched_cluster_id=None,
+):
     try:
         await conn.execute('''
             INSERT INTO ingestion_logs (
-                original_url, status, source_name, error_type, error_message, 
-                has_text, has_image, extracted_image_url, content_preview, resolved_url
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        ''', url, status, source_name, error_type, error_message, has_text, has_image, extracted_image_url, content_preview[:500] if content_preview else None, resolved_url)
+                original_url, status, source_name, dedup_stage, dedup_decision,
+                semantic_similarity, similarity_threshold, matched_article_id, matched_cluster_id,
+                error_type, error_message, has_text, has_image,
+                extracted_image_url, content_preview, resolved_url
+            ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8, $9,
+                $10, $11, $12, $13,
+                $14, $15, $16
+            )
+        ''',
+        url,
+        status,
+        source_name,
+        dedup_stage,
+        dedup_decision,
+        semantic_similarity,
+        similarity_threshold,
+        matched_article_id,
+        matched_cluster_id,
+        error_type,
+        error_message,
+        has_text,
+        has_image,
+        extracted_image_url,
+        content_preview[:500] if content_preview else None,
+        resolved_url,
+    )
     except Exception as e:
         print(f"[Logger] Failed to write to ingestion_logs: {e}")
 
@@ -1479,21 +1528,40 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 
                 # Check for semantic duplicate using the same connection
                 # --- Clustering & Deduplication ---
-                matched_cluster_id = await find_cluster_match(conn, embedding)
+                matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, embedding)
                 if matched_cluster_id:
                     # In this robust implementation, we skip duplicates to keep the primary feed high-signal.
                     # We could also save them with the same cluster_id if we wanted to show 'Other Sources'.
-                    logger.info("[Ingest] Skipping duplicate: Article similar to cluster %s", matched_cluster_id)
+                    logger.info(
+                        "[Ingest] Skipping duplicate: Article similar to cluster %s (similarity=%.4f, threshold=%.2f, best_match=%s)",
+                        matched_cluster_id,
+                        best_similarity if best_similarity is not None else 0.0,
+                        SIMILARITY_THRESHOLD,
+                        best_match_id,
+                    )
                     await log_ingestion_event(
                         conn,
                         item["link"],
                         "SKIPPED",
                         source_name=item.get("source"),
+                        dedup_stage="semantic",
+                        dedup_decision="skipped",
+                        semantic_similarity=best_similarity,
+                        similarity_threshold=SIMILARITY_THRESHOLD,
+                        matched_article_id=best_match_id,
+                        matched_cluster_id=matched_cluster_id,
                         error_type="DUPLICATE_EMBEDDING",
-                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
+                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}. Best similarity: {best_similarity:.4f}" if best_similarity is not None else f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
                     )
                     results["skipped"] += 1
                     continue
+                if best_similarity is not None:
+                    logger.info(
+                        "[Ingest] Kept article after semantic check: best recent similarity=%.4f below threshold=%.2f (best_match=%s)",
+                        best_similarity,
+                        SIMILARITY_THRESHOLD,
+                        best_match_id,
+                    )
                 
                 # New story: assign a fresh cluster_id (using the article's own ID as root)
                 article_id = uuid.uuid4() # Generate a new UUID for the article
@@ -1537,6 +1605,12 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     await log_ingestion_event(
                         conn, item["link"], final_status, 
                         source_name=item["source"], 
+                        dedup_stage="semantic",
+                        dedup_decision="kept",
+                        semantic_similarity=best_similarity,
+                        similarity_threshold=SIMILARITY_THRESHOLD if best_similarity is not None else None,
+                        matched_article_id=best_match_id,
+                        matched_cluster_id=None,
                         error_type="SCRAPER_DEG" if final_status == "DEGRADED" else None,
                         error_message=scraper_error_msg if final_status == "DEGRADED" else None,
                         has_text=True, 
@@ -1545,6 +1619,10 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         content_preview=article_text[:500],
                         resolved_url=scraper_result.get("url")
                     )
+
+                    # Keep in-memory dedupe state current for this same ingestion run.
+                    existing_urls.add(link)
+                    existing_hashes.add(content_hash)
 
                     results["ingested"] += 1
                     logger.info(f"processFeed: Success! {llm_res['title'][:40]}... (Paywalled: {is_paywalled})")
@@ -1850,16 +1928,29 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
 
         # Embed
         embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
-        matched_cluster_id = await find_cluster_match(conn, embedding)
+        matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, embedding)
         if matched_cluster_id:
             await log_ingestion_event(
                 conn,
                 url,
                 "SKIPPED",
+                dedup_stage="semantic",
+                dedup_decision="skipped",
+                semantic_similarity=best_similarity,
+                similarity_threshold=SIMILARITY_THRESHOLD,
+                matched_article_id=best_match_id,
+                matched_cluster_id=matched_cluster_id,
                 error_type="DUPLICATE_EMBEDDING",
-                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
+                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}. Best similarity: {best_similarity:.4f}" if best_similarity is not None else f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
             )
             return None
+        if best_similarity is not None:
+            logger.info(
+                "[Ingest URL] Kept article after semantic check: best recent similarity=%.4f below threshold=%.2f (best_match=%s)",
+                best_similarity,
+                SIMILARITY_THRESHOLD,
+                best_match_id,
+            )
         
         # New cluster root
         article_id = uuid.uuid4()
@@ -1897,7 +1988,19 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             
             article_id = result["id"] if result else None
 
-            await log_ingestion_event(conn, url, "SUCCESS", source_name=source_name, has_text=True, has_image=article_image_url is not None)
+            await log_ingestion_event(
+                conn,
+                url,
+                "SUCCESS",
+                source_name=source_name,
+                dedup_stage="semantic",
+                dedup_decision="kept",
+                semantic_similarity=best_similarity,
+                similarity_threshold=SIMILARITY_THRESHOLD if best_similarity is not None else None,
+                matched_article_id=best_match_id,
+                has_text=True,
+                has_image=article_image_url is not None,
+            )
             return article_id
         except Exception as db_err:
             await log_ingestion_event(conn, url, "FAILED", error_type="DB_INSERT_ERROR", error_message=str(db_err))

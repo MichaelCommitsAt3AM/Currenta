@@ -142,8 +142,21 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   @override
   Widget build(BuildContext context) {
     ref.listen(newsFeedNotifierProvider, (previous, next) {
+      final prevFeed = previous?.valueOrNull;
       final nextFeed = next.valueOrNull;
       if (nextFeed == null) return;
+
+      // Reset pagination trigger when the underlying feed content is rebuilt
+      // (e.g. after personalization changes/invalidation) even if category is unchanged.
+      final prevHeadId = prevFeed?.articles.firstOrNull?.id;
+      final nextHeadId = nextFeed.articles.firstOrNull?.id;
+      final didFeedReset = prevFeed == null ||
+          nextFeed.currentIndex == 0 ||
+          nextFeed.articles.length < (prevFeed.articles.length) ||
+          prevHeadId != nextHeadId;
+      if (didFeedReset) {
+        _lastTriggeredPage = -1;
+      }
 
       // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
       if (nextFeed.selectedCategory != _selectedCategory && mounted) {
@@ -163,9 +176,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (nextIndex != prevIndex && nextIndex != controllerPage) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_pageController.hasClients) {
-            // If it's the very first load (prevFeed == null), jump immediately.
-            // Otherwise, animate to provide visual context of the "shift".
-            if (previous?.valueOrNull == null) {
+            // Jump instantly to index 0 if it's a feed reset, otherwise animate
+            if (previous?.valueOrNull == null || nextIndex == 0) {
               _pageController.jumpToPage(nextIndex);
             } else {
               _pageController.animateToPage(
@@ -573,7 +585,11 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
     final selectedInterests = ref.watch(authNotifierProvider).selectedInterests;
     if (selectedInterests.isEmpty) return NewsCategory.values;
 
-    final sorted = List<NewsCategory>.from(NewsCategory.values);
+    final sorted = List<NewsCategory>.from(NewsCategory.values)
+      // If Local is not selected in personalization, hide its tab in feed.
+      ..removeWhere((cat) =>
+          cat == NewsCategory.local && !selectedInterests.contains(cat.name));
+
     sorted.sort((a, b) {
       final aSelected = selectedInterests.contains(a.name);
       final bSelected = selectedInterests.contains(b.name);

@@ -91,34 +91,33 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   final Map<NewsCategory?, FeedState> _feedCache = {};
   
   Future<void>? _refreshInFlight;
+  bool _isDisposed = false;
 
   @override
   Future<FeedState> build() async {
+    ref.onDispose(() => _isDisposed = true);
+    
     // 0. Trigger cache cleaning on startup.
-    // Since periodic background cleaning is disabled, we do it here.
     unawaited(_repo.clearOldCache());
 
-    // 1. Listen for auth changes to handle transitions (login/logout) without
-    // triggering a full provider rebuild. This preserves the in-memory feed
-    // and current scroll position (currentIndex) during the auth process.
+    // 1. Watch auth state for interests and country changes.
+    // Use select to avoid rebuilds on unrelated auth state changes (if any).
+    final auth = ref.watch(authNotifierProvider);
+    final interests = auth.selectedInterests;
+
+    // 2. Listen for auth TRANSITIONS (logout → login) to handle activity migration
     ref.listen(authNotifierProvider, (previous, next) {
       if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
-        debugPrint(
-            '[Feed] Auth state changed to authenticated. Processing pending actions.');
+        debugPrint('[Feed] Auth state transitioned: authenticated.');
         final pending = ref.read(pendingActivityNotifierProvider);
         if (pending != null) {
           ref.read(pendingActivityNotifierProvider.notifier).clear();
           _handlePendingActivity(pending);
         }
-
-        // Perform a background refresh to fetch articles tailored to the new user session.
-        // This will show the 'New Stories' badge if new content is available.
-        _backgroundRefresh();
       }
     });
 
-    // 2. Initial load: Check for pending activity if starting as authenticated.
-    final auth = ref.read(authNotifierProvider);
+    // 3. Check for initial pending activity
     if (auth.isAuthenticated) {
       final pending = ref.read(pendingActivityNotifierProvider);
       if (pending != null) {
@@ -127,61 +126,55 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
 
-    // 3. Restore persisted article position (we always default to 'For You' category on startup)
-    const NewsCategory? savedCategoryId = null; // Always default to 'For You'
+    // 4. Initialization: Default to 'For You' (null category)
+    const NewsCategory? savedCategoryId = null;
     final savedArticleId = _persistence.getCurrentArticleId();
-
-    // 4. Fetch from local cache for initial load.
-    // If we are restoring a session, we MUST include viewed articles to find our place.
     final includeViewed = savedArticleId != null;
 
-    final firstPage = await _repo.fetchPage(
+    // 5. Fetch first page with personalization
+    List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
+      preferredCategories: interests,
       limit: _kPageSize,
       offset: 0,
       includeViewed: includeViewed,
     );
 
-    // 4. Load articles: try local cache first, then remote if empty.
-    List<NewsArticle> articles = firstPage;
-
+    // 6. Remote sync if local cache is empty
     if (articles.isEmpty) {
-      debugPrint('[Feed] Cache empty. Performing initial remote sync...');
+      debugPrint('[Feed] Cache empty. Syncing remote...');
       try {
         await _repo.refreshFeed();
         articles = await _repo.fetchPage(
           category: savedCategoryId,
+          preferredCategories: interests,
           limit: _kPageSize,
           offset: 0,
           includeViewed: includeViewed,
         );
       } catch (e) {
-        debugPrint('[Feed] Initial remote refresh failed: $e');
+        debugPrint('[Feed] Remote refresh failed: $e');
       }
     }
 
-    // 5. Calculate initial index if we saved an article ID
+    // 7. Position restoration
     int initialIndex = 0;
     if (savedArticleId != null && articles.isNotEmpty) {
       final index = articles.indexWhere((a) => a.id == savedArticleId);
-      if (index != -1) {
-        initialIndex = index;
-      }
+      if (index != -1) initialIndex = index;
     }
 
-    // SILENT refresh in background.
+    // 8. Silent background refresh
     Future.microtask(_backgroundRefresh);
 
     final finalState = FeedState(
       articles: articles,
-      hasMore: true, // Always allow pagination to trigger remote sync
+      hasMore: true,
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
     );
 
-    // Initial check-in to cache
     _feedCache[savedCategoryId] = finalState;
-
     return finalState;
   }
 
@@ -200,14 +193,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final last =
           startState.articles.isEmpty ? null : startState.articles.last;
 
+      if (_isDisposed) return;
       var nextPage = await _repo.fetchPage(
         category: category,
+        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
         limit: _kPageSize,
         before: last?.publishedAt,
         afterId: last?.id,
         includeViewed: false,
       );
 
+      final current = state.valueOrNull;
+      if (current == null || current.selectedCategory != category) return;
+      
       // If local cache is exhausted or sparse, sync from remote
       int syncedCount = 0;
       if (nextPage.length < _kPageSize) {
@@ -217,12 +215,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           category: category,
           before: last?.publishedAt,
           limit: 30, // Fetch a healthy batch
+          remoteOffset: current.articles.length, // SKIP already loaded articles
         );
 
         if (syncedCount > 0) {
           // Fetch again to include newly synced items
           nextPage = await _repo.fetchPage(
             category: category,
+            preferredCategories: ref.read(authNotifierProvider).selectedInterests,
             limit: _kPageSize,
             before: last?.publishedAt,
             afterId: last?.id,
@@ -230,9 +230,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           );
         }
       }
-
-      final current = state.valueOrNull;
-      if (current == null || current.selectedCategory != category) return;
 
       // Deduplicate against already loaded articles
       final existingIds = current.articles.map((a) => a.id).toSet();
@@ -291,6 +288,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // 4. Fetch from local cache first
       final articles = await _repo.fetchPage(
         category: category,
+        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
         limit: _kPageSize,
         offset: 0,
       );
@@ -350,7 +348,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // If new articles were found, apply them using the preservation logic.
     final updatedState = state.valueOrNull;
     if (updatedState != null && updatedState.pendingArticles.isNotEmpty) {
-      applyPendingArticles();
+      await applyPendingArticles();
     }
   }
 
@@ -405,29 +403,35 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Incorporates pending articles into the main feed while preserving the current article.
   /// The current article is moved to index 0, and the new articles begin at index 1.
   /// This allows the user to swipe up to return to what they were reading.
-  void applyPendingArticles() {
+  Future<void> applyPendingArticles() async {
     final current = state.valueOrNull;
     if (current == null || current.pendingArticles.isEmpty) return;
 
-    // 1. Identify the currently visible article
+    // 1. Show a loading state to trigger the shimmering screen
+    state = const AsyncLoading<FeedState>();
+
+    // 2. Artificial delay for visual feedback/shimmer effect
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    // 3. Identify the currently visible article
     final currentArticle = (current.currentIndex >= 0 &&
             current.currentIndex < current.articles.length)
         ? current.articles[current.currentIndex]
         : null;
 
-    // 2. Filter out already viewed articles from the old list
+    // 4. Filter out already viewed articles from the old list
     // (excluding the current one since we want to keep it)
     final unviewedOldArticles = current.articles.where((a) {
       if (currentArticle != null && a.id == currentArticle.id) return false;
       return !a.isViewed;
     }).toList();
 
-    // 3. Deduplicate against pending articles
+    // 5. Deduplicate against pending articles
     final pendingIds = current.pendingArticles.map((a) => a.id).toSet();
     final uniqueUnviewedOld =
         unviewedOldArticles.where((a) => !pendingIds.contains(a.id)).toList();
 
-    // 4. Construct new list: [Current, New1, New2..., OldUnviewed1...]
+    // 6. Construct new list: [Current, New1, New2..., OldUnviewed1...]
     final newList = <NewsArticle>[];
     if (currentArticle != null) {
       newList.add(currentArticle);
@@ -435,12 +439,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     newList.addAll(current.pendingArticles);
     newList.addAll(uniqueUnviewedOld);
 
-    state = AsyncData(current.copyWith(
+    final nextState = current.copyWith(
       articles: newList,
       pendingArticles: [],
       newArticlesCount: 0,
       currentIndex: currentArticle != null ? 1 : 0,
-    ));
+    );
+
+    state = AsyncData(nextState);
+
+    // Update cache
+    _feedCache[nextState.selectedCategory] = nextState;
 
     // Persist the new "current" article (the one the user is now looking at)
     if (newList.isNotEmpty) {
@@ -545,14 +554,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         await _repo.refreshFeed();
       }
 
+      if (_isDisposed) return;
+      
       // Fetch the top articles for the relevant category
       final freshPage = await _repo.fetchPage(
         category: category,
+        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
         limit: _kPageSize,
         offset: 0,
         includeViewed: true,
       );
 
+      if (_isDisposed) return;
+      
       final current = state.valueOrNull;
 
       // If the category has changed since we started, discard the results to prevent mixing feeds.

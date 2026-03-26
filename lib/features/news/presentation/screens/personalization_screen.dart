@@ -7,12 +7,14 @@ import 'empty_state_screen.dart';
 import 'country_selection_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../application/news_feed_notifier.dart';
 
 class PersonalizationScreen extends ConsumerStatefulWidget {
   const PersonalizationScreen({super.key});
 
   @override
-  ConsumerState<PersonalizationScreen> createState() => _PersonalizationScreenState();
+  ConsumerState<PersonalizationScreen> createState() =>
+      _PersonalizationScreenState();
 }
 
 class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
@@ -34,17 +36,17 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       final interests = await repository.getUserInterests();
       final subInterests = await repository.getUserSubInterests();
       final preferredCountry = await repository.getPreferredCountry();
-      
+
       if (mounted) {
         setState(() {
           // First, load all specific sub-interests
           for (final subName in subInterests) {
-             try {
-                final subCategory = NewsSubCategory.values.firstWhere(
-                  (s) => s.name == subName,
-                );
-                _selectedSubCategories.add(subCategory);
-             } catch (_) {}
+            try {
+              final subCategory = NewsSubCategory.values.firstWhere(
+                (s) => s.name == subName,
+              );
+              _selectedSubCategories.add(subCategory);
+            } catch (_) {}
           }
 
           // Then, load categories and apply smart defaults for missing sub-interests
@@ -54,19 +56,18 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
               orElse: () => NewsCategory.world,
             );
             _selectedCategories.add(category);
-            
+
             // Per user request: If a category is selected but has NO stored sub-interests,
             // we automatically select all its sub-categories.
             final categorySubNames = category.subCategories.toSet();
-            final hasStoredSubInterests = categorySubNames.any(
-              (sub) => _selectedSubCategories.contains(sub)
-            );
-            
+            final hasStoredSubInterests = categorySubNames
+                .any((sub) => _selectedSubCategories.contains(sub));
+
             if (!hasStoredSubInterests && categorySubNames.isNotEmpty) {
               _selectedSubCategories.addAll(category.subCategories);
             }
           }
-          
+
           _selectedCountry = preferredCountry;
           _isLoading = false;
         });
@@ -111,7 +112,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
 
   Future<void> _onSave() async {
     if (_selectedCategories.length < 3) {
-       ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least 3 main topics')),
       );
       return;
@@ -120,36 +121,82 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
     setState(() => _isSaving = true);
     try {
       final repository = ref.read(authRepositoryProvider);
-      
+      final authBeforeSave = ref.read(authNotifierProvider);
+      final prevCountry = authBeforeSave.preferredCountry;
+      final prevInterests = List<String>.from(authBeforeSave.selectedInterests);
+
       // Save Main Categories
       await repository.clearUserInterests();
-      await repository.saveUserInterests(_selectedCategories.map((e) => e.name).toList());
-      
+      await repository
+          .saveUserInterests(_selectedCategories.map((e) => e.name).toList());
+
       // Save Sub Categories
       await repository.clearUserSubInterests();
       if (_selectedSubCategories.isNotEmpty) {
         // Only save sub-categories whose parents are selected
-        final validSubCategories = _selectedSubCategories.where((sub) {
-          return NewsCategory.values.any((cat) => 
-            _selectedCategories.contains(cat) && cat.subCategories.contains(sub)
-          );
-        }).map((e) => e.name).toList();
-        
+        final validSubCategories = _selectedSubCategories
+            .where((sub) {
+              return NewsCategory.values.any((cat) =>
+                  _selectedCategories.contains(cat) &&
+                  cat.subCategories.contains(sub));
+            })
+            .map((e) => e.name)
+            .toList();
+
         if (validSubCategories.isNotEmpty) {
           await repository.saveUserSubInterests(validSubCategories);
         }
       }
-      
+
       // Save Country Preference
       if (_selectedCountry != null) {
         await repository.savePreferredCountry(_selectedCountry!);
       }
-      
+
       if (mounted) {
         // Refresh the global country and interests preference
-        ref.read(authNotifierProvider.notifier).refreshPreferredCountry();
-        ref.read(authNotifierProvider.notifier).refreshInterests();
-        
+        await ref.read(authNotifierProvider.notifier).refreshPreferredCountry();
+        await ref.read(authNotifierProvider.notifier).refreshInterests();
+
+        final nextCountry = _selectedCountry;
+        final nextInterests = _selectedCategories.map((e) => e.name).toList();
+
+        // Selective Cache Management:
+        // When the country changes, we only wipe the "local" category articles
+        // to ensure the Local tab is regional, while preserving other interests.
+        if (nextCountry != prevCountry && nextCountry != null) {
+          debugPrint(
+              '[Personalization] Country changed. Clearing local news from cache.');
+          await ref
+              .read(newsRepositoryProvider)
+              .deleteArticlesByCategory('local');
+        }
+
+        // Always remove articles from categories that the user explicitly unchecked.
+        final removed =
+            prevInterests.where((c) => !nextInterests.contains(c)).toList();
+        if (removed.isNotEmpty) {
+          debugPrint(
+              '[Personalization] Removing categories from cache: $removed');
+          for (final catName in removed) {
+            await ref
+                .read(newsRepositoryProvider)
+                .deleteArticlesByCategory(catName);
+          }
+        }
+
+        // Reset the current scroll position so the user starts from the top of the new feed.
+        // CRITICAL: We MUST await this so the new notifier doesn't read the old ID.
+        await ref
+            .read(localPersistenceRepositoryProvider)
+            .saveCurrentArticleId(null);
+
+        // Wait briefly for any pending database/auth syncs to settle before rebuilding
+        await Future.delayed(const Duration(milliseconds: 300));
+
+        // Trigger a HARD REFRESH of the feed by invalidating the provider.
+        ref.invalidate(newsFeedNotifierProvider);
+
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Interests updated successfully')),
@@ -177,7 +224,8 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                color: Colors.white),
             onPressed: () => Navigator.pop(context),
           ),
           title: const Text(
@@ -191,7 +239,8 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         ),
         body: EmptyStateScreen(
           title: 'Session Error',
-          message: 'Unable to establish a secure session. Please check your connection or sign in.',
+          message:
+              'Unable to establish a secure session. Please check your connection or sign in.',
           buttonLabel: 'Sign In',
           icon: Icons.error_outline_rounded,
           onRetry: () {
@@ -210,7 +259,8 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+          icon:
+              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -222,284 +272,323 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
           ),
         ),
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(24, 8, 24, 24),
-                child: Text(
-                  'Choose your preferred region for local news and select at least 3 topics to personalize your feed.',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                    height: 1.5,
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  child: Text(
+                    'Choose your preferred region for local news and select at least 3 topics to personalize your feed.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      height: 1.5,
+                    ),
                   ),
                 ),
-              ),
 
-              // Country Selection
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Local News Region',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
+                // Country Selection
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Local News Region',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    GestureDetector(
-                      onTap: () async {
-                        final result = await Navigator.push<({String? code})?>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => CountrySelectionScreen(initialCountry: _selectedCountry),
-                          ),
-                        );
-                        if (mounted && result != null) {
-                           setState(() => _selectedCountry = result.code);
-                        }
-                      },
+                      const SizedBox(height: 12),
+                      GestureDetector(
+                        onTap: () async {
+                          final result =
+                              await Navigator.push<({String? code})?>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => CountrySelectionScreen(
+                                  initialCountry: _selectedCountry),
+                            ),
+                          );
+                          if (mounted && result != null) {
+                            setState(() => _selectedCountry = result.code);
+                          }
+                        },
                         // Actually, looking at my screen, I always pop with a value when a list item is tapped.
                         // If they pop via back button, it returns null by default in Flutter.
                         // I'll use a slightly safer pattern.
-                      // The original code had an extra closing brace here. Removing it.
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                        // The original code had an extra closing brace here. Removing it.
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.1)),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                _selectedCountry != null
+                                    ? NewsCategory.getCountryEmoji(
+                                        _selectedCountry!)
+                                    : '📍',
+                                style: const TextStyle(fontSize: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _selectedCountry != null
+                                          ? NewsCategory.getCountryName(
+                                              _selectedCountry!)
+                                          : 'Detect Automatically',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Source local news based on this region',
+                                      style: TextStyle(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.5),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.keyboard_arrow_right_rounded,
+                                color: Colors.white.withValues(alpha: 0.3),
+                              ),
+                            ],
+                          ),
                         ),
-                        child: Row(
-                          children: [
-                            Text(
-                              _selectedCountry != null 
-                                ? NewsCategory.getCountryEmoji(_selectedCountry!) 
-                                : '📍',
-                              style: const TextStyle(fontSize: 22),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
+                  child: Text(
+                    'Topics',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                Expanded(
+                  child: ListView.builder(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: NewsCategory.values.length,
+                    itemBuilder: (context, index) {
+                      final cat = NewsCategory.values[index];
+                      final isSelected = _selectedCategories.contains(cat);
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          GestureDetector(
+                            onTap: () => _toggleCategory(cat),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeOutCubic,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFF6C63FF)
+                                    : Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? const Color(0xFF6C63FF)
+                                          .withValues(alpha: 0.8)
+                                      : Colors.white.withValues(alpha: 0.1),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text(cat.emoji,
+                                      style: const TextStyle(fontSize: 18)),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    cat.displayName,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: isSelected
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  if (isSelected)
+                                    const Icon(Icons.check_circle,
+                                        color: Colors.white, size: 20)
+                                  else
+                                    Icon(Icons.add_circle_outline,
+                                        color:
+                                            Colors.white.withValues(alpha: 0.3),
+                                        size: 20),
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
+                          ),
+                          if (isSelected && cat.subCategories.isNotEmpty)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(left: 8, bottom: 20),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    _selectedCountry != null 
-                                      ? NewsCategory.getCountryName(_selectedCountry!) 
-                                      : 'Detect Automatically',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        bottom: 12, left: 4),
+                                    child: Text(
+                                      'Fine-tune (Optional)',
+                                      style: TextStyle(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.4),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.5,
+                                      ),
                                     ),
                                   ),
-                                  Text(
-                                    'Source local news based on this region',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.5),
-                                      fontSize: 12,
-                                    ),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: cat.subCategories.map((sub) {
+                                      final isSubSelected =
+                                          _selectedSubCategories.contains(sub);
+                                      return GestureDetector(
+                                        onTap: () => _toggleSubCategory(sub),
+                                        child: AnimatedContainer(
+                                          duration:
+                                              const Duration(milliseconds: 200),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 7),
+                                          decoration: BoxDecoration(
+                                            color: isSubSelected
+                                                ? const Color(0xFF6C63FF)
+                                                    .withValues(alpha: 0.15)
+                                                : Colors.transparent,
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                            border: Border.all(
+                                              color: isSubSelected
+                                                  ? const Color(0xFF6C63FF)
+                                                      .withValues(alpha: 0.5)
+                                                  : Colors.white
+                                                      .withValues(alpha: 0.1),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (isSubSelected)
+                                                const Padding(
+                                                  padding:
+                                                      EdgeInsets.only(right: 6),
+                                                  child: Icon(Icons.check,
+                                                      size: 12,
+                                                      color: Colors.white),
+                                                )
+                                              else
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          right: 6),
+                                                  child: Icon(
+                                                      Icons
+                                                          .remove_circle_outline,
+                                                      size: 12,
+                                                      color: Colors.white
+                                                          .withValues(
+                                                              alpha: 0.3)),
+                                                ),
+                                              Text(
+                                                sub.displayName,
+                                                style: TextStyle(
+                                                  color: isSubSelected
+                                                      ? Colors.white
+                                                      : Colors.white54,
+                                                  fontSize: 12,
+                                                  fontWeight: isSubSelected
+                                                      ? FontWeight.w600
+                                                      : FontWeight.normal,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
                                   ),
                                 ],
                               ),
                             ),
-                            Icon(
-                              Icons.keyboard_arrow_right_rounded,
-                              color: Colors.white.withValues(alpha: 0.3),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              const Padding(
-                padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
-                child: Text(
-                  'Topics',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                        ],
+                      );
+                    },
                   ),
                 ),
-              ),
 
-              Expanded(
-                child: ListView.builder(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: NewsCategory.values.length,
-                  itemBuilder: (context, index) {
-                    final cat = NewsCategory.values[index];
-                    final isSelected = _selectedCategories.contains(cat);
-                    
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        GestureDetector(
-                          onTap: () => _toggleCategory(cat),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
-                            curve: Curves.easeOutCubic,
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? const Color(0xFF6C63FF)
-                                  : Colors.white.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isSelected
-                                    ? const Color(0xFF6C63FF).withValues(alpha: 0.8)
-                                    : Colors.white.withValues(alpha: 0.1),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Text(cat.emoji,
-                                    style: const TextStyle(fontSize: 18)),
-                                const SizedBox(width: 8),
-                                Text(
-                                  cat.displayName,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  ),
-                                ),
-                                const Spacer(),
-                                if (isSelected)
-                                  const Icon(Icons.check_circle, color: Colors.white, size: 20)
-                                else
-                                  Icon(Icons.add_circle_outline, color: Colors.white.withValues(alpha: 0.3), size: 20),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (isSelected && cat.subCategories.isNotEmpty) 
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8, bottom: 20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12, left: 4),
-                                  child: Text(
-                                    'Fine-tune (Optional)',
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(alpha: 0.4),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: cat.subCategories.map((sub) {
-                                    final isSubSelected = _selectedSubCategories.contains(sub);
-                                    return GestureDetector(
-                                      onTap: () => _toggleSubCategory(sub),
-                                      child: AnimatedContainer(
-                                        duration: const Duration(milliseconds: 200),
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                                        decoration: BoxDecoration(
-                                          color: isSubSelected 
-                                              ? const Color(0xFF6C63FF).withValues(alpha: 0.15)
-                                              : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: isSubSelected 
-                                                ? const Color(0xFF6C63FF).withValues(alpha: 0.5)
-                                                : Colors.white.withValues(alpha: 0.1),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            if (isSubSelected)
-                                              const Padding(
-                                                padding: EdgeInsets.only(right: 6),
-                                                child: Icon(Icons.check, size: 12, color: Colors.white),
-                                              )
-                                            else
-                                              Padding(
-                                                padding: const EdgeInsets.only(right: 6),
-                                                child: Icon(Icons.remove_circle_outline, 
-                                                  size: 12, color: Colors.white.withValues(alpha: 0.3)),
-                                              ),
-                                            Text(
-                                              sub.displayName,
-                                              style: TextStyle(
-                                                color: isSubSelected ? Colors.white : Colors.white54,
-                                                fontSize: 12,
-                                                fontWeight: isSubSelected ? FontWeight.w600 : FontWeight.normal,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _onSave,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C63FF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    disabledBackgroundColor: const Color(0xFF6C63FF).withValues(alpha: 0.5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: _isSaving
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text(
-                        'Save Preferences',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _onSave,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6C63FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      disabledBackgroundColor:
+                          const Color(0xFF6C63FF).withValues(alpha: 0.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
+                      elevation: 0,
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text(
+                            'Save Preferences',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
     );
   }
 }

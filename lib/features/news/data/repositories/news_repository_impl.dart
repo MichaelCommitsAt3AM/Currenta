@@ -29,9 +29,15 @@ class NewsRepositoryImpl implements NewsRepository {
   // ── Watch (reactive stream from local DB) ──────────────────────
 
   @override
-  Stream<List<NewsArticle>> watchFeed({NewsCategory? category}) {
+  Stream<List<NewsArticle>> watchFeed({
+    NewsCategory? category,
+    List<String>? preferredCategories,
+  }) {
     return _dao
-        .watchArticles(category: category?.name)
+        .watchArticles(
+          category: category?.name,
+          preferredCategories: preferredCategories,
+        )
         .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
 
@@ -40,6 +46,7 @@ class NewsRepositoryImpl implements NewsRepository {
   @override
   Future<List<NewsArticle>> fetchPage({
     NewsCategory? category,
+    List<String>? preferredCategories,
     int limit = 10,
     int offset = 0,
     DateTime? before,
@@ -48,6 +55,7 @@ class NewsRepositoryImpl implements NewsRepository {
   }) async {
     return _dao.getArticlesPage(
       category: category?.name,
+      preferredCategories: preferredCategories,
       limit: limit,
       offset: offset,
       before: before,
@@ -122,6 +130,15 @@ class NewsRepositoryImpl implements NewsRepository {
   Future<void> clearCache() async {
     try {
       await _dao.deleteAllArticles();
+    } catch (e) {
+      throw CacheException();
+    }
+  }
+
+  @override
+  Future<void> deleteArticlesByCategory(String category) async {
+    try {
+      await _dao.deleteArticlesByCategory(category);
     } catch (e) {
       throw CacheException();
     }
