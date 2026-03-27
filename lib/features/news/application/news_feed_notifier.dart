@@ -85,28 +85,40 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
   LocalPersistenceRepository get _persistence =>
       ref.read(localPersistenceRepositoryProvider);
-  
-  /// In-memory cache to preserve feed state (articles, index, pagination status) 
+
+  /// In-memory cache to preserve feed state (articles, index, pagination status)
   /// for each category durante the session.
   final Map<NewsCategory?, FeedState> _feedCache = {};
-  
+
   Future<void>? _refreshInFlight;
   bool _isDisposed = false;
 
   @override
   Future<FeedState> build() async {
     ref.onDispose(() => _isDisposed = true);
-    
+
     // 0. Trigger cache cleaning on startup.
     unawaited(_repo.clearOldCache());
 
-    // 1. Watch auth state for interests and country changes.
-    // Use select to avoid rebuilds on unrelated auth state changes (if any).
-    final auth = ref.watch(authNotifierProvider);
+    // 1. Watch Auth status and profile loading state.
+    // We wait for 'isProfileLoaded' to ensure we have the user's interests 
+    // BEFORE the very first fetch. This prevents the 'jumping' feed issue.
+    final isProfileLoaded = ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
+    final isAuthenticated = ref.watch(authNotifierProvider.select((s) => s.isAuthenticated));
+    
+    if (!isProfileLoaded) {
+      // Profile (interests/country) is still fetching. 
+      // Return a pending future to keep the provider in AsyncLoading state,
+      // avoiding a 'No news found' flash. Riverpod will restart build() when isProfileLoaded changes.
+      return Completer<FeedState>().future;
+    }
+
+    final auth = ref.read(authNotifierProvider);
     final interests = auth.selectedInterests;
 
-    // 2. Listen for auth TRANSITIONS (logout → login) to handle activity migration
+    // 2. Listen for auth TRANSITIONS or further preference changes
     ref.listen(authNotifierProvider, (previous, next) {
+      // Handle login transition (e.g. guest -> user logged in)
       if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
         debugPrint('[Feed] Auth state transitioned: authenticated.');
         final pending = ref.read(pendingActivityNotifierProvider);
@@ -114,11 +126,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           ref.read(pendingActivityNotifierProvider.notifier).clear();
           _handlePendingActivity(pending);
         }
+        _backgroundRefresh();
+      } 
+      // Handle mid-session interest/country changes silently
+      else if (next.isAuthenticated && 
+               (next.selectedInterests != previous?.selectedInterests || 
+                next.preferredCountry != previous?.preferredCountry)) {
+        debugPrint('[Feed] Profile updated. Triggering silent refresh.');
+        _backgroundRefresh();
       }
     });
 
     // 3. Check for initial pending activity
-    if (auth.isAuthenticated) {
+    if (isAuthenticated) {
       final pending = ref.read(pendingActivityNotifierProvider);
       if (pending != null) {
         ref.read(pendingActivityNotifierProvider.notifier).clear();
@@ -205,7 +225,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       final current = state.valueOrNull;
       if (current == null || current.selectedCategory != category) return;
-      
+
       // If local cache is exhausted or sparse, sync from remote
       int syncedCount = 0;
       if (nextPage.length < _kPageSize) {
@@ -222,7 +242,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           // Fetch again to include newly synced items
           nextPage = await _repo.fetchPage(
             category: category,
-            preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+            preferredCategories:
+                ref.read(authNotifierProvider).selectedInterests,
             limit: _kPageSize,
             before: last?.publishedAt,
             afterId: last?.id,
@@ -270,7 +291,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // Persist the current article ID of the restored feed
       if (cached.articles.isNotEmpty &&
           cached.currentIndex < cached.articles.length) {
-        _persistence.saveCurrentArticleId(cached.articles[cached.currentIndex].id);
+        _persistence
+            .saveCurrentArticleId(cached.articles[cached.currentIndex].id);
       }
 
       // Proactively refresh in background to keep it fresh
@@ -301,11 +323,29 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isLoadingMore: false,
       );
 
-      // 6. If cache is empty, we must keep the UI in a loading state while we fetch remote.
+      // 6. If cache is empty, fetch remote for this category and then resolve state.
       if (articles.isEmpty) {
         state =
             AsyncLoading<FeedState>().copyWithPrevious(AsyncData(currentState));
-        await loadNextPage();
+
+        final syncedCount = await _repo.syncMoreFromRemote(
+          category: category,
+          remoteOffset: 0,
+          limit: 30,
+        );
+
+        final refreshedArticles = await _repo.fetchPage(
+          category: category,
+          preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+          limit: _kPageSize,
+          offset: 0,
+        );
+
+        state = AsyncData(currentState.copyWith(
+          articles: refreshedArticles,
+          hasMore: syncedCount > 0 || refreshedArticles.length >= _kPageSize,
+          isLoadingMore: false,
+        ));
       } else {
         // We have articles! Show them immediately.
         state = AsyncData(currentState);
@@ -321,9 +361,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         _feedCache[category] = state.value!;
       }
 
-      // Persist the first article ID of this new feed if available
-      if (articles.isNotEmpty) {
-        _persistence.saveCurrentArticleId(articles.firstOrNull?.id);
+      // Persist the first article ID of this new feed if available.
+      final resolvedArticles =
+          state.valueOrNull?.articles ?? const <NewsArticle>[];
+      if (resolvedArticles.isNotEmpty) {
+        _persistence.saveCurrentArticleId(resolvedArticles.firstOrNull?.id);
       }
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -382,7 +424,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final current = state.valueOrNull;
     if (current == null) return;
 
-    _updateArticleInAllFeeds(articleId, (a) => a.copyWith(isFavorited: !a.isFavorited));
+    _updateArticleInAllFeeds(
+        articleId, (a) => a.copyWith(isFavorited: !a.isFavorited));
 
     // 2. Persist to DB
     try {
@@ -555,7 +598,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       if (_isDisposed) return;
-      
+
       // Fetch the top articles for the relevant category
       final freshPage = await _repo.fetchPage(
         category: category,
@@ -566,7 +609,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
 
       if (_isDisposed) return;
-      
+
       final current = state.valueOrNull;
 
       // If the category has changed since we started, discard the results to prevent mixing feeds.
@@ -624,11 +667,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // 1. Update all cached feeds
     for (final cat in _feedCache.keys) {
       final oldFeed = _feedCache[cat]!;
-      
+
       // Update main articles
       final articles = oldFeed.articles;
       final idx = articles.indexWhere((a) => a.id == articleId);
-      
+
       // Update pending articles
       final pending = oldFeed.pendingArticles;
       final pIdx = pending.indexWhere((a) => a.id == articleId);
@@ -654,7 +697,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (current != null) {
       final articles = current.articles;
       final idx = articles.indexWhere((a) => a.id == articleId);
-      
+
       final pending = current.pendingArticles;
       final pIdx = pending.indexWhere((a) => a.id == articleId);
 

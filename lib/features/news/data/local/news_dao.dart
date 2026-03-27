@@ -35,10 +35,12 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
+    final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
+
     return (select(newsArticlesTable)
           ..orderBy([
-            (_) =>
-                OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
+            if (hasPriority)
+              (_) => OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
             (t) => OrderingTerm.desc(t.publishedAt),
             (t) => OrderingTerm.desc(t.id),
           ])
@@ -114,15 +116,18 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       }
     }
 
+    final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
+
     final query = select(newsArticlesTable).join([
       leftOuterJoin(viewedArticlesTable,
           viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
     ])
       ..orderBy([
-        OrderingTerm(
-          expression: priorityExpr,
-          mode: OrderingMode.asc,
-        ),
+        if (hasPriority)
+          OrderingTerm(
+            expression: priorityExpr,
+            mode: OrderingMode.asc,
+          ),
         OrderingTerm.desc(newsArticlesTable.publishedAt),
         OrderingTerm.desc(newsArticlesTable.id),
       ])

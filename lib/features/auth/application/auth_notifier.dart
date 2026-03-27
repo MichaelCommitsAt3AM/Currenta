@@ -10,6 +10,7 @@ class AuthState {
     this.error,
     this.isAuthenticated = false,
     this.isAnonymous = false,
+    this.isProfileLoaded = false,
     this.needsOtp = false,
     this.pendingEmail,
     this.preferredCountry,
@@ -22,6 +23,7 @@ class AuthState {
   final String? error;
   final bool isAuthenticated;
   final bool isAnonymous;
+  final bool isProfileLoaded;
   final bool needsOtp;
   final String? pendingEmail;
   final String? preferredCountry;
@@ -34,6 +36,7 @@ class AuthState {
     String? error,
     bool? isAuthenticated,
     bool? isAnonymous,
+    bool? isProfileLoaded,
     bool? needsOtp,
     String? pendingEmail,
     String? Function()? preferredCountry,
@@ -46,6 +49,7 @@ class AuthState {
       error: error,
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       isAnonymous: isAnonymous ?? this.isAnonymous,
+      isProfileLoaded: isProfileLoaded ?? this.isProfileLoaded,
       needsOtp: needsOtp ?? this.needsOtp,
       pendingEmail: pendingEmail ?? this.pendingEmail,
       preferredCountry: preferredCountry != null ? preferredCountry() : this.preferredCountry,
@@ -59,7 +63,12 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier({required AuthRepository repository})
       : _repository = repository,
-        super(const AuthState()) {
+        super(AuthState(
+          isAuthenticated: repository.currentUserId != null,
+          isAnonymous: repository.isAnonymous,
+          displayName: repository.displayName,
+          avatarUrl: repository.avatarUrl,
+        )) {
     // Listen to Supabase auth state changes
     _repository.authStateChanges.listen((isAuthenticated) async {
       String? country;
@@ -75,6 +84,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(
         isAuthenticated: isAuthenticated,
         isAnonymous: _repository.isAnonymous,
+        isProfileLoaded: true,
         preferredCountry: () => country,
         selectedInterests: interests,
         displayName: () => name,

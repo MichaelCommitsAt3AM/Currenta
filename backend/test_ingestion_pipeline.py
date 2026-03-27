@@ -111,9 +111,17 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
             "is_paywalled": False,
         }
 
-    async def fake_summarize(text: str, provider: str, category_hint: Optional[str] = None, category_bias: str = "neutral"):
+    async def fake_summarize(
+        text: str,
+        provider: str,
+        category_hint: Optional[str] = None,
+        category_bias: str = "neutral",
+        http_client=None,
+        country_code: Optional[str] = None,
+    ):
         stage_flags["summarized"] = True
         assert len(text.split()) >= 30
+        assert country_code == "KE"
         return {
             "title": "Kenya issues AI safety policy for startups",
             "summary": (
@@ -123,6 +131,9 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
             "categories": ["tech", "business"],
             "subcategory": "AI Policy",
             "type": "hard_news",
+            "local_relevance": "local",
+            "local_confidence": 0.92,
+            "local_reason": "Policy and institutions are in Kenya.",
         }
 
     async def fake_embed(text: str):
@@ -133,7 +144,6 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
     monkeypatch.setattr(ingestion, "scrape_article_sync", fake_scrape)
     monkeypatch.setattr(ingestion, "summarize_article", fake_summarize)
     monkeypatch.setattr(ingestion, "embed_text", fake_embed)
-    monkeypatch.setattr(ingestion, "is_duplicate", lambda conn, embedding: asyncio.sleep(0, result=False))
 
     conn = FakeConn()
     pool = FakePool(conn)
@@ -154,3 +164,69 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
 
     success_logs = [row for row in conn.log_rows if "ingestion_logs" in row[0] and row[1][1] == "SUCCESS"]
     assert len(success_logs) >= 1
+
+
+def test_ingest_single_google_news_article_skips_high_confidence_non_local(monkeypatch):
+    """Local ingestion should reject high-confidence non-local stories."""
+
+    def fake_scrape(url: str):
+        return {
+            "text": (
+                "US lawmakers debated AI antitrust policy in Washington, focusing on domestic competition, "
+                "federal enforcement powers, and U.S.-only compliance obligations. "
+                "The hearing addressed impacts on American agencies and companies, with no material references "
+                "to Kenyan institutions, residents, regulations, markets, or public services. "
+                "Witnesses emphasized U.S. jurisdiction, congressional oversight, and federal court precedent "
+                "as the basis for implementation timelines and agency guidance. "
+                "Committee members discussed procedural timelines, legal standards, procurement implications, "
+                "state-federal coordination, and enforcement sequencing for domestic investigations. "
+                "Industry witnesses highlighted compliance burdens on U.S. firms and reviewed historical merger cases "
+                "used by federal regulators to shape current policy proposals."
+            ),
+            "title": "US lawmakers debate AI antitrust policy",
+            "image_url": None,
+            "image_bytes": None,
+            "url": url,
+            "original_url": url,
+            "is_paywalled": False,
+        }
+
+    async def fake_summarize(
+        text: str,
+        provider: str,
+        category_hint: Optional[str] = None,
+        category_bias: str = "neutral",
+        http_client=None,
+        country_code: Optional[str] = None,
+    ):
+        return {
+            "title": "US lawmakers debate AI antitrust policy",
+            "summary": "US congressional hearings focused on domestic antitrust tools and U.S. agency oversight for major AI companies.",
+            "categories": ["tech", "politics"],
+            "subcategory": "AI Policy",
+            "type": "hard_news",
+            "local_relevance": "non_local",
+            "local_confidence": 0.94,
+            "local_reason": "Event and impact are centered in the US.",
+        }
+
+    async def fake_embed(text: str):
+        return [0.01, 0.11, 0.21, 0.31]
+
+    monkeypatch.setattr(ingestion, "scrape_article_sync", fake_scrape)
+    monkeypatch.setattr(ingestion, "summarize_article", fake_summarize)
+    monkeypatch.setattr(ingestion, "embed_text", fake_embed)
+
+    conn = FakeConn()
+    pool = FakePool(conn)
+
+    article_id = asyncio.run(ingestion.ingest_from_url(ARTICLE_URL, pool, country_code="KE"))
+
+    assert article_id is None
+    assert len(conn.inserted_rows) == 0
+
+    rejected_logs = [
+        row for row in conn.log_rows
+        if "ingestion_logs" in row[0] and row[1][1] == "SKIPPED" and row[1][9] == "LOW_LOCAL_RELEVANCE"
+    ]
+    assert len(rejected_logs) >= 1

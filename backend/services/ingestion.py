@@ -63,6 +63,16 @@ SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0
 DUPLICATE_LOOKBACK_DAYS = int(os.environ.get("DUPLICATE_LOOKBACK_DAYS", "7"))
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
+VALID_LOCAL_RELEVANCE = {"local", "non_local", "uncertain"}
+
+LOCALITY_FILTER_ENABLED = os.environ.get("LOCALITY_FILTER_ENABLED", "1").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+LOCALITY_STRICT_MODE = os.environ.get("LOCALITY_STRICT_MODE", "0").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+LOCALITY_NON_LOCAL_THRESHOLD = float(os.environ.get("LOCALITY_NON_LOCAL_THRESHOLD", "0.70"))
+LOCALITY_LOCAL_MIN_CONFIDENCE = float(os.environ.get("LOCALITY_LOCAL_MIN_CONFIDENCE", "0.55"))
 
 # Create a synchronous supabase client for storage uploads and RPC calls if needed
 supabase_client: Client | None = None
@@ -150,7 +160,7 @@ FEEDS = [
     { "feedUrl": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://medicalxpress.com/rss-feed/health-news/", "defaultCategory": "health", "categoryBias": "strong" },
+    { "feedUrl": "https://medicalxpress.com/feeds/health/", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://kffhealthnews.org/feed/", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://www.mayoclinic.org/rss/all-news-topics.xml", "defaultCategory": "health", "categoryBias": "strong" },
     # Google News
@@ -227,6 +237,71 @@ Example of a 64-word summary (Use this density as a template):
 
 Article to summarize and classify:
 """
+
+
+def _build_locality_context(country_code: Optional[str]) -> str:
+    if not country_code:
+        return ""
+
+    cc = country_code.upper().strip()
+    region_info = next((r for r in SUPPORTED_LOCAL_REGIONS if r["code"] == cc), None)
+    if region_info:
+        locs = region_info.get("locations") or []
+        loc_hint = ", ".join(locs) if locs else cc
+    else:
+        loc_hint = cc
+
+    return (
+        "\n\nLocal relevance classification is REQUIRED for this run. "
+        f"Target country: {cc}. Location hints: {loc_hint}.\n"
+        "Add these JSON fields:\n"
+        '"local_relevance": "local" | "non_local" | "uncertain",\n'
+        '"local_confidence": number from 0.0 to 1.0,\n'
+        '"local_reason": brief evidence-based reason (max 20 words).\n'
+        "Definitions:\n"
+        "- local: the main event happened in the target country OR directly affects residents/institutions there.\n"
+        "- non_local: mostly about another country/region with no meaningful local impact.\n"
+        "- uncertain: mixed or insufficient evidence."
+    )
+
+
+def _parse_local_confidence(value: Optional[float | int | str]) -> float:
+    try:
+        conf = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if conf < 0.0:
+        return 0.0
+    if conf > 1.0:
+        return 1.0
+    return conf
+
+
+def _passes_locality_gate(llm_res: dict, country_code: Optional[str]) -> tuple[bool, Optional[str]]:
+    if not LOCALITY_FILTER_ENABLED or not country_code:
+        return True, None
+
+    relevance = str(llm_res.get("local_relevance", "uncertain")).strip().lower()
+    confidence = _parse_local_confidence(llm_res.get("local_confidence", 0.0))
+
+    if relevance not in VALID_LOCAL_RELEVANCE:
+        relevance = "uncertain"
+
+    if relevance == "non_local" and confidence >= LOCALITY_NON_LOCAL_THRESHOLD:
+        return False, (
+            f"Locality gate rejected article as non-local "
+            f"(confidence={confidence:.2f}, threshold={LOCALITY_NON_LOCAL_THRESHOLD:.2f})."
+        )
+
+    if LOCALITY_STRICT_MODE:
+        if relevance != "local" or confidence < LOCALITY_LOCAL_MIN_CONFIDENCE:
+            return False, (
+                f"Strict locality mode rejected article "
+                f"(relevance={relevance}, confidence={confidence:.2f}, "
+                f"minimum_local_confidence={LOCALITY_LOCAL_MIN_CONFIDENCE:.2f})."
+            )
+
+    return True, None
 
 def generate_content_hash(link: str, title: str) -> str:
     s = link + title
@@ -771,7 +846,14 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> 
 
     return None
 
-async def summarize_article(text: str, provider: str, category_hint: str = None, category_bias: str = "neutral", http_client: Optional[httpx.AsyncClient] = None) -> dict:
+async def summarize_article(
+    text: str,
+    provider: str,
+    category_hint: Optional[str] = None,
+    category_bias: str = "neutral",
+    http_client: Optional[httpx.AsyncClient] = None,
+    country_code: Optional[str] = None,
+) -> dict:
     category_context = ""
     if category_hint:
         if category_bias == "strong":
@@ -779,7 +861,8 @@ async def summarize_article(text: str, provider: str, category_hint: str = None,
         else:
             category_context = f"\nThe source feed is broadly tagged as '{category_hint}'. Include all categories that genuinely apply; '{category_hint}' should be listed first if applicable."
 
-    full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}\n\nArticle:\n{text}"
+    locality_context = _build_locality_context(country_code)
+    full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}\n\nArticle:\n{text}"
     raw_content = ""
 
     # Recommendation 3: Use shared http_client if provided to reduce connection overhead
@@ -926,13 +1009,21 @@ def parse_llm_response(raw_str: str) -> dict:
             
         type_str = parsed.get("type", "hard_news").lower()
         subcat = parsed.get("subcategory", "").replace("**", "").strip('"').strip()
+        local_relevance = str(parsed.get("local_relevance", "uncertain")).strip().lower()
+        if local_relevance not in VALID_LOCAL_RELEVANCE:
+            local_relevance = "uncertain"
+        local_confidence = _parse_local_confidence(parsed.get("local_confidence", 0.0))
+        local_reason = str(parsed.get("local_reason", "")).replace("**", "").strip('"').strip()
         
         return {
             "title": title,
             "summary": summary,
             "categories": categories,
             "type": type_str,
-            "subcategory": subcat
+            "subcategory": subcat,
+            "local_relevance": local_relevance,
+            "local_confidence": local_confidence,
+            "local_reason": local_reason,
         }
     except Exception as e:
         print(f"[LLM Parser] Logic error: {e}")
@@ -1045,6 +1136,35 @@ async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
     file_path = f"covers/{file_name}.jpg"
     max_retries = 3
     base_delay = 2.0
+
+    def _is_transient_upload_error(exc: Exception) -> bool:
+        err_msg = str(exc).lower()
+        transient_signatures = [
+            "544",
+            "504",
+            "502",
+            "503",
+            "429",
+            "timeout",
+            "time out",
+            "databasetimeout",
+            "server disconnected",
+            "connection reset",
+            "temporarily unavailable",
+            "remoteprotocolerror",
+        ]
+        if any(sig in err_msg for sig in transient_signatures):
+            return True
+
+        return isinstance(
+            exc,
+            (
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.ConnectError,
+                httpx.TimeoutException,
+            ),
+        )
     
     for attempt in range(max_retries + 1):
         try:
@@ -1064,8 +1184,8 @@ async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
             
         except Exception as e:
             err_msg = str(e)
-            # Handle transient errors like 544 Database Timeout or 504 Gateway Timeout
-            is_transient = any(sig in err_msg for sig in ["544", "504", "502", "timeout", "time out", "DatabaseTimeout"])
+            # Handle transient edge/network/platform errors with retry.
+            is_transient = _is_transient_upload_error(e)
             
             if attempt < max_retries and is_transient:
                 delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
@@ -1487,7 +1607,14 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
                 # Summarize
                 try:
-                    llm_res = await summarize_article(article_text, LLM_PROVIDER, category, category_bias, http_client=http_client)
+                    llm_res = await summarize_article(
+                        article_text,
+                        LLM_PROVIDER,
+                        category,
+                        category_bias,
+                        http_client=http_client,
+                        country_code=country_code,
+                    )
                 except Exception as llm_err:
                     print(f"[processFeed] LLM ERROR for {item['link']}: {llm_err}")
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="LLM_ERROR", error_message=str(llm_err))
@@ -1524,6 +1651,19 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     results["skipped"] += 1
                     continue
 
+                locality_ok, locality_message = _passes_locality_gate(llm_res, country_code)
+                if not locality_ok:
+                    await log_ingestion_event(
+                        conn,
+                        item["link"],
+                        "SKIPPED",
+                        source_name=item.get("source"),
+                        error_type="LOW_LOCAL_RELEVANCE",
+                        error_message=locality_message,
+                    )
+                    results["skipped"] += 1
+                    continue
+
                 embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"], http_client=http_client)
                 
                 # Check for semantic duplicate using the same connection
@@ -1551,7 +1691,14 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         matched_article_id=best_match_id,
                         matched_cluster_id=matched_cluster_id,
                         error_type="DUPLICATE_EMBEDDING",
-                        error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}. Best similarity: {best_similarity:.4f}" if best_similarity is not None else f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
+                        error_message=(
+                            f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). "
+                            f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}. "
+                            f"Best similarity: {best_similarity:.4f}"
+                        ) if best_similarity is not None else (
+                            f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). "
+                            f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}."
+                        )
                     )
                     results["skipped"] += 1
                     continue
@@ -1682,6 +1829,7 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
                 r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
                 r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
                 r['id'] = str(r['id']) if r.get('id') else None
+                r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
                 result.append(r)
 
             # Use shared Redis client if provided, else create a short-lived one
@@ -1911,7 +2059,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         # Summarize
         try:
             # We don't have a category hint here, so we let the LLM decide
-            llm_res = await summarize_article(scraped_text, LLM_PROVIDER)
+            llm_res = await summarize_article(scraped_text, LLM_PROVIDER, country_code=country_code)
         except Exception as e:
             await log_ingestion_event(conn, url, "FAILED", error_type="LLM_ERROR", error_message=str(e))
             return None
@@ -1923,6 +2071,17 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                 "SKIPPED",
                 error_type="LOW_SIGNAL_TYPE",
                 error_message=f"LLM type '{llm_res['type']}' is not allowed."
+            )
+            return None
+
+        locality_ok, locality_message = _passes_locality_gate(llm_res, country_code)
+        if not locality_ok:
+            await log_ingestion_event(
+                conn,
+                url,
+                "SKIPPED",
+                error_type="LOW_LOCAL_RELEVANCE",
+                error_message=locality_message,
             )
             return None
 
@@ -1941,7 +2100,14 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                 matched_article_id=best_match_id,
                 matched_cluster_id=matched_cluster_id,
                 error_type="DUPLICATE_EMBEDDING",
-                error_message=f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}. Best similarity: {best_similarity:.4f}" if best_similarity is not None else f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). Matched cluster {matched_cluster_id}"
+                error_message=(
+                    f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). "
+                    f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}. "
+                    f"Best similarity: {best_similarity:.4f}"
+                ) if best_similarity is not None else (
+                    f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). "
+                    f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}."
+                )
             )
             return None
         if best_similarity is not None:

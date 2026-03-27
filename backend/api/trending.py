@@ -104,12 +104,13 @@ def _select_diverse_trending_articles(articles: List[dict], limit: int) -> List[
 @limiter.limit("60/minute")
 async def get_trending_feed(
     request: Request,
+    country: Optional[str] = Query(None, description="Prioritize trends from this country"),
     limit: int = Query(20, ge=1, le=50),
     db_pool: asyncpg.Pool = Depends(get_db)
 ):
     """
     Returns the top trending articles globally based on trend_score.
-    Ignores user interests as per requirements.
+    If 'country' is specified, stories from that country are prioritized at the top.
     """
     try:
         async with db_pool.acquire() as conn:
@@ -117,15 +118,19 @@ async def get_trending_feed(
 
             # Fetch a larger candidate pool first, then apply ranking + dedup/diversity
             # in memory so we can avoid stale and repetitive top results.
+            # We use a Case statement to prioritize the specified country.
             query = f"""
                 SELECT {ARTICLE_COLUMNS}
                 FROM articles
                 WHERE trend_score > 0
                 AND published_at > NOW() - INTERVAL '72 hours'
-                ORDER BY trend_score DESC, published_at DESC
+                ORDER BY 
+                    (CASE WHEN country_code = $2 THEN 1 ELSE 0 END) DESC,
+                    trend_score DESC, 
+                    published_at DESC
                 LIMIT $1
             """
-            records = await conn.fetch(query, candidate_limit)
+            records = await conn.fetch(query, candidate_limit, country)
 
             now = datetime.now(timezone.utc)
             candidates: List[dict] = []
@@ -136,6 +141,7 @@ async def get_trending_feed(
 
             candidates.sort(
                 key=lambda a: (
+                    (1.0 if a.get("country_code") == country else 0.0), # Local boost
                     float(a.get("ranking_score") or 0.0),
                     float(a.get("trend_score") or 0.0),
                     a.get("published_at") or datetime.min.replace(tzinfo=timezone.utc),
@@ -151,6 +157,7 @@ async def get_trending_feed(
                 r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
                 r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
                 r['id'] = str(r['id']) if r.get('id') else None
+                r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
                 r.pop('ranking_score', None)
                 articles.append(r)
                 

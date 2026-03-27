@@ -124,10 +124,16 @@ class NewsRemoteDataSource {
   }
 
   /// Fetches global trending articles.
-  Future<List<NewsArticle>> fetchTrendingArticles({int limit = 20}) async {
+  Future<List<NewsArticle>> fetchTrendingArticles({
+    int limit = 20,
+    String? country,
+  }) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/trending';
-      final queryParams = {'limit': limit};
+      final queryParams = <String, dynamic>{
+        'limit': limit,
+        if (country != null) 'country': country,
+      };
 
       final session = Supabase.instance.client.auth.currentSession;
       final options = Options(

@@ -107,6 +107,9 @@ abstract class NewsArticle with _$NewsArticle {
 
     /// Semantic cluster ID — articles with the same cluster cover the same story
     @JsonKey(name: 'cluster_id') String? clusterId,
+
+    /// Country code for localized news (e.g. "US", "KE")
+    @JsonKey(name: 'country_code') String? countryCode,
   }) = _NewsArticle;
 
   factory NewsArticle.fromJson(Map<String, dynamic> json) =>

@@ -384,6 +384,7 @@ async def get_feed(
                     r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
                     r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
                     r['id'] = str(r['id']) if r.get('id') else None
+                    r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
                     r['ranking_score'] = record.get('ranking_score', 0.0)
                     all_articles.append(r)
                     

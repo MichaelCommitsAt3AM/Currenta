@@ -105,6 +105,7 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
                   article: article,
                   index: i,
                   total: displayArticles.length,
+                  topPadding: 10.0,
                 ),
               );
             },

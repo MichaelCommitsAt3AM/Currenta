@@ -85,6 +85,10 @@ mixin _$NewsArticle {
   @JsonKey(name: 'cluster_id')
   String? get clusterId;
 
+  /// Country code for localized news (e.g. "US", "KE")
+  @JsonKey(name: 'country_code')
+  String? get countryCode;
+
   /// Create a copy of NewsArticle
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -129,7 +133,9 @@ mixin _$NewsArticle {
             (identical(other.isViewed, isViewed) ||
                 other.isViewed == isViewed) &&
             (identical(other.clusterId, clusterId) ||
-                other.clusterId == clusterId));
+                other.clusterId == clusterId) &&
+            (identical(other.countryCode, countryCode) ||
+                other.countryCode == countryCode));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -152,11 +158,12 @@ mixin _$NewsArticle {
       likesCount,
       isFavorited,
       isViewed,
-      clusterId);
+      clusterId,
+      countryCode);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode)';
   }
 }
 
@@ -191,7 +198,8 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       @JsonKey(name: 'likes_count') int likesCount,
       @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'is_viewed') bool isViewed,
-      @JsonKey(name: 'cluster_id') String? clusterId});
+      @JsonKey(name: 'cluster_id') String? clusterId,
+      @JsonKey(name: 'country_code') String? countryCode});
 }
 
 /// @nodoc
@@ -223,6 +231,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? isFavorited = null,
     Object? isViewed = null,
     Object? clusterId = freezed,
+    Object? countryCode = freezed,
   }) {
     return _then(_self.copyWith(
       id: null == id
@@ -292,6 +301,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
       clusterId: freezed == clusterId
           ? _self.clusterId
           : clusterId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      countryCode: freezed == countryCode
+          ? _self.countryCode
+          : countryCode // ignore: cast_nullable_to_non_nullable
               as String?,
     ));
   }
@@ -415,7 +428,8 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'likes_count') int likesCount,
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
-            @JsonKey(name: 'cluster_id') String? clusterId)?
+            @JsonKey(name: 'cluster_id') String? clusterId,
+            @JsonKey(name: 'country_code') String? countryCode)?
         $default, {
     required TResult orElse(),
   }) {
@@ -439,7 +453,8 @@ extension NewsArticlePatterns on NewsArticle {
             _that.likesCount,
             _that.isFavorited,
             _that.isViewed,
-            _that.clusterId);
+            _that.clusterId,
+            _that.countryCode);
       case _:
         return orElse();
     }
@@ -485,7 +500,8 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'likes_count') int likesCount,
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
-            @JsonKey(name: 'cluster_id') String? clusterId)
+            @JsonKey(name: 'cluster_id') String? clusterId,
+            @JsonKey(name: 'country_code') String? countryCode)
         $default,
   ) {
     final _that = this;
@@ -508,7 +524,8 @@ extension NewsArticlePatterns on NewsArticle {
             _that.likesCount,
             _that.isFavorited,
             _that.isViewed,
-            _that.clusterId);
+            _that.clusterId,
+            _that.countryCode);
       case _:
         throw StateError('Unexpected subclass');
     }
@@ -553,7 +570,8 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'likes_count') int likesCount,
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
-            @JsonKey(name: 'cluster_id') String? clusterId)?
+            @JsonKey(name: 'cluster_id') String? clusterId,
+            @JsonKey(name: 'country_code') String? countryCode)?
         $default,
   ) {
     final _that = this;
@@ -576,7 +594,8 @@ extension NewsArticlePatterns on NewsArticle {
             _that.likesCount,
             _that.isFavorited,
             _that.isViewed,
-            _that.clusterId);
+            _that.clusterId,
+            _that.countryCode);
       case _:
         return null;
     }
@@ -611,7 +630,8 @@ class _NewsArticle implements NewsArticle {
       @JsonKey(name: 'likes_count') this.likesCount = 0,
       @JsonKey(name: 'is_favorited') this.isFavorited = false,
       @JsonKey(name: 'is_viewed') this.isViewed = false,
-      @JsonKey(name: 'cluster_id') this.clusterId})
+      @JsonKey(name: 'cluster_id') this.clusterId,
+      @JsonKey(name: 'country_code') this.countryCode})
       : _categories = categories,
         _subCategories = subCategories;
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
@@ -719,6 +739,11 @@ class _NewsArticle implements NewsArticle {
   @JsonKey(name: 'cluster_id')
   final String? clusterId;
 
+  /// Country code for localized news (e.g. "US", "KE")
+  @override
+  @JsonKey(name: 'country_code')
+  final String? countryCode;
+
   /// Create a copy of NewsArticle
   /// with the given fields replaced by the non-null parameter values.
   @override
@@ -768,7 +793,9 @@ class _NewsArticle implements NewsArticle {
             (identical(other.isViewed, isViewed) ||
                 other.isViewed == isViewed) &&
             (identical(other.clusterId, clusterId) ||
-                other.clusterId == clusterId));
+                other.clusterId == clusterId) &&
+            (identical(other.countryCode, countryCode) ||
+                other.countryCode == countryCode));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -791,11 +818,12 @@ class _NewsArticle implements NewsArticle {
       likesCount,
       isFavorited,
       isViewed,
-      clusterId);
+      clusterId,
+      countryCode);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode)';
   }
 }
 
@@ -832,7 +860,8 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       @JsonKey(name: 'likes_count') int likesCount,
       @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'is_viewed') bool isViewed,
-      @JsonKey(name: 'cluster_id') String? clusterId});
+      @JsonKey(name: 'cluster_id') String? clusterId,
+      @JsonKey(name: 'country_code') String? countryCode});
 }
 
 /// @nodoc
@@ -864,6 +893,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? isFavorited = null,
     Object? isViewed = null,
     Object? clusterId = freezed,
+    Object? countryCode = freezed,
   }) {
     return _then(_NewsArticle(
       id: null == id
@@ -933,6 +963,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
       clusterId: freezed == clusterId
           ? _self.clusterId
           : clusterId // ignore: cast_nullable_to_non_nullable
+              as String?,
+      countryCode: freezed == countryCode
+          ? _self.countryCode
+          : countryCode // ignore: cast_nullable_to_non_nullable
               as String?,
     ));
   }

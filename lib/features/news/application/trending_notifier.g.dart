@@ -6,7 +6,7 @@ part of 'trending_notifier.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$trendingNotifierHash() => r'd6c53ad5bb3836d4a0b754d3bd639fb304c85bc6';
+String _$trendingNotifierHash() => r'201375e139d6f10284cf144b0d4641cb1af3bfe9';
 
 /// See also [TrendingNotifier].
 @ProviderFor(TrendingNotifier)

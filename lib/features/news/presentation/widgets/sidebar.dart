@@ -343,7 +343,7 @@ class Sidebar extends ConsumerWidget {
   }
 }
 
-class _TrendingTile extends StatelessWidget {
+class _TrendingTile extends ConsumerWidget {
   final NewsArticle article;
   final VoidCallback onTap;
 
@@ -353,7 +353,11 @@ class _TrendingTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final userCountry = ref.watch(authNotifierProvider).preferredCountry;
+    final isLocal =
+        article.countryCode != null && article.countryCode == userCountry;
+
     final primaryCategory =
         article.categories.isNotEmpty ? article.categories.first : null;
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
@@ -407,6 +411,29 @@ class _TrendingTile extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      if (isLocal) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color:
+                                    Colors.blueAccent.withValues(alpha: 0.2)),
+                          ),
+                          child: const Text(
+                            'LOCAL',
+                            style: TextStyle(
+                              color: Colors.blueAccent,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 8),
                       Icon(
                         Icons.trending_up,

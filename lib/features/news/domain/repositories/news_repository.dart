@@ -72,7 +72,7 @@ abstract class NewsRepository {
   Future<void> clearReadingHistory();
   
   /// Fetches global trending articles directly from remote.
-  Future<List<NewsArticle>> fetchTrending({int limit = 20});
+  Future<List<NewsArticle>> fetchTrending({int limit = 20, String? country});
 
   /// Returns a single article by its identifier.
   Future<NewsArticle?> getArticleById(String id);
