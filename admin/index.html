@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Currenta Admin Portal — Manual Ingestion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Supabase JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="aurora"></div>
+    
+    <!-- Login Overlay -->
+    <div id="auth-overlay" class="overlay active">
+        <div class="glass-card auth-card">
+            <h1 class="logo">Currenta<span>.admin</span></h1>
+            <p>Enter your credentials to manage niche news.</p>
+            <form id="login-form">
+                <div class="input-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" required placeholder="admin@currenta.app">
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn primary">Login</button>
+            </form>
+            <div class="divider"><span>OR</span></div>
+            <button id="google-login" class="btn google">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
+                Sign in with Google
+            </button>
+            <p id="auth-error" class="error"></p>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="container hidden">
+        <header>
+            <h1 class="logo">Currenta<span>.admin</span></h1>
+            <button id="logout-btn" class="btn outline small">Logout</button>
+        </header>
+
+        <main>
+            <section class="ingest-section">
+                <div class="section-header">
+                    <h2>Manual Ingestion</h2>
+                    <p>Provide a URL to start the magic draft process.</p>
+                </div>
+                
+                <div class="url-bar">
+                    <input type="url" id="news-url" placeholder="https://niche-news-source.com/article-path">
+                    <button id="draft-btn" class="btn accent">
+                        <span class="btn-text">Generate Draft</span>
+                        <div class="loader hidden"></div>
+                    </button>
+                    <button id="manual-btn" class="btn outline">Manual Entry</button>
+                </div>
+            </section>
+
+            <section id="editor-section" class="editor-section hidden">
+                <div class="glass-card editor-card">
+                    <div class="editor-header">
+                        <h3>Draft Editor</h3>
+                        <span class="badge ai">AI Assisted</span>
+                    </div>
+
+                    <div class="editor-grid">
+                        <div class="editor-left">
+                            <div class="input-group">
+                                <label for="draft-title">Title</label>
+                                <input type="text" id="draft-title">
+                            </div>
+
+                            <div class="input-group">
+                                <label for="draft-summary">AI Summary (60-68 words)</label>
+                                <textarea id="draft-summary" rows="5"></textarea>
+                                <div class="word-count"><span id="word-count">0</span> / 68</div>
+                            </div>
+
+                            <div class="input-row">
+                                <div class="input-group">
+                                    <label for="draft-source">Source Name</label>
+                                    <input type="text" id="draft-source">
+                                </div>
+                                <div class="input-group">
+                                    <label for="draft-subcategory">Subcategory</label>
+                                    <input type="text" id="draft-subcategory" placeholder="e.g. AI, Space, Politics">
+                                </div>
+                            </div>
+
+                            <div class="input-row">
+                                <div class="input-group">
+                                    <label for="draft-country">Country Code</label>
+                                    <input type="text" id="draft-country" placeholder="US" maxlength="2">
+                                </div>
+                                <div class="input-group toggle-group">
+                                    <label>Paywalled</label>
+                                    <input type="checkbox" id="draft-paywall" class="toggle-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="editor-right">
+                            <div class="input-group">
+                                <label>Image URL</label>
+                                <input type="url" id="draft-image-url" placeholder="https://...">
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Categories</label>
+                                <div id="category-chips" class="chip-container">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+
+                            <div class="image-preview-container">
+                                <label>Image Preview</label>
+                                <div id="image-preview" class="image-box">
+                                    <span>No Image Detected</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="editor-footer">
+                        <p id="publish-error" class="error"></p>
+                        <button id="publish-btn" class="btn primary large">Publish to Database</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Success Toast -->
+    <div id="toast" class="toast hidden">
+        <span class="toast-icon">✓</span>
+        <span class="toast-msg">Article Published Successfully!</span>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -86,6 +86,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   LocalPersistenceRepository get _persistence =>
       ref.read(localPersistenceRepositoryProvider);
 
+  static const Duration _profileLoadTimeout = Duration(seconds: 8);
+  static const Duration _profilePollInterval = Duration(milliseconds: 150);
+
   /// In-memory cache to preserve feed state (articles, index, pagination status)
   /// for each category durante the session.
   final Map<NewsCategory?, FeedState> _feedCache = {};
@@ -101,16 +104,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     unawaited(_repo.clearOldCache());
 
     // 1. Watch Auth status and profile loading state.
-    // We wait for 'isProfileLoaded' to ensure we have the user's interests 
+    // We wait for 'isProfileLoaded' to ensure we have the user's interests
     // BEFORE the very first fetch. This prevents the 'jumping' feed issue.
-    final isProfileLoaded = ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
-    final isAuthenticated = ref.watch(authNotifierProvider.select((s) => s.isAuthenticated));
-    
+    final isProfileLoaded =
+        ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
+    final isAuthenticated =
+        ref.watch(authNotifierProvider.select((s) => s.isAuthenticated));
+
     if (!isProfileLoaded) {
-      // Profile (interests/country) is still fetching. 
-      // Return a pending future to keep the provider in AsyncLoading state,
-      // avoiding a 'No news found' flash. Riverpod will restart build() when isProfileLoaded changes.
-      return Completer<FeedState>().future;
+      debugPrint('[Feed] Waiting for auth profile to load...');
+      await _waitForProfileLoad();
     }
 
     final auth = ref.read(authNotifierProvider);
@@ -127,11 +130,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           _handlePendingActivity(pending);
         }
         _backgroundRefresh();
-      } 
+      }
       // Handle mid-session interest/country changes silently
-      else if (next.isAuthenticated && 
-               (next.selectedInterests != previous?.selectedInterests || 
-                next.preferredCountry != previous?.preferredCountry)) {
+      else if (next.isAuthenticated &&
+          (next.selectedInterests != previous?.selectedInterests ||
+              next.preferredCountry != previous?.preferredCountry)) {
         debugPrint('[Feed] Profile updated. Triggering silent refresh.');
         _backgroundRefresh();
       }
@@ -196,6 +199,59 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     _feedCache[savedCategoryId] = finalState;
     return finalState;
+  }
+
+  Future<void> _waitForProfileLoad() async {
+    final completer = Completer<void>();
+    Timer? pollTimer;
+    Timer? timeoutTimer;
+
+    void finishSuccessfully() {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    }
+
+    void finishWithError(Object error) {
+      if (!completer.isCompleted) {
+        completer.completeError(error);
+      }
+    }
+
+    // Fast path if profile already loaded by the time this runs.
+    if (ref.read(authNotifierProvider).isProfileLoaded) {
+      finishSuccessfully();
+    } else {
+      timeoutTimer = Timer(_profileLoadTimeout, () {
+        // TODO(prod): This explicit startup timeout is useful in dev to surface
+        // auth/profile initialization issues. Before production release, gate
+        // this behind a debug/dev flag or replace with a resilient fallback
+        // flow to avoid hard-failing feed startup for end users.
+        finishWithError(TimeoutException(
+          'Timed out waiting for auth/profile initialization after '
+          '${_profileLoadTimeout.inSeconds}s. Feed startup aborted.',
+        ));
+      });
+
+      pollTimer = Timer.periodic(_profilePollInterval, (_) {
+        if (_isDisposed) {
+          finishWithError(
+              StateError('Feed provider disposed during profile wait.'));
+          return;
+        }
+
+        if (ref.read(authNotifierProvider).isProfileLoaded) {
+          finishSuccessfully();
+        }
+      });
+    }
+
+    try {
+      await completer.future;
+    } finally {
+      pollTimer?.cancel();
+      timeoutTimer?.cancel();
+    }
   }
 
   // ── Public API ──────────────────────────────────────────────────

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS feed_jobs (
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id           UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     preferred_country VARCHAR(2),
+    is_admin          BOOLEAN DEFAULT false,
     created_at        TIMESTAMPTZ DEFAULT now(),
     updated_at        TIMESTAMPTZ DEFAULT now()
 );

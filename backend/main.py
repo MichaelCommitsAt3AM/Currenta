@@ -26,7 +26,7 @@ from .core.logging_config import setup_logging
 setup_logging()
 
 from .core.security import limiter
-from .api import feed, ingest, chat, trending
+from .api import feed, ingest, chat, trending, admin
 from .version import VERSION
 from .services.scheduler import start_scheduler, stop_scheduler
 
@@ -133,15 +133,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # 3. CORS — mobile-only API, so no browser origin is needed.
 #    Restrict to your production domain when you have one.
-#    For a pure mobile API you can keep allow_origins=[] (no browser CORS needed)
-#    but explicit configuration is required to avoid framework defaults.
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "").split(",")
-ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS if o.strip()]
+#    For local dev of the admin portal, we allow localhost.
+ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000")
+ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,  # Set ALLOWED_ORIGINS env var in prod; empty = block browser callers
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
@@ -163,6 +163,7 @@ app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(trending.router, prefix="/api/trending", tags=["trending"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/")

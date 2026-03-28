@@ -203,3 +203,33 @@ async def verify_supabase_jwt(authorization: str = Header(None)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+async def verify_is_admin(
+    request: Request,
+    user: User = Security(verify_supabase_jwt)
+) -> User:
+    """
+    Dependency that ensures the authenticated user has is_admin=true in user_profiles.
+    """
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+        
+    pool = getattr(request.app.state, "db_pool", None)
+    if not pool:
+        logger.error("DB Pool not found in app.state — cannot check admin status.")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT is_admin FROM user_profiles WHERE user_id = $1",
+            user.id
+        )
+        
+        if not row or not row["is_admin"]:
+            logger.warning(f"Unauthorized admin access attempt by user {user.id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin privileges required"
+            )
+            
+    return user
