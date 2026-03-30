@@ -8,5 +8,6 @@ abstract class ChatRepository {
   Future<void> saveChatSession(ChatSession session);
   Future<void> saveChatMessage(String sessionId, ChatMessage message);
   Future<void> deleteChatSession(String sessionId);
+  Future<void> deleteLastMessages(String sessionId, int count);
   Future<void> clearAllHistory();
 }

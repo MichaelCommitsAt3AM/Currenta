@@ -1,6 +1,7 @@
 // lib/features/news/presentation/screens/trending_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/trending_notifier.dart';
 import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
@@ -21,12 +22,41 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
+
+    // Mark the very first article as viewed and preload first few images
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _precacheImages(0);
+    });
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _precacheImages(int index) {
+    final trendingAsync = ref.read(trendingNotifierProvider);
+    final articles = trendingAsync.valueOrNull;
+    if (articles == null) return;
+
+    final displayArticles = [
+      if (widget.initialArticle != null) widget.initialArticle!,
+      ...articles.where((a) => a.id != widget.initialArticle?.id),
+    ];
+
+    // Preload next 5 articles
+    for (var ahead = 1; ahead <= 5; ahead++) {
+      final nextIndex = index + ahead;
+      if (nextIndex < displayArticles.length) {
+        final article = displayArticles[nextIndex];
+        final imageUrl = article.imageUrl;
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          precacheImage(CachedNetworkImageProvider(imageUrl), context);
+        }
+      }
+    }
   }
 
   @override
@@ -98,6 +128,7 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
             scrollDirection: Axis.vertical,
             physics: const BouncingScrollPhysics(),
             itemCount: displayArticles.length,
+            onPageChanged: _precacheImages,
             itemBuilder: (context, i) {
               final article = displayArticles[i];
               return RepaintBoundary(

@@ -30,6 +30,7 @@ class FeedState {
     this.pendingArticles = const [],
     this.currentIndex = 0,
     this.showChatForArticleId,
+    this.includeViewedInPaging = false,
   });
 
   final List<NewsArticle> articles;
@@ -52,6 +53,10 @@ class FeedState {
 
   final String? showChatForArticleId;
 
+  /// If true, pagination will include articles already marked as viewed.
+  /// Typically enabled during state restoration to maintain feed continuity.
+  final bool includeViewedInPaging;
+
   FeedState copyWith({
     List<NewsArticle>? articles,
     bool? isLoadingMore,
@@ -61,6 +66,7 @@ class FeedState {
     List<NewsArticle>? pendingArticles,
     int? currentIndex,
     String? Function()? showChatForArticleId,
+    bool? includeViewedInPaging,
   }) =>
       FeedState(
         articles: articles ?? this.articles,
@@ -75,6 +81,8 @@ class FeedState {
         showChatForArticleId: showChatForArticleId != null
             ? showChatForArticleId()
             : this.showChatForArticleId,
+        includeViewedInPaging:
+            includeViewedInPaging ?? this.includeViewedInPaging,
       );
 }
 
@@ -154,11 +162,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final savedArticleId = _persistence.getCurrentArticleId();
     final includeViewed = savedArticleId != null;
 
-    // 5. Fetch first page with personalization
+    // 5. Fetch first page with personalization.
+    // If restoring, we fetch a larger batch (30) to increase the chance of 
+    // finding the saved article in its chronological context.
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
-      limit: _kPageSize,
+      limit: includeViewed ? 30 : _kPageSize,
       offset: 0,
       includeViewed: includeViewed,
     );
@@ -195,6 +205,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       hasMore: true,
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
+      includeViewedInPaging: includeViewed,
     );
 
     _feedCache[savedCategoryId] = finalState;
@@ -276,7 +287,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
         before: last?.publishedAt,
         afterId: last?.id,
-        includeViewed: false,
+        includeViewed: startState.includeViewedInPaging,
       );
 
       final current = state.valueOrNull;
@@ -291,7 +302,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           category: category,
           before: last?.publishedAt,
           limit: 30, // Fetch a healthy batch
-          remoteOffset: current.articles.length, // SKIP already loaded articles
+        remoteOffset: 0, // When using 'before' (cursor), skip offset to avoid jumping articles
         );
 
         if (syncedCount > 0) {
@@ -303,7 +314,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
             limit: _kPageSize,
             before: last?.publishedAt,
             afterId: last?.id,
-            includeViewed: false,
+            includeViewed: startState.includeViewedInPaging,
           );
         }
       }
@@ -543,6 +554,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       pendingArticles: [],
       newArticlesCount: 0,
       currentIndex: currentArticle != null ? 1 : 0,
+      includeViewedInPaging: false, // Reverting to 'unviewed only' for a fresh session
     );
 
     state = AsyncData(nextState);

@@ -176,16 +176,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (nextIndex != prevIndex && nextIndex != controllerPage) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_pageController.hasClients) {
-            // Jump instantly to index 0 if it's a feed reset, otherwise animate
-            if (previous?.valueOrNull == null || nextIndex == 0) {
-              _pageController.jumpToPage(nextIndex);
-            } else {
-              _pageController.animateToPage(
-                nextIndex,
-                duration: const Duration(milliseconds: 600),
-                curve: Curves.fastOutSlowIn,
-              );
-            }
+            _pageController.jumpToPage(nextIndex);
             if (_currentIndex != nextIndex) {
               setState(() => _currentIndex = nextIndex);
             }

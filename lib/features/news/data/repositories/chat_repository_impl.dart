@@ -86,6 +86,22 @@ class ChatRepositoryImpl implements ChatRepository {
     await (_db.delete(_db.chatSessionsTable)..where((t) => t.id.equals(sessionId))).go();
     await (_db.delete(_db.chatMessagesTable)..where((t) => t.sessionId.equals(sessionId))).go();
   }
+  
+  @override
+  Future<void> deleteLastMessages(String sessionId, int count) async {
+    final rows = await (_db.select(_db.chatMessagesTable)
+          ..where((t) => t.sessionId.equals(sessionId))
+          ..orderBy([(t) => OrderingTerm(expression: t.id, mode: OrderingMode.desc)])
+          ..limit(count))
+        .get();
+    
+    if (rows.isEmpty) return;
+    
+    final ids = rows.map((r) => r.id).toList();
+    await (_db.delete(_db.chatMessagesTable)
+          ..where((t) => t.id.isIn(ids)))
+        .go();
+  }
 
   @override
   Future<void> clearAllHistory() async {

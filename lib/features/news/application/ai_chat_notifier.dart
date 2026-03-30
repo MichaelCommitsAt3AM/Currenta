@@ -47,6 +47,7 @@ class AiChatNotifier extends _$AiChatNotifier {
   // Keep a reference to the active stream subscription so we can cancel it if
   // the user navigates away mid-stream (provider gets disposed).
   StreamSubscription<String>? _streamSub;
+  CancelToken? _cancelToken;
 
   @override
   AiChatState build(String articleId, String articleTitle) {
@@ -128,6 +129,8 @@ class AiChatNotifier extends _$AiChatNotifier {
       );
       streamingDio.httpClientAdapter = IOHttpClientAdapter();
 
+      _cancelToken = CancelToken();
+
       final response = await streamingDio.post<ResponseBody>(
         '${AppConfig.apiBaseUrl}/api/chat',
         data: {
@@ -136,6 +139,7 @@ class AiChatNotifier extends _$AiChatNotifier {
               .map((m) => m.toJson())
               .toList(),
         },
+        cancelToken: _cancelToken,
         options: Options(
           responseType: ResponseType.stream,
           headers: {
@@ -146,7 +150,7 @@ class AiChatNotifier extends _$AiChatNotifier {
       );
 
       // Add an initial empty model message to stream into.
-      // Use nextMessages here to ensure we don't lose the user prompt if 
+      // Use nextMessages here to ensure we don't lose the user prompt if
       // state.messages was somehow reset by a parallel operation.
       state = state.copyWith(
         messages: [...nextMessages, ChatMessage(role: 'model', content: '')],
@@ -237,24 +241,28 @@ class AiChatNotifier extends _$AiChatNotifier {
           'Sorry, I encountered an error. Please try again later.';
 
       if (e is DioException) {
-        final statusCode = e.response?.statusCode;
-        final detail = _extractErrorDetail(e.response?.data);
+        if (e.type == DioExceptionType.cancel) {
+          errorMessage = 'Message stopped.';
+        } else {
+          final statusCode = e.response?.statusCode;
+          final detail = _extractErrorDetail(e.response?.data);
 
-        if (statusCode == 429) {
-          errorMessage =
-              "You've reached the chat limit. Please wait a moment before sending more messages.";
-        } else if (statusCode == 400 && detail != null) {
-          if (detail.toLowerCase().contains('too long')) {
+          if (statusCode == 429) {
             errorMessage =
-                'The message is too long. Please try a shorter question.';
-          } else {
-            errorMessage = detail;
+                "You've reached the chat limit. Please wait a moment before sending more messages.";
+          } else if (statusCode == 400 && detail != null) {
+            if (detail.toLowerCase().contains('too long')) {
+              errorMessage =
+                  'The message is too long. Please try a shorter question.';
+            } else {
+              errorMessage = detail;
+            }
+          } else if (statusCode == 400) {
+            errorMessage =
+                'The request could not be processed. Please try again.';
+          } else if (e.error is AppException) {
+            errorMessage = (e.error as AppException).message;
           }
-        } else if (statusCode == 400) {
-          errorMessage =
-              'The request could not be processed. Please try again.';
-        } else if (e.error is AppException) {
-          errorMessage = (e.error as AppException).message;
         }
       }
 
@@ -266,7 +274,48 @@ class AiChatNotifier extends _$AiChatNotifier {
       );
     } finally {
       state = state.copyWith(isLoading: false);
+      _cancelToken = null;
     }
+  }
+
+  void stopGeneration() {
+    _cancelToken?.cancel("User stopped generation");
+    _cancelToken = null;
+    state = state.copyWith(isLoading: false);
+  }
+
+  Future<void> editLastMessage(String newText) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+
+    // 1. Stop any current generation
+    stopGeneration();
+
+    final msgs = state.messages;
+    if (msgs.isEmpty) return;
+
+    int messagesToRemove = 0;
+    // Find the last user message and the subsequent messages
+    // If last is model, we remove both the model response and the user prompt.
+    // If last is user, we remove just the user prompt.
+    if (msgs.last.role == 'model') {
+      messagesToRemove = 2;
+    } else if (msgs.last.role == 'user') {
+      messagesToRemove = 1;
+    }
+
+    if (messagesToRemove == 0) return;
+
+    // 2. Update local state
+    final nextMessages = msgs.sublist(0, msgs.length - messagesToRemove);
+    state = state.copyWith(messages: nextMessages);
+
+    // 3. Update repository
+    final repository = ref.read(chatRepositoryProvider);
+    await repository.deleteLastMessages(articleId, messagesToRemove);
+
+    // 4. Send the new message
+    await sendMessage(trimmed);
   }
 
   void _appendToLastMessage(String chunk) {

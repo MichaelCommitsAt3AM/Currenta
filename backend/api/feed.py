@@ -365,7 +365,7 @@ async def get_feed(
                     FROM articles
                     {where_sql}
                     ORDER BY {priority_sql} ASC, ranking_score DESC
-                    LIMIT 150
+                    LIMIT 300
                 """
                 async with db_pool.acquire() as conn:
                     records = await conn.fetch(batch_query, *params)
@@ -450,7 +450,10 @@ async def get_feed(
             unique_filtered.append(a)
 
         # 7. Final slice
-        final_result = unique_filtered[offset:offset+limit]
+        # If 'before' (cursor) is used, we generally don't want to skip with 'offset' 
+        # unless explicitly requested relative to that cursor.
+        actual_offset = offset if before is None else 0
+        final_result = unique_filtered[actual_offset:actual_offset+limit]
 
         logger.info(
             f"Feed request: user={user_id} country={country} ({country_source}) "

@@ -279,9 +279,21 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                     : ValueKey(
                         'msg_${msgIndex}_${msg.role}_${msg.content.hashCode}');
 
+                // A user message is editable if it's the last user message in the list.
+                // We find the index of the last user message.
+                int lastUserIndex = -1;
+                for (int i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role == 'user') {
+                    lastUserIndex = i;
+                    break;
+                  }
+                }
+
                 return _ChatBubble(
                   key: messageKey,
                   message: msg,
+                  isEditable: (msgIndex == lastUserIndex) && !isLoading,
+                  onEdit: () => _showEditSheet(context, msg.content),
                 );
               },
             ),
@@ -297,9 +309,31 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
           // ── Input area ─────────────────────────────────────────────────
           _InputArea(
             controller: _controller,
+            isLoading: isLoading,
             onSend: () => _sendMessage(),
+            onStop: () {
+              final provider = aiChatNotifierProvider(
+                  widget.article.id, widget.article.title);
+              ref.read(provider.notifier).stopGeneration();
+            },
           ),
         ],
+      ),
+    );
+  }
+
+  void _showEditSheet(BuildContext context, String initialText) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _EditMessageSheet(
+        initialText: initialText,
+        onSave: (newText) {
+          final provider =
+              aiChatNotifierProvider(widget.article.id, widget.article.title);
+          ref.read(provider.notifier).editLastMessage(newText);
+        },
       ),
     );
   }
@@ -307,42 +341,68 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
 class _ChatBubble extends StatelessWidget {
   final ChatMessage message;
+  final bool isEditable;
+  final VoidCallback? onEdit;
 
-  const _ChatBubble({super.key, required this.message});
+  const _ChatBubble({
+    super.key,
+    required this.message,
+    this.isEditable = false,
+    this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
 
     if (isUser) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 24),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.75,
-          ),
-          decoration: const BoxDecoration(
-            color: Color(0xFF6C63FF),
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
-              bottomLeft: Radius.circular(20),
-              bottomRight: Radius.circular(4),
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (isEditable)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  color: Colors.white38,
+                  size: 18,
+                ),
+                onPressed: onEdit,
+                tooltip: 'Edit message',
+              ),
+            Flexible(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * 0.75,
+                ),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF6C63FF),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                    bottomLeft: Radius.circular(20),
+                    bottomRight: Radius.circular(4),
+                  ),
+                ),
+                child: Text(
+                  message.content,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
+                ),
+              ),
             ),
-          ),
-          child: Text(
-            message.content,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            softWrap: true,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              height: 1.4,
-            ),
-          ),
+          ],
         ),
       );
     }
@@ -509,9 +569,16 @@ class _ReservedResponseArea extends StatelessWidget {
 
 class _InputArea extends StatelessWidget {
   final TextEditingController controller;
+  final bool isLoading;
   final VoidCallback onSend;
+  final VoidCallback onStop;
 
-  const _InputArea({required this.controller, required this.onSend});
+  const _InputArea({
+    required this.controller,
+    required this.isLoading,
+    required this.onSend,
+    required this.onStop,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -556,8 +623,127 @@ class _InputArea extends StatelessWidget {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.send_rounded, color: Color(0xFF6C63FF)),
-              onPressed: onSend,
+              icon: Icon(
+                isLoading ? Icons.stop_circle_rounded : Icons.send_rounded,
+                color: const Color(0xFF6C63FF),
+              ),
+              onPressed: isLoading ? onStop : onSend,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditMessageSheet extends StatefulWidget {
+  final String initialText;
+  final Function(String) onSave;
+
+  const _EditMessageSheet({required this.initialText, required this.onSave});
+
+  @override
+  State<_EditMessageSheet> createState() => _EditMessageSheetState();
+}
+
+class _EditMessageSheetState extends State<_EditMessageSheet> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1A1E2E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          20,
+          20,
+          MediaQuery.paddingOf(context).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Edit Message',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white54),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0A0C14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TextField(
+                controller: _controller,
+                autofocus: true,
+                maxLines: 5,
+                minLines: 1,
+                style: const TextStyle(color: Colors.white, fontSize: 15),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Edit your message...',
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6C63FF),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  final text = _controller.text.trim();
+                  if (text.isNotEmpty && text != widget.initialText) {
+                    widget.onSave(text);
+                  }
+                  Navigator.pop(context);
+                },
+                child: const Text(
+                  'Resend',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
             ),
           ],
         ),

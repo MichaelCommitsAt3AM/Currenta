@@ -248,129 +248,137 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
     final size = MediaQuery.sizeOf(context);
 
-    return Container(
-      width: size.width,
-      height: size.height,
-      color: const Color(0xFF0A0C14),
-      child: GestureDetector(
-        onDoubleTap: _handleDoubleTap,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── Background Gradient ─────────────────────
-            _BackgroundGradient(catColor: catColor),
-
-            // ── Decorative accent circle ───────────────────────────
-            Positioned(
-              top: -60,
-              right: -60,
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      catColor.withValues(alpha: 0.15),
-                      Colors.transparent,
-                    ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableHeight = constraints.maxHeight;
+        
+        return Container(
+          width: size.width,
+          height: availableHeight,
+          color: const Color(0xFF0A0C14),
+          child: GestureDetector(
+            onDoubleTap: _handleDoubleTap,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // ── Background Gradient ─────────────────────
+                _BackgroundGradient(catColor: catColor),
+    
+                // ── Decorative accent circle ───────────────────────────
+                Positioned(
+                  top: -60,
+                  right: -60,
+                  child: Container(
+                    width: 280,
+                    height: 280,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          catColor.withValues(alpha: 0.15),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-
-            // ── Content area ───────────────────────────────────────
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                MediaQuery.paddingOf(context).top + (widget.topPadding ?? 56),
-                24,
-                24,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Top Row (Page Indicator + Category) ─────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _PageIndicator(
-                        index: widget.index,
-                        total: widget.total,
-                        color: catColor,
-                      ),
-                      _CategoryChip(
-                        label: primaryCategory != null
-                            ? '${primaryCategory.emoji} ${primaryCategory.displayName}'
-                            : '🌍 World',
-                        color: catColor,
-                      ),
-                    ],
+    
+                // ── Content area ───────────────────────────────────────
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    MediaQuery.paddingOf(context).top + (widget.topPadding ?? 56),
+                    24,
+                    24,
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // ── Feature Image ──────────────────────────────────
-                  if (widget.article.imageUrl != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          width: double.infinity,
-                          height: size.height * 0.25,
-                          color: Colors.white.withValues(alpha: 0.05),
-                          child: CachedNetworkImage(
-                            imageUrl: widget.article.imageUrl!,
-                            fit: BoxFit.cover,
-                            memCacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
-                            placeholder: (context, url) => Shimmer.fromColors(
-                              baseColor: Colors.white.withValues(alpha: 0.05),
-                              highlightColor: Colors.white.withValues(alpha: 0.1),
-                              child: Container(color: Colors.white),
-                            ),
-                            errorWidget: (context, url, error) => Center(
-                              child: Icon(Icons.image_not_supported_rounded,
-                                  color: Colors.white.withValues(alpha: 0.2)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── Top Row (Page Indicator + Category) ─────────────
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _PageIndicator(
+                            index: widget.index,
+                            total: widget.total,
+                            color: catColor,
+                          ),
+                          _CategoryChip(
+                            label: primaryCategory != null
+                                ? '${primaryCategory.emoji} ${primaryCategory.displayName}'
+                                : '🌍 World',
+                            color: catColor,
+                          ),
+                        ],
+                      ),
+    
+                      const SizedBox(height: 16),
+    
+                      // ── Feature Image ──────────────────────────────────
+                      if (widget.article.imageUrl != null)
+                        Flexible(
+                          flex: 0,
+                          fit: FlexFit.loose,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Container(
+                                width: double.infinity,
+                                height: availableHeight * 0.25,
+                                color: Colors.white.withValues(alpha: 0.05),
+                                child: CachedNetworkImage(
+                                  imageUrl: widget.article.imageUrl!,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
+                                  placeholder: (context, url) => Shimmer.fromColors(
+                                    baseColor: Colors.white.withValues(alpha: 0.05),
+                                    highlightColor: Colors.white.withValues(alpha: 0.1),
+                                    child: Container(color: Colors.white),
+                                  ),
+                                  errorWidget: (context, url, error) => Center(
+                                    child: Icon(Icons.image_not_supported_rounded,
+                                        color: Colors.white.withValues(alpha: 0.2)),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
+    
+                      // ── Title ──────────────────────────────────────────
+                      AutoSizeText(
+                        widget.article.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          height: 1.3,
+                          letterSpacing: -0.3,
+                        ),
+                        maxLines: 3,
+                        minFontSize: 14,
+                        stepGranularity: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-
-                  // ── Title ──────────────────────────────────────────
-                  AutoSizeText(
-                    widget.article.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                      height: 1.3,
-                      letterSpacing: -0.3,
-                    ),
-                    maxLines: 3,
-                    minFontSize: 14,
-                    stepGranularity: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-
-                  const SizedBox(height: 12),
- 
-                   // ── AI Summary ─────────────────────────────────────
-                   Expanded(
-                     child: SingleChildScrollView(
-                       physics: const BouncingScrollPhysics(),
-                       child: Text(
-                         widget.article.summary,
-                         style: TextStyle(
-                           color: Colors.white.withValues(alpha: 0.75),
-                           fontSize: 15,
-                           height: 1.5,
-                           fontWeight: FontWeight.w400,
+    
+                      const SizedBox(height: 8),
+     
+                       // ── AI Summary ─────────────────────────────────────
+                       Expanded(
+                         child: SingleChildScrollView(
+                           physics: const BouncingScrollPhysics(),
+                           child: Text(
+                             widget.article.summary,
+                             style: TextStyle(
+                               color: Colors.white.withValues(alpha: 0.75),
+                               fontSize: 15,
+                               height: 1.5,
+                               fontWeight: FontWeight.w400,
+                             ),
+                           ),
                          ),
                        ),
-                     ),
-                   ),
  
                   const SizedBox(height: 2),
 
@@ -520,19 +528,21 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                             color: catColor.withValues(alpha: 0.4), size: 20),
                     ],
                   ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+    
+                // ── Heart Shower Particles ─────────────────────
+                HeartShower(
+                  isAnimating: showShower,
+                  color: _isLiked ? Colors.redAccent : Colors.white70,
+                  onEnd: () => setState(() => showShower = false),
+                ),
+              ],
             ),
-
-            // ── Heart Shower Particles ─────────────────────
-            HeartShower(
-              isAnimating: showShower,
-              color: _isLiked ? Colors.redAccent : Colors.white70,
-              onEnd: () => setState(() => showShower = false),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
