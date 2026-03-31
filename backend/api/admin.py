@@ -42,6 +42,7 @@ class PublishRequest(BaseModel):
     original_url: str
     image_url: Optional[str] = None
     country_code: Optional[str] = "US"
+    is_paywalled: bool = False
 
 @router.post("/news/draft", response_model=NewsDraft)
 async def create_news_draft(

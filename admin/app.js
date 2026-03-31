@@ -1,38 +1,196 @@
 // admin/app.js
 
 const CONFIG = {
-    // Replace with your production FastAPI URL if different
-    API_BASE_URL: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
+    API_BASE_URL: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
         ? 'http://localhost:8000' 
-        : 'https://perinephric-dora-motionlessly.ngrok-free.dev', // Default fallback from dev context
+        : 'https://perinephric-dora-motionlessly.ngrok-free.dev', 
+    
     SUPABASE_URL: 'https://trfqhobnkgtfccrdsexa.supabase.co',
-    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk'
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk',
+    
+    // --- Session Security Config ---
+    SESSION_LIMIT_MS: 12 * 60 * 60 * 1000, // 12 hours
+    WARNING_THRESHOLD_MS: 5 * 60 * 1000,    // 5 minutes
+    CHECK_INTERVAL_MS: 10 * 1000            // Check every 10 seconds
 };
 
 const VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"];
 
-let supabase;
+let supabaseClient;
 let session = null;
+let sessionStartTime = null;
+let warningModalActive = false;
+let checkInterval = null;
 let selectedCategories = [];
+
+const COUNTRIES = [
+    { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" },
+    { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" }, { name: "Antigua and Barbuda", code: "AG" },
+    { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" },
+    { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" }, { name: "Bahamas", code: "BS" },
+    { name: "Bahrain", code: "BH" }, { name: "Bangladesh", code: "BD" }, { name: "Barbados", code: "BB" },
+    { name: "Belarus", code: "BY" }, { name: "Belgium", code: "BE" }, { name: "Belize", code: "BZ" },
+    { name: "Benin", code: "BJ" }, { name: "Bhutan", code: "BT" }, { name: "Bolivia", code: "BO" },
+    { name: "Bosnia and Herzegovina", code: "BA" }, { name: "Botswana", code: "BW" }, { name: "Brazil", code: "BR" },
+    { name: "Brunei", code: "BN" }, { name: "Bulgaria", code: "BG" }, { name: "Burkina Faso", code: "BF" },
+    { name: "Burundi", code: "BI" }, { name: "Cabo Verde", code: "CV" }, { name: "Cambodia", code: "KH" },
+    { name: "Cameroon", code: "CM" }, { name: "Canada", code: "CA" }, { name: "Central African Republic", code: "CF" },
+    { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" }, { name: "China", code: "CN" },
+    { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo (Congo-Brazzaville)", code: "CG" },
+    { name: "Costa Rica", code: "CR" }, { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" },
+    { name: "Cyprus", code: "CY" }, { name: "Czechia (Czech Republic)", code: "CZ" }, { name: "Democratic Republic of the Congo", code: "CD" },
+    { name: "Denmark", code: "DK" }, { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" },
+    { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
+    { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" },
+    { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" }, { name: "Ethiopia", code: "ET" },
+    { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" },
+    { name: "Gabon", code: "GA" }, { name: "Gambia", code: "GM" }, { name: "Georgia", code: "GE" },
+    { name: "Germany", code: "DE" }, { name: "Ghana", code: "GH" }, { name: "Greece", code: "GR" },
+    { name: "Grenada", code: "GD" }, { name: "Guatemala", code: "GT" }, { name: "Guinea", code: "GN" },
+    { name: "Guinea-Bissau", code: "GW" }, { name: "Guyana", code: "GY" }, { name: "Haiti", code: "HT" },
+    { name: "Holy See", code: "VA" }, { name: "Honduras", code: "HN" }, { name: "Hungary", code: "HU" },
+    { name: "Iceland", code: "IS" }, { name: "India", code: "IN" }, { name: "Indonesia", code: "ID" },
+    { name: "Iran", code: "IR" }, { name: "Iraq", code: "IQ" }, { name: "Ireland", code: "IE" },
+    { name: "Israel", code: "IL" }, { name: "Italy", code: "IT" }, { name: "Jamaica", code: "JM" },
+    { name: "Japan", code: "JP" }, { name: "Jordan", code: "JO" }, { name: "Kazakhstan", code: "KZ" },
+    { name: "Kenya", code: "KE" }, { name: "Kiribati", code: "KI" }, { name: "Kuwait", code: "KW" },
+    { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" },
+    { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" }, { name: "Liberia", code: "LR" },
+    { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" },
+    { name: "Luxembourg", code: "LU" }, { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" },
+    { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
+    { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" },
+    { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" }, { name: "Micronesia", code: "FM" },
+    { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" },
+    { name: "Montenegro", code: "ME" }, { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" },
+    { name: "Myanmar (formerly Burma)", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
+    { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" },
+    { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" }, { name: "Nigeria", code: "NG" },
+    { name: "North Korea", code: "KP" }, { name: "North Macedonia", code: "MK" }, { name: "Norway", code: "NO" },
+    { name: "Oman", code: "OM" }, { name: "Pakistan", code: "PK" }, { name: "Palau", code: "PW" },
+    { name: "Palestine State", code: "PS" }, { name: "Panama", code: "PA" }, { name: "Papua New Guinea", code: "PG" },
+    { name: "Paraguay", code: "PY" }, { name: "Peru", code: "PE" }, { name: "Philippines", code: "PH" },
+    { name: "Poland", code: "PL" }, { name: "Portugal", code: "PT" }, { name: "Qatar", code: "QA" },
+    { name: "Romania", code: "RO" }, { name: "Russia", code: "RU" }, { name: "Rwanda", code: "RW" },
+    { name: "Saint Kitts and Nevis", code: "KN" }, { name: "Saint Lucia", code: "LC" }, { name: "Saint Vincent and the Grenades", code: "VC" },
+    { name: "Samoa", code: "WS" }, { name: "San Marino", code: "SM" }, { name: "Sao Tome and Principe", code: "ST" },
+    { name: "Saudi Arabia", code: "SA" }, { name: "Senegal", code: "SN" }, { name: "Serbia", code: "RS" },
+    { name: "Seychelles", code: "SC" }, { name: "Sierra Leone", code: "SL" }, { name: "Singapore", code: "SG" },
+    { name: "Slovakia", code: "SK" }, { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" },
+    { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Korea", code: "KR" },
+    { name: "South Sudan", code: "SS" }, { name: "Spain", code: "ES" }, { name: "Sri Lanka", code: "LK" },
+    { name: "Sudan", code: "SD" }, { name: "Suriname", code: "SR" }, { name: "Sweden", code: "SE" },
+    { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Tajikistan", code: "TJ" },
+    { name: "Tanzania", code: "TZ" }, { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" },
+    { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
+    { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" },
+    { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" }, { name: "Ukraine", code: "UA" },
+    { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" },
+    { name: "Uruguay", code: "UY" }, { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" },
+    { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" }, { name: "Yemen", code: "YE" },
+    { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
+];
 
 // --- Initialization ---
 
 async function init() {
-    supabase = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+    // strict login: use sessionStorage so tab close results in logout
+    supabaseClient = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
+        auth: {
+            storage: window.sessionStorage,
+            autoRefreshToken: true,
+            persistSession: true,
+            detectSessionInUrl: true
+        }
+    });
     
     // Check initial session
-    const { data } = await supabase.auth.getSession();
+    const { data } = await supabaseClient.auth.getSession();
     session = data.session;
+    
+    if (session) {
+        // Load session start time from storage or set it now
+        const savedStart = sessionStorage.getItem('admin_session_start');
+        sessionStartTime = savedStart ? parseInt(savedStart) : Date.now();
+        if (!savedStart) sessionStorage.setItem('admin_session_start', sessionStartTime);
+        startSessionTimer();
+    }
+    
     updateUI(!!session);
 
     // Listen for auth changes
-    supabase.auth.onAuthStateChange((_event, _session) => {
+    supabaseClient.auth.onAuthStateChange((event, _session) => {
         session = _session;
+        
+        if (event === 'SIGNED_IN') {
+            sessionStartTime = Date.now();
+            sessionStorage.setItem('admin_session_start', sessionStartTime);
+            startSessionTimer();
+        } else if (event === 'SIGNED_OUT') {
+            sessionStartTime = null;
+            sessionStorage.removeItem('admin_session_start');
+            stopSessionTimer();
+        }
+        
         updateUI(!!session);
     });
 
     setupEventListeners();
     renderCategories();
+    renderCountries();
+}
+
+function startSessionTimer() {
+    if (checkInterval) clearInterval(checkInterval);
+    checkInterval = setInterval(checkSessionExpiry, CONFIG.CHECK_INTERVAL_MS);
+}
+
+function stopSessionTimer() {
+    if (checkInterval) clearInterval(checkInterval);
+    checkInterval = null;
+    hideSessionWarning();
+}
+
+function checkSessionExpiry() {
+    if (!session || !sessionStartTime) return;
+
+    const now = Date.now();
+    const elapsed = now - sessionStartTime;
+    const remaining = CONFIG.SESSION_LIMIT_MS - elapsed;
+
+    if (remaining <= 0) {
+        alert("Session expired. Logging out now.");
+        supabaseClient.auth.signOut();
+    } else if (remaining <= CONFIG.WARNING_THRESHOLD_MS) {
+        showSessionWarning(remaining);
+    } else {
+        hideSessionWarning();
+    }
+}
+
+function showSessionWarning(remainingMs) {
+    const modal = document.getElementById('session-warning');
+    const countdown = document.getElementById('session-countdown');
+    
+    modal.classList.remove('hidden');
+    warningModalActive = true;
+
+    // Update countdown text
+    const minutes = Math.floor(remainingMs / 60000);
+    const seconds = Math.floor((remainingMs % 60000) / 1000);
+    countdown.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function hideSessionWarning() {
+    document.getElementById('session-warning').classList.add('hidden');
+    warningModalActive = false;
+}
+
+function extendSession() {
+    sessionStartTime = Date.now();
+    sessionStorage.setItem('admin_session_start', sessionStartTime);
+    hideSessionWarning();
 }
 
 function updateUI(isAuthenticated) {
@@ -52,7 +210,7 @@ function setupEventListeners() {
     // Auth
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('google-login').addEventListener('click', handleGoogleLogin);
-    document.getElementById('logout-btn').addEventListener('click', () => supabase.auth.signOut());
+    document.getElementById('logout-btn').addEventListener('click', () => supabaseClient.auth.signOut());
 
     // Drafting
     document.getElementById('draft-btn').addEventListener('click', handleDraftGeneration);
@@ -63,6 +221,32 @@ function setupEventListeners() {
 
     // Publishing
     document.getElementById('publish-btn').addEventListener('click', handlePublish);
+
+    // Country Dropdown
+    const countrySearch = document.getElementById('draft-country-search');
+    const countryOptions = document.getElementById('country-options');
+
+    countrySearch.addEventListener('focus', () => countryOptions.classList.add('active'));
+    countrySearch.addEventListener('input', (e) => filterCountries(e.target.value));
+    
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+        if (!document.getElementById('country-dropdown').contains(e.target)) {
+            countryOptions.classList.remove('active');
+        }
+    });
+
+    // Image Upload
+    document.getElementById('upload-trigger').addEventListener('click', () => {
+        document.getElementById('image-upload').click();
+    });
+
+    document.getElementById('image-upload').addEventListener('change', handleImageUpload);
+    document.getElementById('draft-image-url').addEventListener('input', (e) => updateImagePreview(e.target.value));
+
+    // Session Warning
+    document.getElementById('extend-session-btn').addEventListener('click', extendSession);
+    document.getElementById('expire-logout-btn').addEventListener('click', () => supabaseClient.auth.signOut());
 }
 
 function renderCategories() {
@@ -76,6 +260,46 @@ function renderCategories() {
         chip.onclick = () => toggleCategory(cat, chip);
         container.appendChild(chip);
     });
+}
+
+function renderCountries() {
+    const container = document.getElementById('country-options');
+    container.innerHTML = '';
+    
+    COUNTRIES.forEach(country => {
+        const option = document.createElement('div');
+        option.className = 'dropdown-option';
+        option.textContent = `${country.name} (${country.code})`;
+        option.onclick = () => selectCountry(country);
+        container.appendChild(option);
+    });
+}
+
+function filterCountries(query) {
+    const container = document.getElementById('country-options');
+    const options = container.querySelectorAll('.dropdown-option');
+    const q = query.toLowerCase();
+    
+    options.forEach(opt => {
+        if (opt.textContent.toLowerCase().includes(q)) {
+            opt.style.display = 'block';
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+    
+    container.classList.add('active');
+}
+
+function selectCountry(country) {
+    document.getElementById('draft-country-search').value = `${country.name} (${country.code})`;
+    document.getElementById('draft-country').value = country.code;
+    document.getElementById('country-options').classList.remove('active');
+}
+
+function setCountryByCode(code) {
+    const country = COUNTRIES.find(c => c.code === code) || { name: "United States", code: "US" };
+    selectCountry(country);
 }
 
 function toggleCategory(cat, element) {
@@ -111,7 +335,7 @@ async function handleLogin(e) {
     
     errorEl.textContent = '';
     
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
     
     if (error) {
         errorEl.textContent = error.message;
@@ -119,10 +343,13 @@ async function handleLogin(e) {
 }
 
 async function handleGoogleLogin() {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            redirectTo: window.location.origin + window.location.pathname
+            redirectTo: window.location.origin + window.location.pathname,
+            queryParams: {
+                prompt: 'select_account'
+            }
         }
     });
     
@@ -183,7 +410,7 @@ function clearEditor() {
     document.getElementById('draft-summary').value = '';
     document.getElementById('draft-source').value = '';
     document.getElementById('draft-subcategory').value = '';
-    document.getElementById('draft-country').value = 'US';
+    setCountryByCode('US');
     document.getElementById('draft-paywall').checked = false;
     document.getElementById('draft-image-url').value = '';
     document.getElementById('image-preview').innerHTML = '<span>Manual Preview</span>';
@@ -200,7 +427,7 @@ function populateEditor(data) {
     document.getElementById('draft-summary').value = data.summary;
     document.getElementById('draft-source').value = data.source_name;
     document.getElementById('draft-subcategory').value = data.subcategory;
-    document.getElementById('draft-country').value = data.country_code || 'US';
+    setCountryByCode(data.country_code || 'US');
     document.getElementById('draft-paywall').checked = data.is_paywalled || false;
     document.getElementById('draft-image-url').value = data.image_url || '';
     
@@ -226,6 +453,42 @@ function updateImagePreview(url) {
         previewContainer.innerHTML = `<img src="${url}" alt="Preview">`;
     } else {
         previewContainer.innerHTML = '<span>No Image Detected</span>';
+    }
+}
+
+async function handleImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const btn = document.getElementById('upload-trigger');
+    const originalText = btn.textContent;
+    btn.textContent = 'Uploading...';
+    btn.disabled = true;
+
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+        const filePath = `manual-uploads/${fileName}`;
+
+        const { data, error } = await supabaseClient.storage
+            .from('article-images')
+            .upload(filePath, file);
+
+        if (error) throw error;
+
+        const { data: { publicUrl } } = supabaseClient.storage
+            .from('article-images')
+            .getPublicUrl(filePath);
+
+        document.getElementById('draft-image-url').value = publicUrl;
+        updateImagePreview(publicUrl);
+        
+    } catch (err) {
+        console.error('Upload error:', err);
+        alert('Upload failed: ' + err.message);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
     }
 }
 

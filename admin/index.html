@@ -96,8 +96,14 @@
 
                             <div class="input-row">
                                 <div class="input-group">
-                                    <label for="draft-country">Country Code</label>
-                                    <input type="text" id="draft-country" placeholder="US" maxlength="2">
+                                    <label for="draft-country">Country</label>
+                                    <div class="custom-dropdown" id="country-dropdown">
+                                        <input type="text" id="draft-country-search" placeholder="Search country..." autocomplete="off">
+                                        <input type="hidden" id="draft-country" value="US">
+                                        <div class="dropdown-options" id="country-options">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="input-group toggle-group">
                                     <label>Paywalled</label>
@@ -108,8 +114,14 @@
 
                         <div class="editor-right">
                             <div class="input-group">
-                                <label>Image URL</label>
-                                <input type="url" id="draft-image-url" placeholder="https://...">
+                                <label>Image</label>
+                                <div class="image-input-wrapper">
+                                    <input type="url" id="draft-image-url" placeholder="https://...">
+                                    <div class="file-upload-btn">
+                                        <input type="file" id="image-upload" accept="image/*" class="hidden-file-input">
+                                        <button type="button" id="upload-trigger" class="btn outline small">Upload</button>
+                                    </div>
+                                </div>
                             </div>
                             
                             <div class="input-group">
@@ -141,6 +153,19 @@
     <div id="toast" class="toast hidden">
         <span class="toast-icon">✓</span>
         <span class="toast-msg">Article Published Successfully!</span>
+    </div>
+
+    <!-- Session Warning Modal -->
+    <div id="session-warning" class="overlay hidden">
+        <div class="glass-card session-card">
+            <div class="warning-icon">⚠️</div>
+            <h2>Session Expiring</h2>
+            <p>Your session will expire in <span id="session-countdown">5:00</span>. Would you like to stay logged in?</p>
+            <div class="modal-actions">
+                <button id="extend-session-btn" class="btn primary">Continue Session</button>
+                <button id="expire-logout-btn" class="btn outline">Logout Now</button>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>
