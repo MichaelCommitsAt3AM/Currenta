@@ -4,6 +4,7 @@ from typing import List, Optional
 import logging
 from datetime import datetime, timezone
 import uuid
+from urllib.parse import urlparse
 
 from ..core.security import verify_is_admin, User
 from ..services.ingestion import (
@@ -20,6 +21,14 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/session/check")
+async def check_admin_session(user: User = Depends(verify_is_admin)):
+    """
+    Confirms the current authenticated user has admin privileges.
+    """
+    return {"ok": True, "user_id": user.id, "email": user.email}
 
 class DraftRequest(BaseModel):
     url: str
@@ -41,7 +50,7 @@ class PublishRequest(BaseModel):
     source_name: str
     original_url: str
     image_url: Optional[str] = None
-    country_code: Optional[str] = "US"
+    country_code: Optional[str] = None
     is_paywalled: bool = False
 
 @router.post("/news/draft", response_model=NewsDraft)
@@ -54,16 +63,56 @@ async def create_news_draft(
     Scrapes a URL and generates a draft news article using AI.
     """
     url = draft_req.url
-    logger.info(f"Admin {user.id} requested draft for URL: {url}")
+    logger.info("[admin_portal] Admin %s requested draft for URL: %s", user.id, url)
+    source_name = urlparse(url).netloc or "admin_portal"
+    pool = request.app.state.db_pool
+
+    async with pool.acquire() as conn:
+        await log_ingestion_event(
+            conn,
+            url,
+            "REQUESTED",
+            trigger_source="admin_portal",
+            source_name=source_name,
+            dedup_stage="ADMIN_PORTAL_DRAFT",
+            dedup_decision="TRIGGERED",
+        )
     
     try:
         # 1. Scrape
         scraper_result = await asyncio.to_thread(scrape_article_sync, url)
         if scraper_result.get("error"):
+            async with pool.acquire() as conn:
+                await log_ingestion_event(
+                    conn,
+                    url,
+                    "FAILED",
+                    trigger_source="admin_portal",
+                    source_name=source_name,
+                    dedup_stage="ADMIN_PORTAL_DRAFT",
+                    dedup_decision="SCRAPE_FAILED",
+                    error_type="SCRAPER_FAIL",
+                    error_message=scraper_result.get("error"),
+                    resolved_url=scraper_result.get("url"),
+                )
             raise HTTPException(status_code=400, detail=f"Scraping failed: {scraper_result['error']}")
         
         text = scraper_result.get("text", "")
         if not text or len(text) < 100:
+            async with pool.acquire() as conn:
+                await log_ingestion_event(
+                    conn,
+                    url,
+                    "FAILED",
+                    trigger_source="admin_portal",
+                    source_name=source_name,
+                    dedup_stage="ADMIN_PORTAL_DRAFT",
+                    dedup_decision="CONTENT_TOO_SHORT",
+                    error_type="CONTENT_TOO_SHORT",
+                    error_message="Insufficient content found at URL",
+                    has_text=bool(text),
+                    resolved_url=scraper_result.get("url"),
+                )
             raise HTTPException(status_code=400, detail="Insufficient content found at URL")
         
         # 2. Summarize & Classify
@@ -75,7 +124,23 @@ async def create_news_draft(
         
         # 3. Prepare response
         # Extract source name from URL if not provided by scraper
-        source_name = scraper_result.get("source_name") or url.split("//")[-1].split("/")[0]
+        source_name = scraper_result.get("source_name") or source_name
+
+        async with pool.acquire() as conn:
+            await log_ingestion_event(
+                conn,
+                url,
+                "SUCCESS",
+                trigger_source="admin_portal",
+                source_name=source_name,
+                dedup_stage="ADMIN_PORTAL_DRAFT",
+                dedup_decision="DRAFT_GENERATED",
+                has_text=True,
+                has_image=bool(scraper_result.get("image_url")),
+                extracted_image_url=scraper_result.get("image_url"),
+                content_preview=text,
+                resolved_url=scraper_result.get("url"),
+            )
         
         return NewsDraft(
             title=llm_res.get("title", "Unknown Title"),
@@ -91,6 +156,18 @@ async def create_news_draft(
         raise
     except Exception as e:
         logger.error(f"Error creating draft: {e}")
+        async with pool.acquire() as conn:
+            await log_ingestion_event(
+                conn,
+                url,
+                "FAILED",
+                trigger_source="admin_portal",
+                source_name=source_name,
+                dedup_stage="ADMIN_PORTAL_DRAFT",
+                dedup_decision="INTERNAL_ERROR",
+                error_type="INTERNAL_ERROR",
+                error_message=str(e),
+            )
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/news/publish")
@@ -102,7 +179,7 @@ async def publish_manual_news(
     """
     Publishes a manually verified news article to the database.
     """
-    logger.info(f"Admin {user.id} publishing article: {publish_req.title}")
+    logger.info("[admin_portal] Admin %s publishing article: %s", user.id, publish_req.title)
     pool = request.app.state.db_pool
     
     try:
@@ -115,6 +192,19 @@ async def publish_manual_news(
                 publish_req.original_url, content_hash
             )
             if existing:
+                await log_ingestion_event(
+                    conn,
+                    publish_req.original_url,
+                    "SKIPPED",
+                    trigger_source="admin_portal",
+                    source_name=publish_req.source_name,
+                    dedup_stage="ADMIN_PORTAL_PUBLISH",
+                    dedup_decision="DUPLICATE",
+                    error_type="DUPLICATE",
+                    error_message="Article already exists (URL or content hash match)",
+                    has_text=True,
+                    has_image=bool(publish_req.image_url),
+                )
                 raise HTTPException(status_code=409, detail="Article already exists (URL or content hash match)")
             
             # Generate Embedding
@@ -156,7 +246,9 @@ async def publish_manual_news(
                 conn,
                 publish_req.original_url,
                 "SUCCESS",
+                trigger_source="admin_portal",
                 source_name=publish_req.source_name,
+                dedup_stage="ADMIN_PORTAL_PUBLISH",
                 dedup_decision="MANUAL_PUBLISH",
                 has_text=True,
                 has_image=bool(publish_req.image_url)
@@ -168,4 +260,21 @@ async def publish_manual_news(
         raise
     except Exception as e:
         logger.error(f"Error publishing news: {e}")
+        try:
+            async with pool.acquire() as conn:
+                await log_ingestion_event(
+                    conn,
+                    publish_req.original_url,
+                    "FAILED",
+                    trigger_source="admin_portal",
+                    source_name=publish_req.source_name,
+                    dedup_stage="ADMIN_PORTAL_PUBLISH",
+                    dedup_decision="PUBLISH_ERROR",
+                    error_type="INTERNAL_ERROR",
+                    error_message=str(e),
+                    has_text=True,
+                    has_image=bool(publish_req.image_url),
+                )
+        except Exception as log_err:
+            logger.warning("Failed to log admin publish error: %s", log_err)
         raise HTTPException(status_code=500, detail=str(e))

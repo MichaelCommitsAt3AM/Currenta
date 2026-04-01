@@ -1405,6 +1405,7 @@ async def log_ingestion_event(
     conn,
     url,
     status,
+    trigger_source=None,
     source_name=None,
     error_type=None,
     error_message=None,
@@ -1423,19 +1424,20 @@ async def log_ingestion_event(
     try:
         await conn.execute('''
             INSERT INTO ingestion_logs (
-                original_url, status, source_name, dedup_stage, dedup_decision,
+                original_url, status, trigger_source, source_name, dedup_stage, dedup_decision,
                 semantic_similarity, similarity_threshold, matched_article_id, matched_cluster_id,
                 error_type, error_message, has_text, has_image,
                 extracted_image_url, content_preview, resolved_url
             ) VALUES (
-                $1, $2, $3, $4, $5,
-                $6, $7, $8, $9,
-                $10, $11, $12, $13,
-                $14, $15, $16
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10,
+                $11, $12, $13, $14,
+                $15, $16, $17
             )
         ''',
         url,
         status,
+        trigger_source,
         source_name,
         dedup_stage,
         dedup_decision,
@@ -1452,7 +1454,7 @@ async def log_ingestion_event(
         resolved_url,
     )
     except Exception as e:
-        print(f"[Logger] Failed to write to ingestion_logs: {e}")
+        logger.warning("Failed to write to ingestion_logs: %s", e)
 
 async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss", http_client: Optional[httpx.AsyncClient] = None):
     results = {"ingested": 0, "skipped": 0, "errors": 0}

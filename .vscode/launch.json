@@ -40,6 +40,16 @@
         "--dart-define-from-file",
         "config/prod.json"
       ]
+    },
+    {
+      "name": "Currenta (Profile/Prod)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "profile",
+      "args": [
+        "--dart-define-from-file",
+        "config/prod.json"
+      ]
     }
   ]
 }

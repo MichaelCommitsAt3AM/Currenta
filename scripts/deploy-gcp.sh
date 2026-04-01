@@ -69,9 +69,9 @@ DEPLOY_ARGS=(
   --image "${IMAGE}"
   --platform managed
   --region "${REGION}"
-  --no-allow-unauthenticated
-  --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true"
-  --update-secrets="DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,REDIS_URL=REDIS_URL:latest,VERTEX_PROJECT=VERTEX_PROJECT:latest,VERTEX_LOCATION=VERTEX_LOCATION:latest"
+  --allow-unauthenticated
+  --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true,ALLOWED_ORIGINS=https://hidden-paper-0d93.michaelnjonge905.workers.dev"
+  --update-secrets="DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,REDIS_URL=REDIS_URL:latest,VERTEX_PROJECT=VERTEX_PROJECT:latest,VERTEX_LOCATION=VERTEX_LOCATION:latest,VOYAGE_API_KEY=VOYAGE_API_KEY:latest,VOYAGE_EMBED_MODEL=VOYAGE_EMBED_MODEL:latest"
 )
 
 if [[ -n "${RUNTIME_SA}" ]]; then
@@ -87,6 +87,36 @@ if [[ "${VERIFY}" == "true" ]]; then
   gcloud run services describe "${SERVICE}" \
     --region "${REGION}" \
     --format="table(metadata.name,status.url,status.latestReadyRevisionName)"
+
+  SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
+  if [[ -z "${SERVICE_URL}" ]]; then
+    echo "[deploy] Could not determine service URL for endpoint verification."
+    exit 1
+  fi
+
+  echo "[deploy] Verifying admin session endpoint in OpenAPI: ${SERVICE_URL}/openapi.json"
+  OPENAPI_JSON="$(curl -fsSL --max-time 20 "${SERVICE_URL}/openapi.json")"
+  if ! python3 - <<'PY' <<<"${OPENAPI_JSON}"
+import json
+import sys
+
+try:
+    data = json.loads(sys.stdin.read())
+except Exception:
+    print("[deploy] Failed to parse OpenAPI JSON.")
+    raise SystemExit(1)
+
+paths = data.get("paths", {})
+if "/api/admin/session/check" not in paths:
+    print("[deploy] Missing required path: /api/admin/session/check")
+    raise SystemExit(1)
+
+print("[deploy] Endpoint check passed: /api/admin/session/check")
+PY
+  then
+    echo "[deploy] Post-deploy endpoint verification failed."
+    exit 1
+  fi
 
   echo "[deploy] Recent Cloud Run logs"
   gcloud logging read \

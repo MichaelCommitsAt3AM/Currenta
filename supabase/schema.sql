@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS user_ai_usage (
 CREATE TABLE IF NOT EXISTS ingestion_logs (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     original_url        TEXT NOT NULL,
+  trigger_source      TEXT,
     source_name         TEXT,
     status              TEXT NOT NULL,
   dedup_stage         TEXT,

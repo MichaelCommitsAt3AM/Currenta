@@ -4,7 +4,7 @@ const CONFIG = {
     // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
     API_BASE_URL: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
         ? 'http://localhost:8000' 
-        : 'https://perinephric-dora-motionlessly.ngrok-free.dev', 
+        : 'https://currenta-backend-etzmdxn4fa-ey.a.run.app', 
     
     SUPABASE_URL: 'https://trfqhobnkgtfccrdsexa.supabase.co',
     SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk',
@@ -23,6 +23,50 @@ let sessionStartTime = null;
 let warningModalActive = false;
 let checkInterval = null;
 let selectedCategories = [];
+
+async function enforceAdminSession() {
+    if (!session?.access_token) return false;
+
+    const errorEl = document.getElementById('auth-error');
+
+    try {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/api/admin/session/check`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`
+            }
+        });
+
+        if (response.status === 403 || response.status === 401) {
+            await supabaseClient.auth.signOut();
+            errorEl.textContent = 'Access denied: this account is not an admin.';
+            return false;
+        }
+
+        if (!response.ok) {
+            let detail = '';
+            try {
+                const body = await response.json();
+                detail = body?.detail || '';
+            } catch (_) {
+                detail = '';
+            }
+
+            if (response.status === 404) {
+                throw new Error('Admin check endpoint missing on backend deployment (/api/admin/session/check).');
+            }
+
+            throw new Error(detail || `Unable to verify admin privileges right now (HTTP ${response.status}).`);
+        }
+
+        errorEl.textContent = '';
+        return true;
+    } catch (err) {
+        errorEl.textContent = err.message || 'Unable to verify admin privileges right now.';
+        await supabaseClient.auth.signOut();
+        return false;
+    }
+}
 
 const COUNTRIES = [
     { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" },
@@ -108,22 +152,33 @@ async function init() {
     // Check initial session
     const { data } = await supabaseClient.auth.getSession();
     session = data.session;
-    
+
+    let isAdminSession = false;
     if (session) {
+        isAdminSession = await enforceAdminSession();
+    }
+
+    if (isAdminSession) {
         // Load session start time from storage or set it now
         const savedStart = sessionStorage.getItem('admin_session_start');
         sessionStartTime = savedStart ? parseInt(savedStart) : Date.now();
         if (!savedStart) sessionStorage.setItem('admin_session_start', sessionStartTime);
         startSessionTimer();
     }
-    
-    updateUI(!!session);
+
+    updateUI(isAdminSession);
 
     // Listen for auth changes
-    supabaseClient.auth.onAuthStateChange((event, _session) => {
+    supabaseClient.auth.onAuthStateChange(async (event, _session) => {
         session = _session;
-        
+
         if (event === 'SIGNED_IN') {
+            const isAdmin = await enforceAdminSession();
+            if (!isAdmin) {
+                updateUI(false);
+                return;
+            }
+
             sessionStartTime = Date.now();
             sessionStorage.setItem('admin_session_start', sessionStartTime);
             startSessionTimer();
@@ -132,7 +187,7 @@ async function init() {
             sessionStorage.removeItem('admin_session_start');
             stopSessionTimer();
         }
-        
+
         updateUI(!!session);
     });
 
@@ -227,7 +282,10 @@ function setupEventListeners() {
     const countryOptions = document.getElementById('country-options');
 
     countrySearch.addEventListener('focus', () => countryOptions.classList.add('active'));
-    countrySearch.addEventListener('input', (e) => filterCountries(e.target.value));
+    countrySearch.addEventListener('input', (e) => {
+        document.getElementById('draft-country').value = '';
+        filterCountries(e.target.value);
+    });
     
     // Close dropdown on click outside
     document.addEventListener('click', (e) => {
@@ -265,6 +323,15 @@ function renderCategories() {
 function renderCountries() {
     const container = document.getElementById('country-options');
     container.innerHTML = '';
+
+    const clearOption = document.createElement('div');
+    clearOption.className = 'dropdown-option';
+    clearOption.textContent = 'No country';
+    clearOption.onclick = () => {
+        setCountryByCode(null);
+        container.classList.remove('active');
+    };
+    container.appendChild(clearOption);
     
     COUNTRIES.forEach(country => {
         const option = document.createElement('div');
@@ -298,7 +365,17 @@ function selectCountry(country) {
 }
 
 function setCountryByCode(code) {
-    const country = COUNTRIES.find(c => c.code === code) || { name: "United States", code: "US" };
+    if (!code) {
+        document.getElementById('draft-country-search').value = '';
+        document.getElementById('draft-country').value = '';
+        return;
+    }
+    const country = COUNTRIES.find(c => c.code === code);
+    if (!country) {
+        document.getElementById('draft-country-search').value = '';
+        document.getElementById('draft-country').value = '';
+        return;
+    }
     selectCountry(country);
 }
 
@@ -410,7 +487,7 @@ function clearEditor() {
     document.getElementById('draft-summary').value = '';
     document.getElementById('draft-source').value = '';
     document.getElementById('draft-subcategory').value = '';
-    setCountryByCode('US');
+    setCountryByCode(null);
     document.getElementById('draft-paywall').checked = false;
     document.getElementById('draft-image-url').value = '';
     document.getElementById('image-preview').innerHTML = '<span>Manual Preview</span>';
@@ -427,7 +504,7 @@ function populateEditor(data) {
     document.getElementById('draft-summary').value = data.summary;
     document.getElementById('draft-source').value = data.source_name;
     document.getElementById('draft-subcategory').value = data.subcategory;
-    setCountryByCode(data.country_code || 'US');
+    setCountryByCode(data.country_code || null);
     document.getElementById('draft-paywall').checked = data.is_paywalled || false;
     document.getElementById('draft-image-url').value = data.image_url || '';
     
@@ -504,7 +581,7 @@ async function handlePublish() {
         source_name: document.getElementById('draft-source').value,
         original_url: document.getElementById('news-url').value || 'https://manual.push/' + Date.now(),
         image_url: document.getElementById('draft-image-url').value || null,
-        country_code: document.getElementById('draft-country').value || 'US',
+        country_code: document.getElementById('draft-country').value || null,
         is_paywalled: document.getElementById('draft-paywall').checked
     };
 

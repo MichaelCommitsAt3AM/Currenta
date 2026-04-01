@@ -304,42 +304,37 @@ async def get_feed(
                 where_clauses = []
                 params = []
                 
+                # We always want country as $1 for the ORDER BY boost if it exists
+                # This ensures consistent parameter indexing.
+                params.append(country if (country and country != 'all') else None)
+                
                 cat_params_idx = None
                 if "all" not in missing_categories:
+                    cat_params_idx = len(params) + 1
+                    params.append(named_categories)
+                    
                     if "local" in named_categories:
                         if country and country != 'all':
-                            other_cats = [c for c in named_categories if c != 'local']
-                            if other_cats:
-                                cat_params_idx = len(params) + 2 # $2
-                                where_clauses.append(f"""
-                                    (
-                                        country_code = $1
-                                        OR 
-                                        (categories && ${cat_params_idx}::text[] AND (country_code = $1 OR country_code IS NULL))
-                                    )
-                                """)
-                                params.extend([country, other_cats])
-                            else:
-                                where_clauses.append("country_code = $1")
-                                params.append(country)
+                            # For the 'local' category specifically, we are still strict.
+                            # For other categories, we allow anything but prioritize $1.
+                            where_clauses.append(f"""
+                                (
+                                    (categories && ARRAY['local']::text[] AND country_code = $1)
+                                    OR 
+                                    (categories && ${cat_params_idx}::text[] AND (country_code = $1 OR country_code IS NULL OR country_code != $1))
+                                )
+                            """)
                         else:
-                            other_cats = [c for c in named_categories if c != 'local']
-                            if other_cats:
-                                cat_params_idx = len(params) + 1
-                                where_clauses.append(f"categories && ${cat_params_idx}::text[]")
-                                params.append(other_cats)
-                            else:
-                                where_clauses.append("FALSE")
+                            where_clauses.append(f"categories && ${cat_params_idx}::text[]")
                     else:
-                        cat_params_idx = len(params) + 1
+                        # General categories: allow all country codes, sorting handles priority
                         where_clauses.append(f"categories && ${cat_params_idx}::text[]")
-                        params.append(named_categories)
                 
                 if before:
                     where_clauses.append(f"published_at < ${len(params) + 1}::timestamp")
                     params.append(before)
                 
-                # Push viewed filtering into the DB subquery (Recommendation 2.2)
+                # Push viewed filtering into the DB subquery
                 if user_id:
                     where_clauses.append(f"""
                         id NOT IN (
@@ -357,14 +352,18 @@ async def get_feed(
                 
                 where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
                 
-                # If we have specific target categories, we prioritize articles where they are the first element.
-                priority_sql = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "1"
+                # Sort Priority:
+                # 1. Matching country code (if set)
+                # 2. Main category match (if requested)
+                # 3. Ranking score (trend + decay)
+                country_boost = "CASE WHEN $1::text IS NOT NULL AND country_code = $1 THEN 0 ELSE 1 END"
+                category_priority = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "0"
 
                 batch_query = f"""
                     SELECT {ARTICLE_COLUMNS}, ranking_score
                     FROM articles
                     {where_sql}
-                    ORDER BY {priority_sql} ASC, ranking_score DESC
+                    ORDER BY {country_boost} ASC, {category_priority} ASC, ranking_score DESC
                     LIMIT 300
                 """
                 async with db_pool.acquire() as conn:
