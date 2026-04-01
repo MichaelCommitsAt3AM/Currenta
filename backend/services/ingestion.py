@@ -227,7 +227,7 @@ Rules:
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
    - opinion/review/listicle/sponsored/irrelevant: Low-signal fluff for a news app.
-     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", BUYING GUIDES, SHOPPING GUIDES, PRODUCT ROUNDUPS (e.g., "The Best Bluetooth Trackers"), JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, HISTORICAL RETROSPECTIVES (e.g., "On this day in history", "Chart Rewind"), and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic articles.
+     *IMPORTANT*: LIVE SPORTS SCORE UPDATES, DAILY NEWS ROUNDUPS, BOOK REVIEWS, "BOOKS IN BRIEF", BUYING GUIDES, SHOPPING GUIDES, PRODUCT ROUNDUPS (e.g., "The Best Bluetooth Trackers"), JOB VACANCIES, RECRUITMENT NOTICES, NOW HIRING ANNOUNCEMENTS, HISTORICAL RETROSPECTIVES (e.g., "On this day in history", "Chart Rewind"), and MULTI-TOPIC SUMMARIES (where several unrelated stories are presented together, e.g., "Tech news: Apple event, Blu-ray sales, and new LG TV") ARE CONSIDERED IRRELEVANT. We only want focused, single-topic, real-world factual articles.
 6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", "buying guide", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
 7. **Historical Content**: Historical retrospectives, "today in history", or "chart rewinds" (looking back at old charts/events) MUST be classified as "type": "irrelevant".
 8. **Negative Constraint**: Do NOT open with meta-phrases like "The article reports that...", "According to the article...", "This article covers...", or similar. Start directly with the news.
@@ -762,7 +762,7 @@ def _contextual_betting_reason(text: str) -> Optional[str]:
 
     return None
 
-def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> Optional[str]:
+def is_junk_content(text: str, title: str, source_url: Optional[str] = None, published_at: Optional[datetime] = None) -> Optional[str]:
     """Checks for promotional material, betting ads, and low-signal media like podcast summaries."""
     combined = " " + (title + " " + text).lower() + " "
 
@@ -808,6 +808,24 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None) -> 
         "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream",
         "quiz", "trivia", "test your knowledge", "test your skills", "how well do you know", "guess the ", "take our poll", "interactive poll"
     ]
+    
+    # April Fool's Safeguard: only apply for articles published on April 1st
+    if published_at:
+        try:
+            # Handle both string (if any) and datetime objects
+            if isinstance(published_at, str):
+                pub_dt = date_parser.parse(published_at)
+            else:
+                pub_dt = published_at
+            
+            if pub_dt.month == 4 and pub_dt.day == 1:
+                april_signals = ["april fool", "april fools", "april fool's", "this was an april fool", "this is an april fool", " satire ", " satirical "]
+                matched_april_signal = _first_matching_phrase(combined, april_signals)
+                if matched_april_signal:
+                    return f"Matched April Fool's signal: {matched_april_signal}"
+        except Exception:
+            pass
+            
     matched_hard_signal = _first_matching_phrase(combined, hard_signals)
     if matched_hard_signal:
         return f"Matched hard signal: {matched_hard_signal}"
@@ -853,6 +871,7 @@ async def summarize_article(
     category_bias: str = "neutral",
     http_client: Optional[httpx.AsyncClient] = None,
     country_code: Optional[str] = None,
+    published_at: Optional[datetime] = None,
 ) -> dict:
     category_context = ""
     if category_hint:
@@ -862,6 +881,7 @@ async def summarize_article(
             category_context = f"\nThe source feed is broadly tagged as '{category_hint}'. Include all categories that genuinely apply; '{category_hint}' should be listed first if applicable."
 
     locality_context = _build_locality_context(country_code)
+    
     full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}\n\nArticle:\n{text}"
     raw_content = ""
 
@@ -1601,7 +1621,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     results["skipped"] += 1
                     continue
 
-                junk_reason = is_junk_content(article_text, item["title"], item["link"])
+                junk_reason = is_junk_content(article_text, item["title"], item["link"], published_at=item.get("pubDate"))
                 if junk_reason:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SKIPPED_JUNK", error_message=junk_reason)
                     results["skipped"] += 1
@@ -1616,6 +1636,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         category_bias,
                         http_client=http_client,
                         country_code=country_code,
+                        published_at=item.get("pubDate"),
                     )
                 except Exception as llm_err:
                     print(f"[processFeed] LLM ERROR for {item['link']}: {llm_err}")
@@ -2053,7 +2074,8 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
 
         # Determine if it's junk
         title = scraper_result.get("title", "News Update")
-        junk_reason = is_junk_content(scraped_text, title, url)
+        pub_date = scraper_result.get("published_at")
+        junk_reason = is_junk_content(scraped_text, title, url, published_at=pub_date)
         if junk_reason:
             await log_ingestion_event(conn, url, "FAILED", error_type="SKIPPED_JUNK", error_message=junk_reason)
             return None
@@ -2061,7 +2083,9 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         # Summarize
         try:
             # We don't have a category hint here, so we let the LLM decide
-            llm_res = await summarize_article(scraped_text, LLM_PROVIDER, country_code=country_code)
+            llm_res = await summarize_article(
+                scraped_text, LLM_PROVIDER, country_code=country_code, published_at=pub_date
+            )
         except Exception as e:
             await log_ingestion_event(conn, url, "FAILED", error_type="LLM_ERROR", error_message=str(e))
             return None

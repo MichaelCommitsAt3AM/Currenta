@@ -345,6 +345,7 @@ def scrape_article_sync(url: str):
             "image_url": image_url,
             "image_bytes": image_bytes,
             "title": result.get('title'),
+            "published_at": result.get('date'),
             "url": url,
             "original_url": original_url,
             "is_paywalled": is_paywalled

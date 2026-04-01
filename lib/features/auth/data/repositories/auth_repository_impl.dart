@@ -129,7 +129,6 @@ class AuthRepositoryImpl implements AuthRepository {
       // 4. PREVENT CONFLICT: Sign out of any local anonymous session before upgrading
       // to the Google session. This is safer for some Supabase edge cases.
       final currentSession = _supabase.auth.currentSession;
-      final oldUid = currentSession?.user.id;
       final isAnonymous = currentSession?.user.isAnonymous ?? false;
 
       if (isAnonymous) {
@@ -144,22 +143,8 @@ class AuthRepositoryImpl implements AuthRepository {
         idToken: idToken,
       );
       
-      final newUid = response.user?.id;
-      
-      // 6. Migrate Data if transitioning from Anonymous
-      if (isAnonymous && oldUid != null && newUid != null && oldUid != newUid) {
-        debugPrint('[Auth] Upgrading account: Migrating data from $oldUid to $newUid');
-        try {
-          await _supabase.rpc('migrate_user_data', params: {
-            'old_uid': oldUid,
-            'new_uid': newUid,
-          });
-        } catch (e) {
-          debugPrint('[Auth] Warning: Data migration failed: $e');
-          // We don't throw here because they are successfully signed in,
-          // but logging is important for debugging.
-        }
-      }
+      // 6. Migration is now handled selectively by the caller via checkPersonalizationConflict
+      // and selectiveMigrateUserData. Auto-migration removed.
       
       debugPrint('[Auth] Supabase response received. User: ${response.user?.email}');
       debugPrint('[Auth] --- Native Google Sign-In Success ---');
@@ -484,6 +469,44 @@ class AuthRepositoryImpl implements AuthRepository {
     } catch (e) {
       debugPrint('[Auth] detectAndSaveCountry failed: $e');
       return null;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>?> checkPersonalizationConflict(
+      String guestUid) async {
+    final accountUid = _supabase.auth.currentUser?.id;
+    if (accountUid == null) return null;
+
+    try {
+      final response =
+          await _supabase.rpc('check_personalization_conflict', params: {
+        'guest_uid': guestUid,
+        'account_uid': accountUid,
+      });
+      return response as Map<String, dynamic>?;
+    } catch (e) {
+      debugPrint('[Auth] check_personalization_conflict error: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> selectiveMigrateUserData({
+    required String guestUid,
+    required bool useGuestSettings,
+  }) async {
+    final accountUid = _supabase.auth.currentUser?.id;
+    if (accountUid == null) return;
+
+    try {
+      await _supabase.rpc('selective_migrate_user_data', params: {
+        'guest_uid': guestUid,
+        'account_uid': accountUid,
+        'use_guest_settings': useGuestSettings,
+      });
+    } catch (e) {
+      throw ServerException('Failed to selective migrate user data: $e');
     }
   }
 }

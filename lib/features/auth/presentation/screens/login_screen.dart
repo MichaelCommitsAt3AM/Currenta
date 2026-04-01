@@ -7,6 +7,7 @@ import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
 import 'otp_verification_screen.dart';
+import '../widgets/personalization_conflict_dialog.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
 
@@ -66,6 +67,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
       if (next.isAuthenticated) {
+        if (next.needsConflictResolution && next.conflictData != null) {
+          debugPrint('[Login] Conflict detected! Showing resolution dialog...');
+          showDialog(
+            context: context,
+            barrierColor: Colors.black.withValues(alpha: 0.8),
+            barrierDismissible: false,
+            builder: (context) => PersonalizationConflictDialog(
+              guestData: next.conflictData!['guest'] as Map<String, dynamic>,
+              accountData: next.conflictData!['account'] as Map<String, dynamic>,
+            ),
+          );
+          return;
+        }
+
         if (widget.redirectToFeedOnSuccess) {
           debugPrint('[Login] Authenticated! Redirecting to Feed...');
           

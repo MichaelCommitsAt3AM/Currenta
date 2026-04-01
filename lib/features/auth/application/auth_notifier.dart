@@ -17,6 +17,9 @@ class AuthState {
     this.selectedInterests = const [],
     this.displayName,
     this.avatarUrl,
+    this.needsConflictResolution = false,
+    this.conflictData,
+    this.previousGuestUid,
   });
 
   final bool isLoading;
@@ -30,6 +33,9 @@ class AuthState {
   final List<String> selectedInterests;
   final String? displayName;
   final String? avatarUrl;
+  final bool needsConflictResolution;
+  final Map<String, dynamic>? conflictData;
+  final String? previousGuestUid;
 
   AuthState copyWith({
     bool? isLoading,
@@ -43,6 +49,9 @@ class AuthState {
     List<String>? selectedInterests,
     String? Function()? displayName,
     String? Function()? avatarUrl,
+    bool? needsConflictResolution,
+    Map<String, dynamic>? conflictData,
+    String? previousGuestUid,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
@@ -56,6 +65,9 @@ class AuthState {
       selectedInterests: selectedInterests ?? this.selectedInterests,
       displayName: displayName != null ? displayName() : this.displayName,
       avatarUrl: avatarUrl != null ? avatarUrl() : this.avatarUrl,
+      needsConflictResolution: needsConflictResolution ?? this.needsConflictResolution,
+      conflictData: conflictData ?? this.conflictData,
+      previousGuestUid: previousGuestUid ?? this.previousGuestUid,
     );
   }
 }
@@ -100,9 +112,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signInWithEmail(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
+    final oldGuestUid = _repository.isAnonymous ? _repository.currentUserId : null;
     try {
       await _repository.signInWithEmail(email: email, password: password);
-      // Success will be caught by authStateChanges listener
+      await _handleSignInResult(oldGuestUid);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);
@@ -127,8 +140,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signInWithGoogle() async {
     state = state.copyWith(isLoading: true, error: null);
+    final oldGuestUid = _repository.isAnonymous ? _repository.currentUserId : null;
     try {
       await _repository.signInWithGoogle();
+      await _handleSignInResult(oldGuestUid);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);
@@ -211,6 +226,70 @@ class AuthNotifier extends StateNotifier<AuthState> {
     if (state.isAuthenticated || state.isAnonymous) {
       final interests = await _repository.getUserInterests();
       state = state.copyWith(selectedInterests: interests);
+    }
+  }
+
+  Future<void> _handleSignInResult(String? oldGuestUid) async {
+    if (oldGuestUid == null) return;
+
+    try {
+      final conflict = await _repository.checkPersonalizationConflict(oldGuestUid);
+      if (conflict != null) {
+        final guestData = conflict['guest'] as Map<String, dynamic>;
+        final accountData = conflict['account'] as Map<String, dynamic>;
+
+        final guestInterests = List<String>.from(guestData['interests'] ?? []);
+        final accountInterests = List<String>.from(accountData['interests'] ?? []);
+
+        // We only trigger resolution if BOTH have interests.
+        // User request: "inform the user which personalization settings they want to continue with"
+        if (guestInterests.isNotEmpty && accountInterests.isNotEmpty) {
+          state = state.copyWith(
+            needsConflictResolution: true,
+            conflictData: conflict,
+            previousGuestUid: oldGuestUid,
+          );
+        } else if (guestInterests.isNotEmpty) {
+          // Only guest has data, migrate automatically to the new account
+          await _repository.selectiveMigrateUserData(
+            guestUid: oldGuestUid,
+            useGuestSettings: true,
+          );
+          await refreshInterests();
+          await refreshPreferredCountry();
+        } else {
+          // No guest data or only account has data, just cleanup the guest session
+          await _repository.selectiveMigrateUserData(
+            guestUid: oldGuestUid,
+            useGuestSettings: false,
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[Auth] Error handling sign-in result/migration: $e');
+    }
+  }
+
+  Future<void> resolveConflict(bool useGuestSettings) async {
+    final oldGuestUid = state.previousGuestUid;
+    if (oldGuestUid == null) return;
+
+    state = state.copyWith(isLoading: true);
+    try {
+      await _repository.selectiveMigrateUserData(
+        guestUid: oldGuestUid,
+        useGuestSettings: useGuestSettings,
+      );
+      state = state.copyWith(
+        isLoading: false,
+        needsConflictResolution: false,
+        conflictData: null,
+        previousGuestUid: null,
+      );
+      await refreshInterests();
+      await refreshPreferredCountry();
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Failed to resolve conflict: $e');
     }
   }
 }

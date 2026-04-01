@@ -77,4 +77,14 @@ abstract class AuthRepository {
 
   /// Triggers background location detection on the backend and saves to profile.
   Future<String?> detectAndSaveCountry();
+
+  /// Checks for a conflict between guest data and account data.
+  /// Returns a map with 'guest' and 'account' personalization data.
+  Future<Map<String, dynamic>?> checkPersonalizationConflict(String guestUid);
+
+  /// Performs a selective migration based on user choice.
+  Future<void> selectiveMigrateUserData({
+    required String guestUid,
+    required bool useGuestSettings,
+  });
 }
