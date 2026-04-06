@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS articles (
     trend_score       DOUBLE PRECISION DEFAULT 0.0,
     last_trend_update TIMESTAMPTZ,
     ranking_score     DOUBLE PRECISION DEFAULT 0.0,
-    embedding         vector(768)
+    embedding         vector(768),
+    is_major_source   BOOLEAN NOT NULL DEFAULT false
 );
 
 -- 2.2 Feed Jobs table
@@ -170,6 +171,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS articles_content_hash_idx ON articles (content
 CREATE INDEX IF NOT EXISTS articles_categories_gin_idx ON articles USING GIN (categories);
 CREATE INDEX IF NOT EXISTS articles_ranking_score_idx ON articles (ranking_score DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_category_country ON articles (country_code, categories);
+CREATE INDEX IF NOT EXISTS idx_articles_major_source ON articles (is_major_source) WHERE is_major_source = TRUE;
 
 -- Feed Jobs
 CREATE UNIQUE INDEX IF NOT EXISTS feed_jobs_active_unique ON feed_jobs (feed_url) WHERE (status = ANY (ARRAY['pending'::text, 'processing'::text]));

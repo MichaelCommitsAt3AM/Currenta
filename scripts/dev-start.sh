@@ -33,7 +33,6 @@ hr()   { echo -e "${CYAN}━━━━━━━━━━━━━━━━━━�
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 NGROK_CONFIG="${SCRIPT_DIR}/ngrok.yml"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.1}"
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
 NGROK_API_PORT="${NGROK_API_PORT:-4040}"      # ngrok local API for URL extraction
 AUTO_UPDATE_SECRET="${AUTO_UPDATE_SECRET:-0}" # set to 1 to skip the prompt
@@ -112,22 +111,6 @@ fi
 
 if [[ "${OLLAMA_READY}" != "true" ]]; then
   die "Ollama did not become ready within 20 seconds. Check 'journalctl -u ollama -n 50' or .ollama.log"
-fi
-
-# Verify LLM model is available
-info "Checking for LLM model '${OLLAMA_MODEL}'..."
-if ollama list 2>/dev/null | grep -q "^${OLLAMA_MODEL}"; then
-  ok "LLM model '${OLLAMA_MODEL}' is available"
-else
-  warn "LLM model '${OLLAMA_MODEL}' not found locally."
-  read -rp "  Pull it now? [Y/n] " pull_llm_answer
-  if [[ "${pull_llm_answer:-Y}" =~ ^[Yy]$ ]]; then
-    info "Pulling '${OLLAMA_MODEL}'..."
-    ollama pull "${OLLAMA_MODEL}"
-    ok "LLM model ready"
-  else
-    warn "Skipping — summarization will fail at runtime."
-  fi
 fi
 
 # Verify Embedding model is available (if local)

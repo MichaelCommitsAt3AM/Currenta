@@ -2,9 +2,7 @@
 
 const CONFIG = {
     // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
-    API_BASE_URL: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') 
-        ? 'http://localhost:8000' 
-        : 'https://currenta-backend-etzmdxn4fa-ey.a.run.app', 
+    API_BASE_URL: 'https://perinephric-dora-motionlessly.ngrok-free.dev', // DEBUG: Point to local ngrok backend
     
     SUPABASE_URL: 'https://trfqhobnkgtfccrdsexa.supabase.co',
     SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk',
@@ -23,6 +21,43 @@ let sessionStartTime = null;
 let warningModalActive = false;
 let checkInterval = null;
 let selectedCategories = [];
+
+function clearTrailingHash() {
+    // Supabase OAuth can leave a trailing '#', which confuses operators but carries no state.
+    if (window.location.hash === '#') {
+        const cleanUrl = `${window.location.pathname}${window.location.search}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
+}
+
+async function verifyAdminViaLegacyProbe() {
+    // Backward compatibility for older backend deployments that lack /api/admin/session/check.
+    const response = await fetch(`${CONFIG.API_BASE_URL}/api/admin/news/draft`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+            url: 'https://example.invalid/admin-auth-probe'
+        })
+    });
+
+    if (response.status === 401 || response.status === 403) {
+        throw new Error('Access denied: this account is not an admin.');
+    }
+
+    if (response.status === 404) {
+        throw new Error('Admin API not found on backend deployment (/api/admin/*).');
+    }
+
+    if (!response.ok && response.status >= 500) {
+        throw new Error('Admin backend is reachable but currently unhealthy.');
+    }
+
+    // Any non-auth response means the request reached an admin-protected route.
+    return true;
+}
 
 async function enforceAdminSession() {
     if (!session?.access_token) return false;
@@ -53,7 +88,8 @@ async function enforceAdminSession() {
             }
 
             if (response.status === 404) {
-                throw new Error('Admin check endpoint missing on backend deployment (/api/admin/session/check).');
+                // Fallback to legacy admin probe when this endpoint is missing in older deployments.
+                return await verifyAdminViaLegacyProbe();
             }
 
             throw new Error(detail || `Unable to verify admin privileges right now (HTTP ${response.status}).`);
@@ -152,6 +188,7 @@ async function init() {
     // Check initial session
     const { data } = await supabaseClient.auth.getSession();
     session = data.session;
+    clearTrailingHash();
 
     let isAdminSession = false;
     if (session) {
@@ -591,6 +628,8 @@ async function handlePublish() {
     }
 
     btn.disabled = true;
+    btn.querySelector('.loader').classList.remove('hidden');
+    btn.querySelector('.btn-text').classList.add('hidden');
     errorEl.textContent = '';
 
     try {
@@ -617,6 +656,8 @@ async function handlePublish() {
         errorEl.textContent = err.message;
     } finally {
         btn.disabled = false;
+        btn.querySelector('.loader').classList.add('hidden');
+        btn.querySelector('.btn-text').classList.remove('hidden');
     }
 }
 

@@ -355,15 +355,19 @@ async def get_feed(
                 # Sort Priority:
                 # 1. Matching country code (if set)
                 # 2. Main category match (if requested)
-                # 3. Ranking score (trend + decay)
+                # 3. Tier 1: Trending (trend_score > 0)
+                # 4. Tier 2: Major News (is_major_source = TRUE)
+                # 5. Tier 3: Others / Ranking score (score as tie-breaker)
                 country_boost = "CASE WHEN $1::text IS NOT NULL AND country_code = $1 THEN 0 ELSE 1 END"
                 category_priority = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "0"
+                trending_tier = "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END"
+                major_source_tier = "CASE WHEN is_major_source = TRUE THEN 0 ELSE 1 END"
 
                 batch_query = f"""
                     SELECT {ARTICLE_COLUMNS}, ranking_score
                     FROM articles
                     {where_sql}
-                    ORDER BY {country_boost} ASC, {category_priority} ASC, ranking_score DESC
+                    ORDER BY {country_boost} ASC, {category_priority} ASC, {trending_tier} ASC, {major_source_tier} ASC, ranking_score DESC
                     LIMIT 300
                 """
                 async with db_pool.acquire() as conn:

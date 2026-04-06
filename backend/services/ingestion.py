@@ -473,12 +473,52 @@ COMMERCIAL_INTENT_SIGNALS = [
     "coupon", "promo code", "discount", "best price", "sale", "offers"
 ]
 
+JUNK_STRONG_REGEX_PATTERNS = [
+    ("promo_code", re.compile(r"\b(?:promo|coupon|discount)\s*code\b")),
+    ("bonus_bets", re.compile(r"\b(?:bonus|free)\s*bets?\b")),
+    ("sportsbook_terms", re.compile(r"\b(?:sportsbook|bookmaker|moneyline|parlay|over/under|point\s*spread)\b")),
+    ("betting_brand", re.compile(r"\b(?:draftkings|fanduel|betmgm|bet365|bovada|pointsbet)\b")),
+    ("gambling_disclaimer", re.compile(r"\b(?:responsible\s+gambl(?:e|ing)|problem\s+gambling|1-800-gambler)\b")),
+    ("sponsored", re.compile(r"\b(?:this\s+is\s+a\s+sponsored|paid\s+partnership|sponsored\s+by)\b")),
+    ("podcast_promo", re.compile(r"\b(?:podcast\s+summary|latest\s+episode|new\s+episode|full\s+episode|listen\s+on\s+(?:apple|spotify))\b")),
+    ("job_posting", re.compile(r"\b(?:job\s+vacanc(?:y|ies)|job\s+opening|recruitment\s+notice|career\s+opportunit(?:y|ies)|now\s+hiring)\b")),
+    ("lottery", re.compile(r"\b(?:winning\s+numbers?|lottery\s+results?|lotto\s+results?|jackpot\s+winner)\b")),
+    ("buying_guide", re.compile(r"\b(?:buying|shopping|gift)\s+guide\b")),
+]
+
+JUNK_CONTEXTUAL_REGEX_PATTERNS = [
+    ("sports_live_updates", re.compile(r"\b(?:live\s+scores?|match\s+updates?|play[-\s]*by[-\s]*play|game\s+tracker|minute[-\s]*by[-\s]*minute|full[-\s]*time\s+results?|half[-\s]*time\s+score|live\s+commentary|live\s+scoring)\b")),
+    ("sports_preview", re.compile(r"\b(?:how\s+to\s+watch|where\s+to\s+watch|live\s+stream|injury\s+report|lineup\s+update|tv\s+channel|streaming\s+options)\b")),
+]
+
+JUNK_FORMAT_REGEX_PATTERNS = [
+    ("roundup_digest", re.compile(r"\b(?:daily|weekly|morning|evening)\s+(?:roundup|briefing|digest|newsletter)\b|\bnews\s+in\s+brief\b|\btoday'?s\s+headlines\b|\bstories\s+you\s+missed\b")),
+    ("historical_recap", re.compile(r"\b(?:on\s+this\s+day|this\s+day\s+in\s+history|chart\s+rewind|historical\s+chart|flashback|throwback)\b")),
+    ("quiz_poll", re.compile(r"\b(?:quiz|trivia|test\s+your\s+knowledge|test\s+your\s+skills|take\s+our\s+poll|interactive\s+poll)\b")),
+]
+
 
 def _domain_from_url(url: Optional[str]) -> str:
     if not url:
         return ""
     m = re.search(r"https?://([^/]+)", url.lower())
     return m.group(1) if m else ""
+
+
+def _signal_in_text(text: str, tokens: set[str], phrase: str) -> bool:
+    phrase_lc = phrase.lower().strip()
+    if not phrase_lc:
+        return False
+    if " " in phrase_lc:
+        return phrase_lc in text
+    return phrase_lc in tokens
+
+
+def _first_matching_regex_label(text: str, patterns: list[tuple[str, re.Pattern]]) -> Optional[str]:
+    for label, pattern in patterns:
+        if pattern.search(text):
+            return label
+    return None
 
 
 def is_sports_prematch_preview_url(url: str, title: str = "", context_text: str = "") -> Optional[str]:
@@ -667,28 +707,34 @@ def _live_blog_reason(title: str, source_url: Optional[str]) -> Optional[str]:
 def _junk_score(text: str, source_url: Optional[str] = None) -> tuple[int, list[str]]:
     score = 0
     reasons: list[str] = []
+    tokens = set(re.findall(r"[a-z0-9']+", text))
 
     # Strong signals
     for phrase in BETTING_STRONG_SIGNALS:
-        if phrase in text:
+        if _signal_in_text(text, tokens, phrase):
             score += 3
             reasons.append(f"strong:{phrase}")
 
     # Weak ambiguous signals
     for phrase in BETTING_WEAK_SIGNALS:
-        if phrase in text:
+        if _signal_in_text(text, tokens, phrase):
             score += 1
             reasons.append(f"weak:{phrase}")
 
     # Context cancellation for legitimate analytical content
     for phrase in SAFE_CONTEXT_SIGNALS:
-        if phrase in text:
+        if _signal_in_text(text, tokens, phrase):
             score -= 2
             reasons.append(f"safe:{phrase}")
 
-    # Sports + betting co-occurrence is a strong junk indicator
-    has_sports_context = any(term in text for term in SPORTS_TERMS)
-    has_betting_context = any(term in text for term in BETTING_STRONG_SIGNALS + ["bet", "odds"])
+    # Sports + betting co-occurrence is a strong junk indicator.
+    # Use token-aware matching for single words to avoid false positives
+    # like matching "bet" inside "better".
+    has_sports_context = any(term in tokens for term in SPORTS_TERMS)
+    has_betting_context = (
+        any(term in text for term in BETTING_STRONG_SIGNALS)
+        or any(term in tokens for term in ["bet", "bets", "betting", "odds"])
+    )
     if has_sports_context and has_betting_context:
         score += 3
         reasons.append("cooccurrence:sports+betting")
@@ -721,8 +767,9 @@ def _junk_score(text: str, source_url: Optional[str] = None) -> tuple[int, list[
 
 
 def _first_matching_phrase(text: str, phrases: list[str]) -> Optional[str]:
+    tokens = set(re.findall(r"[a-z0-9']+", text))
     for phrase in phrases:
-        if phrase in text:
+        if _signal_in_text(text, tokens, phrase):
             return phrase
     return None
 
@@ -770,44 +817,7 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None, pub
     if live_blog_reason:
         return f"Matched hard signal: {live_blog_reason}"
 
-    hard_signals = [
-        "promo code", "bonus bets", "bonus bet", "sign-up bonus", "sign up bonus",
-        "signup bonus", "welcome bonus", "first deposit bonus", "draftkings",
-        "fanduel", "betmgm", "caesars sportsbook", "pointsbet", "bet365", "bovada",
-        "barstool sportsbook", "sports betting promo", "betting promo",
-        "sportsbook promo", "gambling promo", "place a bet", "your first bet",
-        "if your first bet", "bet $", "sponsored by", "this is a sponsored",
-        "paid partnership",
-        "use our promo code", "use code ", "enter code ", "redeem code", "discount code",
-        "coupon code", "please gamble responsibly", "responsible gambling",
-        "problem gambling helpline", "1-800-gambler", "gambling helpline",
-        "bet must be placed", "min. odds", "minimum odds", "-500 odds", "odds req",
-        "token and bonus bets", "non-withdrawable",
-        "podcast summary", "latest episode", "new episode", "listen to the podcast",
-        "listen on apple", "listen on spotify", "subscribe on", "full episode of",
-        "this episode of", "bonus episode", "transcript provided",
-        "archive page", "daily summary", "weekly roundup", "morning newsletter",
-        "evening newsletter", "weekend edition", "today's headlines", "top stories of the week",
-        "news roundup", "summary of the day", "what we're reading", "recap", "news in brief",
-        "the morning download", "daily briefing", "around the web", "recommended reading",
-        "score update", "live update", "game tracker", "live blog", "play-by-play",
-        "live scores", "match updates", "live scores and match updates", "live scores match updates",
-        "half-time report", "halftime report", "mid-game", "scoring summary", "live scoring",
-        "things to know", "stories you missed", "daily news digest", "today's top stories",
-        "books in brief", "book review", "summaries of books", "best books of", "reading list",
-        "now hiring", "job vacancy", "job opening", "recruitment notice", "career opportunity", "seeks applicants",
-        "chart rewind", "historical chart", "this day in history", "on this day", "flashback", "throwback",
-        "watch live", "streaming live", "video highlights", "video clip", "video-clips",
-        "buying guide", "gift guide", "shopping guide", "the best gadgets", "best phone", "best laptop",
-        "best tracker", "best earbud", "best headphone", "best camera", "we've tested", "our tests showed",
-        "best smart", "best of 202",
-        "winning numbers", "drawn in", "evening draw", "pick 3", "pick 4", "lottery result", "lotto result", "jackpot winner",
-        "mega millions", "powerball", "lottery update", "injury report", "lineup update", "live scoreboard",
-        "real-time updates", "minute-by-minute", "live commentary", "full time results", "half-time score",
-        " wagering ", " betting odds ", " free picks ", " expert predictions ", " game odds ",
-        "mock draft", "how to watch", "tv channel", "streaming options", "where to watch", "live stream",
-        "quiz", "trivia", "test your knowledge", "test your skills", "how well do you know", "guess the ", "take our poll", "interactive poll"
-    ]
+    combined_tokens = set(re.findall(r"[a-z0-9']+", combined))
     
     # April Fool's Safeguard: only apply for articles published on April 1st
     if published_at:
@@ -826,9 +836,19 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None, pub
         except Exception:
             pass
             
-    matched_hard_signal = _first_matching_phrase(combined, hard_signals)
-    if matched_hard_signal:
-        return f"Matched hard signal: {matched_hard_signal}"
+    matched_strong_pattern = _first_matching_regex_label(combined, JUNK_STRONG_REGEX_PATTERNS)
+    if matched_strong_pattern:
+        return f"Matched hard signal regex: {matched_strong_pattern}"
+
+    matched_format_pattern = _first_matching_regex_label(combined, JUNK_FORMAT_REGEX_PATTERNS)
+    if matched_format_pattern:
+        return f"Matched low-signal format regex: {matched_format_pattern}"
+
+    has_sports_context = any(term in combined_tokens for term in SPORTS_TERMS) or bool(re.search(r"\b[a-z0-9][a-z0-9\s\-]{0,30}\bvs\b[a-z0-9][a-z0-9\s\-]{0,30}", combined))
+    if has_sports_context:
+        matched_contextual_pattern = _first_matching_regex_label(combined, JUNK_CONTEXTUAL_REGEX_PATTERNS)
+        if matched_contextual_pattern:
+            return f"Matched sports contextual regex: {matched_contextual_pattern}"
 
     # Contextual check for betting/sports promo
     betting_reason = _contextual_betting_reason(combined)
@@ -1478,6 +1498,7 @@ async def log_ingestion_event(
 
 async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss", http_client: Optional[httpx.AsyncClient] = None):
     results = {"ingested": 0, "skipped": 0, "errors": 0}
+    is_major = "news.google.com" in feed_url
     try:
         if method == "site_tc":
             # Run the synchronous discovery in a thread pool
@@ -1524,13 +1545,24 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             # Combined duplicate detection logic optimization
             content_hash = generate_content_hash(item["link"], item["title"])
             if item["link"] in existing_urls or content_hash in existing_hashes:
+                # If this is a major source, upgrade the existing record's priority
+                if is_major:
+                    try:
+                        await conn.execute(
+                            "UPDATE articles SET is_major_source = TRUE WHERE (original_url = $1 OR content_hash = $2) AND is_major_source = FALSE",
+                            item["link"], content_hash
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to upgrade is_major_source for existing article %s: %s", item["link"], e)
+
                 await log_ingestion_event(
                     conn,
                     item["link"],
                     "SKIPPED",
                     source_name=item.get("source"),
                     error_type="DUPLICATE_URL_OR_HASH",
-                    error_message="Skipped because URL or content hash already exists in articles table."
+                    error_message="Skipped because URL or content hash already exists in articles table.",
+                    content_preview=f"{item['title']}\n\n{item.get('description', '')}"[:500]
                 )
                 results["skipped"] += 1
                 continue
@@ -1694,7 +1726,13 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, embedding)
                 if matched_cluster_id:
                     # In this robust implementation, we skip duplicates to keep the primary feed high-signal.
-                    # We could also save them with the same cluster_id if we wanted to show 'Other Sources'.
+                    # We also upgrade the matched article's major source flag if applicable.
+                    if is_major and best_match_id:
+                        try:
+                            await conn.execute("UPDATE articles SET is_major_source = TRUE WHERE id = $1 AND is_major_source = FALSE", best_match_id)
+                        except Exception as e:
+                            logger.warning("Failed to upgrade is_major_source for semantic match %s: %s", best_match_id, e)
+                    
                     logger.info(
                         "[Ingest] Skipping duplicate: Article similar to cluster %s (similarity=%.4f, threshold=%.2f, best_match=%s)",
                         matched_cluster_id,
@@ -1721,7 +1759,8 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         ) if best_similarity is not None else (
                             f"Skipped because semantic similarity exceeded threshold ({SIMILARITY_THRESHOLD}). "
                             f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}."
-                        )
+                        ),
+                        content_preview=f"{llm_res['title']}\n\n{llm_res['summary']}"[:500]
                     )
                     results["skipped"] += 1
                     continue
@@ -1758,14 +1797,15 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     INSERT INTO articles (
                         id, title, summary, original_url, image_url, source_name, source_favicon_url,
                         published_at, categories, subcategory, embedding, content_hash, 
-                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id
+                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17)
-                    ON CONFLICT (original_url) DO NOTHING
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17, $18)
+                    ON CONFLICT (original_url) DO UPDATE SET is_major_source = EXCLUDED.is_major_source 
+                    WHERE articles.is_major_source = FALSE AND EXCLUDED.is_major_source = TRUE
                     ''',
                     article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
                     item_pub_date, categories, subcategory, embedding, content_hash, 
-                    get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method, target_cluster_id
+                    get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method, target_cluster_id, is_major
                 )
                     
                     # Log successful ingestion with details

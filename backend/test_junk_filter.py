@@ -115,3 +115,35 @@ def test_is_junk_url_allows_postmatch_report_story():
         "match report and reaction"
     )
     assert reason is None
+
+
+def test_political_article_with_better_and_team_is_not_junk():
+    title = "Odinga allies reveal dual strategy within ODM as questions linger over 2027 bid"
+    text = (
+        "Two close allies of former ODM leader Raila Odinga have shed light on the political calculations that shaped "
+        "his engagement with the broad-based government. The two insiders indicated these parallel approaches were not "
+        "accidental but part of a structured strategy, with different teams operating under distinct instructions. "
+        "They have to split. It may be better for them if that happens."
+    )
+    reason = is_junk_content(text, title, "https://citizen.digital/article/odinga-allies-reveal-dual-strategy-within-odm-as-questions-linger-over-2027-bid-n379924")
+    assert reason is None
+
+
+def test_live_updates_in_politics_context_is_not_junk():
+    title = "Parliament live updates as finance bill debate continues"
+    text = (
+        "Lawmakers resumed debate in parliament with live updates from the chamber on amendments, voting procedure, "
+        "and fiscal impact according to the budget committee report."
+    )
+    reason = is_junk_content(text, title, "https://example.com/politics/parliament-finance-bill-live-updates")
+    assert reason is None
+
+
+def test_stakeholders_word_does_not_trigger_betting_stake_signal():
+    title = "Health stakeholders agree on new vaccine rollout plan"
+    text = (
+        "Government officials and stakeholders confirmed a phased rollout after reviewing clinic readiness, staffing, "
+        "and regional cold-chain constraints."
+    )
+    reason = is_junk_content(text, title, "https://example.com/health/vaccine-rollout-plan")
+    assert reason is None

@@ -214,18 +214,33 @@ async def publish_manual_news(
             published_at = datetime.now(timezone.utc)
             ranking_score = calculate_ranking_score(published_at, trend_score=0.0)
             
-            # Insert
+            # Generate ID and Clustering Data
+            article_id_uuid = uuid.uuid4()
+            cluster_id = article_id_uuid # Manual story starts its own cluster
+            
+            # Insert with explicit debug logging
+            all_args = [
+                article_id_uuid, publish_req.title, publish_req.summary, publish_req.original_url, 
+                publish_req.source_name, published_at, publish_req.categories, 
+                publish_req.subcategory, publish_req.country_code, publish_req.image_url, 
+                content_hash, embedding, ranking_score, "manual_admin", 
+                publish_req.is_paywalled, cluster_id, False, "manual_admin"
+            ]
+            for i, val in enumerate(all_args):
+                logger.debug(f"[admin_publish] Arg ${i+1}: type={type(val)}, value={str(val)[:50]}...")
+            
             article_id = await conn.fetchval(
                 """
                 INSERT INTO articles (
-                    title, summary, original_url, source_name, 
+                    id, title, summary, original_url, source_name, 
                     published_at, categories, subcategory, 
                     country_code, image_url, content_hash, 
                     embedding, ranking_score, ingestion_method,
-                    is_paywalled
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    is_paywalled, cluster_id, is_major_source, summary_model
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18)
                 RETURNING id
                 """,
+                article_id_uuid,
                 publish_req.title,
                 publish_req.summary,
                 publish_req.original_url,
@@ -239,7 +254,10 @@ async def publish_manual_news(
                 embedding,
                 ranking_score,
                 "manual_admin",
-                publish_req.is_paywalled
+                publish_req.is_paywalled,
+                cluster_id,
+                False, # is_major_source
+                "manual_admin" # summary_model
             )
             
             await log_ingestion_event(
