@@ -93,10 +93,15 @@ class NewsArticlesTable extends Table {
   IntColumn get likesCount =>
       integer().named('likes_count').withDefault(const Constant(0))();
   TextColumn get clusterId => text().named('cluster_id').nullable()();
+  TextColumn get countryCode => text().named('country_code').nullable()();
   RealColumn get trendScore =>
       real().named('trend_score').withDefault(const Constant(0.0))();
   DateTimeColumn get lastTrendUpdate =>
       dateTime().named('last_trend_update').nullable()();
+  RealColumn get rankingScore =>
+      real().named('ranking_score').withDefault(const Constant(0.0))();
+  BoolColumn get isMajorSource =>
+      boolean().named('is_major_source').withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -150,7 +155,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -181,6 +186,13 @@ class AppDatabase extends _$AppDatabase {
           if (from < 9) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.trendScore);
             await m.addColumn(newsArticlesTable, newsArticlesTable.lastTrendUpdate);
+          }
+          if (from < 10) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.rankingScore);
+            await m.addColumn(newsArticlesTable, newsArticlesTable.isMajorSource);
+          }
+          if (from < 11) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.countryCode);
           }
         },
       );

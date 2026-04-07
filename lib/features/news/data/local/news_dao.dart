@@ -18,6 +18,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   Stream<List<NewsArticlesTableData>> watchArticles({
     String? category,
     List<String>? preferredCategories,
+    String? countryCode,
   }) {
     final categoryPrefix = category != null ? '["$category"%' : '';
 
@@ -35,12 +36,25 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
+    final countryBoostExpr = CustomExpression<int>(
+        "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
+
+    final trendingTierExpr = CustomExpression<int>(
+        "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
+
+    final majorSourceTierExpr = CustomExpression<int>(
+        "CASE WHEN is_major_source = 1 THEN 0 ELSE 1 END");
+
     final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
 
     return (select(newsArticlesTable)
           ..orderBy([
+            (_) => OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
             if (hasPriority)
               (_) => OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
+            (_) => OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
+            (_) => OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
+            (t) => OrderingTerm.desc(t.rankingScore),
             (t) => OrderingTerm.desc(t.publishedAt),
             (t) => OrderingTerm.desc(t.id),
           ])
@@ -74,6 +88,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   Future<List<NewsArticle>> getArticlesPage({
     String? category,
     List<String>? preferredCategories,
+    String? countryCode,
     int limit = 10,
     int offset = 0,
     DateTime? before,
@@ -96,6 +111,15 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
+    final countryBoostExpr = CustomExpression<int>(
+        "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
+
+    final trendingTierExpr = CustomExpression<int>(
+        "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
+
+    final majorSourceTierExpr = CustomExpression<int>(
+        "CASE WHEN is_major_source = 1 THEN 0 ELSE 1 END");
+
     int lastPriority = 0;
     if (afterId != null) {
       final lastArticle = await (select(newsArticlesTable)
@@ -116,6 +140,24 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       }
     }
 
+    int lastCountryBoost = 1;
+    int lastTrendingTier = 1;
+    int lastMajorTier = 1;
+    double lastRankingScore = 0.0;
+
+    if (afterId != null) {
+      final lastArticle = await (select(newsArticlesTable)
+            ..where((t) => t.id.equals(afterId)))
+          .getSingleOrNull();
+
+      if (lastArticle != null) {
+        lastCountryBoost = (countryCode != null && lastArticle.countryCode == countryCode) ? 0 : 1;
+        lastTrendingTier = (lastArticle.trendScore > 0) ? 0 : 1;
+        lastMajorTier = (lastArticle.isMajorSource) ? 0 : 1;
+        lastRankingScore = lastArticle.rankingScore;
+      }
+    }
+
     final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
 
     final query = select(newsArticlesTable).join([
@@ -123,11 +165,15 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
     ])
       ..orderBy([
+        OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
         if (hasPriority)
           OrderingTerm(
             expression: priorityExpr,
             mode: OrderingMode.asc,
           ),
+        OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
+        OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
+        OrderingTerm.desc(newsArticlesTable.rankingScore),
         OrderingTerm.desc(newsArticlesTable.publishedAt),
         OrderingTerm.desc(newsArticlesTable.id),
       ])
@@ -145,14 +191,31 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
         Expression<bool> cursorFilter = const Constant(true);
         if (before != null) {
           if (afterId != null) {
+            // Complex compound cursor for tiered ranking
             final sameTierFilter =
                 newsArticlesTable.publishedAt.isSmallerThanValue(before) |
                     (newsArticlesTable.publishedAt.equals(before) &
                         newsArticlesTable.id.isSmallerThanValue(afterId));
 
-            cursorFilter =
-                (priorityExpr.equals(lastPriority) & sameTierFilter) |
+            final sameRankingFilter =
+                (newsArticlesTable.rankingScore.equals(lastRankingScore) & sameTierFilter) |
+                    newsArticlesTable.rankingScore.isSmallerThanValue(lastRankingScore);
+
+            final sameMajorFilter =
+                (majorSourceTierExpr.equals(lastMajorTier) & sameRankingFilter) |
+                    majorSourceTierExpr.isBiggerThanValue(lastMajorTier);
+
+            final sameTrendingFilter =
+                (trendingTierExpr.equals(lastTrendingTier) & sameMajorFilter) |
+                    trendingTierExpr.isBiggerThanValue(lastTrendingTier);
+
+            final samePriorityFilter =
+                (priorityExpr.equals(lastPriority) & sameTrendingFilter) |
                     priorityExpr.isBiggerThanValue(lastPriority);
+
+            cursorFilter =
+                (countryBoostExpr.equals(lastCountryBoost) & samePriorityFilter) |
+                    countryBoostExpr.isBiggerThanValue(lastCountryBoost);
           } else {
             cursorFilter =
                 newsArticlesTable.publishedAt.isSmallerThanValue(before);
@@ -349,6 +412,9 @@ extension NewsArticleMapper on NewsArticlesTableData {
         isFavorited: isFavorited,
         isViewed: isViewed,
         clusterId: clusterId,
+        countryCode: countryCode,
+        rankingScore: rankingScore,
+        isMajorSource: isMajorSource,
       );
 }
 
@@ -371,5 +437,8 @@ extension NewsArticleDboMapper on NewsArticle {
         likesCount: Value(likesCount),
         isFavorited: Value(isFavorited),
         clusterId: Value(clusterId),
+        countryCode: Value(countryCode),
+        rankingScore: Value(rankingScore),
+        isMajorSource: Value(isMajorSource),
       );
 }

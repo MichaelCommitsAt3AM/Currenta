@@ -129,23 +129,27 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // 2. Listen for auth TRANSITIONS or further preference changes
     ref.listen(authNotifierProvider, (previous, next) {
-      // Handle login transition (e.g. guest -> user logged in)
-      if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
-        debugPrint('[Feed] Auth state transitioned: authenticated.');
-        final pending = ref.read(pendingActivityNotifierProvider);
-        if (pending != null) {
-          ref.read(pendingActivityNotifierProvider.notifier).clear();
-          _handlePendingActivity(pending);
+      Future.microtask(() {
+        if (_isDisposed) return;
+        
+        // Handle login transition (e.g. guest -> user logged in)
+        if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
+          debugPrint('[Feed] Auth state transitioned: authenticated.');
+          final pending = ref.read(pendingActivityNotifierProvider);
+          if (pending != null) {
+            ref.read(pendingActivityNotifierProvider.notifier).clear();
+            _handlePendingActivity(pending);
+          }
+          _backgroundRefresh();
         }
-        _backgroundRefresh();
-      }
-      // Handle mid-session interest/country changes silently
-      else if (next.isAuthenticated &&
-          (next.selectedInterests != previous?.selectedInterests ||
-              next.preferredCountry != previous?.preferredCountry)) {
-        debugPrint('[Feed] Profile updated. Triggering silent refresh.');
-        _backgroundRefresh();
-      }
+        // Handle mid-session interest/country changes silently
+        else if (next.isAuthenticated &&
+            (next.selectedInterests != previous?.selectedInterests ||
+                next.preferredCountry != previous?.preferredCountry)) {
+          debugPrint('[Feed] Profile updated. Triggering silent refresh.');
+          _backgroundRefresh();
+        }
+      });
     });
 
     // 3. Check for initial pending activity
@@ -168,6 +172,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
+      countryCode: auth.preferredCountry,
       limit: includeViewed ? 30 : _kPageSize,
       offset: 0,
       includeViewed: includeViewed,
@@ -181,6 +186,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         articles = await _repo.fetchPage(
           category: savedCategoryId,
           preferredCategories: interests,
+          countryCode: auth.preferredCountry,
           limit: _kPageSize,
           offset: 0,
           includeViewed: includeViewed,
@@ -188,6 +194,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       } catch (e) {
         debugPrint('[Feed] Remote refresh failed: $e');
       }
+    } else if (articles.isNotEmpty && 
+               articles.first.rankingScore == 0 && 
+               articles.every((a) => !a.isMajorSource) &&
+               !isAuthenticated) {
+      // If we have articles but they look like legacy cache (no ranking metadata),
+      // and we are a guest (server truth matters most for 'trending' guest feeds),
+      // suggest a refresh sooner.
+      debugPrint('[Feed] Local cache lacks ranking metadata. Will refresh soon.');
     }
 
     // 7. Position restoration
@@ -281,9 +295,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           startState.articles.isEmpty ? null : startState.articles.last;
 
       if (_isDisposed) return;
+      final auth = ref.read(authNotifierProvider);
       var nextPage = await _repo.fetchPage(
         category: category,
-        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+        preferredCategories: auth.selectedInterests,
+        countryCode: auth.preferredCountry,
         limit: _kPageSize,
         before: last?.publishedAt,
         afterId: last?.id,
@@ -309,8 +325,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           // Fetch again to include newly synced items
           nextPage = await _repo.fetchPage(
             category: category,
-            preferredCategories:
-                ref.read(authNotifierProvider).selectedInterests,
+            preferredCategories: auth.selectedInterests,
+            countryCode: auth.preferredCountry,
             limit: _kPageSize,
             before: last?.publishedAt,
             afterId: last?.id,
@@ -374,10 +390,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     )));
 
     try {
-      // 4. Fetch from local cache first
+      final auth = ref.read(authNotifierProvider);
       final articles = await _repo.fetchPage(
         category: category,
-        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+        preferredCategories: auth.selectedInterests,
+        countryCode: auth.preferredCountry,
         limit: _kPageSize,
         offset: 0,
       );
@@ -403,7 +420,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
         final refreshedArticles = await _repo.fetchPage(
           category: category,
-          preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+          preferredCategories: auth.selectedInterests,
+          countryCode: auth.preferredCountry,
           limit: _kPageSize,
           offset: 0,
         );
@@ -667,10 +685,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (_isDisposed) return;
 
-      // Fetch the top articles for the relevant category
+      final auth = ref.read(authNotifierProvider);
       final freshPage = await _repo.fetchPage(
         category: category,
-        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+        preferredCategories: auth.selectedInterests,
+        countryCode: auth.preferredCountry,
         limit: _kPageSize,
         offset: 0,
         includeViewed: true,

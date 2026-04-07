@@ -25,7 +25,7 @@ VALID_CATEGORIES = frozenset([
 # Only these columns are sent to the client — never the embedding vector or internal fields
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
-    published_at, created_at, categories, subcategory, is_paywalled, country_code, trend_score, cluster_id
+    published_at, created_at, categories, subcategory, is_paywalled, country_code, trend_score, cluster_id, is_major_source
 """
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -134,6 +134,29 @@ def _collapse_near_duplicate_articles(articles: List[dict]) -> List[dict]:
     return kept
 
 
+def _get_rank_tuple(article: dict, preferred_country: Optional[str], interest_categories: List[str]) -> tuple:
+    """
+    Returns a sortable tuple that mirrors the SQL ORDER BY logic for mid-layer merging.
+    SQL Order: country_boost ASC, category_priority ASC, trending_tier ASC, major_source_tier ASC, ranking_score DESC
+    """
+    country_code = article.get("country_code")
+    categories = article.get("categories") or []
+    trend_score = article.get("trend_score") or 0.0
+    is_major = article.get("is_major_source", False)
+    rank_score = article.get("ranking_score") or 0.0
+
+    country_boost = 0 if (preferred_country and country_code == preferred_country) else 1
+    
+    # Priority if the primary category matches one of the user's interests
+    cat_priority = 0 if (categories and categories[0] in interest_categories) else 1
+    
+    trending_tier = 0 if trend_score > 0 else 1
+    major_tier = 0 if is_major else 1
+    
+    # We use negative ranking_score for ASC sorting to achieve DESC behavior in the tuple
+    return (country_boost, cat_priority, trending_tier, major_tier, -rank_score)
+
+
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -172,7 +195,7 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
 
     state = {
         "preferred_country": pref,
-        "interests": [r["category"] for r in interest_records],
+        "interests": sorted([r["category"] for r in interest_records]),
     }
 
     if redis_client:
@@ -452,16 +475,27 @@ async def get_feed(
                 seen_clusters.add(cid)
             unique_filtered.append(a)
 
-        # 7. Final slice
+        # 7. Final Global Sort (Recommendation 1.1)
+        # Even after merging cache and DB, we MUST re-sort to ensure correct tiers.
+        unique_filtered.sort(key=lambda x: _get_rank_tuple(x, country, categories_to_fetch))
+
+        # 8. Final slice
         # If 'before' (cursor) is used, we generally don't want to skip with 'offset' 
         # unless explicitly requested relative to that cursor.
         actual_offset = offset if before is None else 0
         final_result = unique_filtered[actual_offset:actual_offset+limit]
 
+        # Ranking Diagnostics (Recommendation 1.7)
+        top_diagnostics = []
+        for x in final_result[:5]:
+            rt = _get_rank_tuple(x, country, categories_to_fetch)
+            top_diagnostics.append(f"{x['id'][:8]}:{rt}")
+
         logger.info(
             f"Feed request: user={user_id} country={country} ({country_source}) "
             f"redis_cats={len(articles_by_cat)} merged={len(all_articles)} "
-            f"filtered_views={len(viewed_ids)} returned={len(final_result)}"
+            f"filtered_views={len(viewed_ids)} returned={len(final_result)} "
+            f"top_ranks=[{', '.join(top_diagnostics)}]"
         )
         
         return final_result

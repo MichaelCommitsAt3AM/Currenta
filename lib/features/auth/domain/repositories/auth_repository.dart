@@ -16,6 +16,9 @@ abstract class AuthRepository {
   /// Returns true if the current user is anonymous (guest).
   bool get isAnonymous;
 
+  /// Returns the current anonymous guest's ID, or null if not signed in or not guest.
+  String? getGuestId();
+
   /// Signs in with an email and password.
   Future<void> signInWithEmail({
     required String email,
@@ -87,4 +90,10 @@ abstract class AuthRepository {
     required String guestUid,
     required bool useGuestSettings,
   });
+
+  /// Returns true if the user should be prompted to update their location.
+  bool shouldAskLocationUpdate();
+
+  /// Sets whether the user should be prompted to update their location.
+  Future<void> setShouldAskLocationUpdate(bool shouldAsk);
 }

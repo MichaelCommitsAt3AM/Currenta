@@ -157,7 +157,6 @@ FEEDS = [
     { "feedUrl": "https://www.investing.com/rss/news_11.rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.businessinsider.com/rss", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://www.fastcompany.com/latest/rss", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://economictimes.indiatimes.com/rssfeedstopstories.cms", "defaultCategory": "business", "categoryBias": "strong" },
     # Health
     { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
     { "feedUrl": "https://medicalxpress.com/feeds/health/", "defaultCategory": "health", "categoryBias": "strong" },

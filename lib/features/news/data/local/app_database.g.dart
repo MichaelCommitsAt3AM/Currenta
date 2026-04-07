@@ -124,6 +124,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<String> clusterId = GeneratedColumn<String>(
       'cluster_id', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _countryCodeMeta =
+      const VerificationMeta('countryCode');
+  @override
+  late final GeneratedColumn<String> countryCode = GeneratedColumn<String>(
+      'country_code', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _trendScoreMeta =
       const VerificationMeta('trendScore');
   @override
@@ -138,6 +144,24 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<DateTime> lastTrendUpdate =
       GeneratedColumn<DateTime>('last_trend_update', aliasedName, true,
           type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _rankingScoreMeta =
+      const VerificationMeta('rankingScore');
+  @override
+  late final GeneratedColumn<double> rankingScore = GeneratedColumn<double>(
+      'ranking_score', aliasedName, false,
+      type: DriftSqlType.double,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0.0));
+  static const VerificationMeta _isMajorSourceMeta =
+      const VerificationMeta('isMajorSource');
+  @override
+  late final GeneratedColumn<bool> isMajorSource = GeneratedColumn<bool>(
+      'is_major_source', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_major_source" IN (0, 1))'),
+      defaultValue: const Constant(false));
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -156,8 +180,11 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         isFavorited,
         likesCount,
         clusterId,
+        countryCode,
         trendScore,
-        lastTrendUpdate
+        lastTrendUpdate,
+        rankingScore,
+        isMajorSource
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -251,6 +278,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       context.handle(_clusterIdMeta,
           clusterId.isAcceptableOrUnknown(data['cluster_id']!, _clusterIdMeta));
     }
+    if (data.containsKey('country_code')) {
+      context.handle(
+          _countryCodeMeta,
+          countryCode.isAcceptableOrUnknown(
+              data['country_code']!, _countryCodeMeta));
+    }
     if (data.containsKey('trend_score')) {
       context.handle(
           _trendScoreMeta,
@@ -262,6 +295,18 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           _lastTrendUpdateMeta,
           lastTrendUpdate.isAcceptableOrUnknown(
               data['last_trend_update']!, _lastTrendUpdateMeta));
+    }
+    if (data.containsKey('ranking_score')) {
+      context.handle(
+          _rankingScoreMeta,
+          rankingScore.isAcceptableOrUnknown(
+              data['ranking_score']!, _rankingScoreMeta));
+    }
+    if (data.containsKey('is_major_source')) {
+      context.handle(
+          _isMajorSourceMeta,
+          isMajorSource.isAcceptableOrUnknown(
+              data['is_major_source']!, _isMajorSourceMeta));
     }
     return context;
   }
@@ -306,10 +351,16 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.int, data['${effectivePrefix}likes_count'])!,
       clusterId: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}cluster_id']),
+      countryCode: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}country_code']),
       trendScore: attachedDatabase.typeMapping
           .read(DriftSqlType.double, data['${effectivePrefix}trend_score'])!,
       lastTrendUpdate: attachedDatabase.typeMapping.read(
           DriftSqlType.dateTime, data['${effectivePrefix}last_trend_update']),
+      rankingScore: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}ranking_score'])!,
+      isMajorSource: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_major_source'])!,
     );
   }
 
@@ -346,8 +397,11 @@ class NewsArticlesTableData extends DataClass
   final bool isFavorited;
   final int likesCount;
   final String? clusterId;
+  final String? countryCode;
   final double trendScore;
   final DateTime? lastTrendUpdate;
+  final double rankingScore;
+  final bool isMajorSource;
   const NewsArticlesTableData(
       {required this.id,
       required this.title,
@@ -365,8 +419,11 @@ class NewsArticlesTableData extends DataClass
       required this.isFavorited,
       required this.likesCount,
       this.clusterId,
+      this.countryCode,
       required this.trendScore,
-      this.lastTrendUpdate});
+      this.lastTrendUpdate,
+      required this.rankingScore,
+      required this.isMajorSource});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -398,10 +455,15 @@ class NewsArticlesTableData extends DataClass
     if (!nullToAbsent || clusterId != null) {
       map['cluster_id'] = Variable<String>(clusterId);
     }
+    if (!nullToAbsent || countryCode != null) {
+      map['country_code'] = Variable<String>(countryCode);
+    }
     map['trend_score'] = Variable<double>(trendScore);
     if (!nullToAbsent || lastTrendUpdate != null) {
       map['last_trend_update'] = Variable<DateTime>(lastTrendUpdate);
     }
+    map['ranking_score'] = Variable<double>(rankingScore);
+    map['is_major_source'] = Variable<bool>(isMajorSource);
     return map;
   }
 
@@ -429,10 +491,15 @@ class NewsArticlesTableData extends DataClass
       clusterId: clusterId == null && nullToAbsent
           ? const Value.absent()
           : Value(clusterId),
+      countryCode: countryCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(countryCode),
       trendScore: Value(trendScore),
       lastTrendUpdate: lastTrendUpdate == null && nullToAbsent
           ? const Value.absent()
           : Value(lastTrendUpdate),
+      rankingScore: Value(rankingScore),
+      isMajorSource: Value(isMajorSource),
     );
   }
 
@@ -457,8 +524,11 @@ class NewsArticlesTableData extends DataClass
       isFavorited: serializer.fromJson<bool>(json['isFavorited']),
       likesCount: serializer.fromJson<int>(json['likesCount']),
       clusterId: serializer.fromJson<String?>(json['clusterId']),
+      countryCode: serializer.fromJson<String?>(json['countryCode']),
       trendScore: serializer.fromJson<double>(json['trendScore']),
       lastTrendUpdate: serializer.fromJson<DateTime?>(json['lastTrendUpdate']),
+      rankingScore: serializer.fromJson<double>(json['rankingScore']),
+      isMajorSource: serializer.fromJson<bool>(json['isMajorSource']),
     );
   }
   @override
@@ -481,8 +551,11 @@ class NewsArticlesTableData extends DataClass
       'isFavorited': serializer.toJson<bool>(isFavorited),
       'likesCount': serializer.toJson<int>(likesCount),
       'clusterId': serializer.toJson<String?>(clusterId),
+      'countryCode': serializer.toJson<String?>(countryCode),
       'trendScore': serializer.toJson<double>(trendScore),
       'lastTrendUpdate': serializer.toJson<DateTime?>(lastTrendUpdate),
+      'rankingScore': serializer.toJson<double>(rankingScore),
+      'isMajorSource': serializer.toJson<bool>(isMajorSource),
     };
   }
 
@@ -503,8 +576,11 @@ class NewsArticlesTableData extends DataClass
           bool? isFavorited,
           int? likesCount,
           Value<String?> clusterId = const Value.absent(),
+          Value<String?> countryCode = const Value.absent(),
           double? trendScore,
-          Value<DateTime?> lastTrendUpdate = const Value.absent()}) =>
+          Value<DateTime?> lastTrendUpdate = const Value.absent(),
+          double? rankingScore,
+          bool? isMajorSource}) =>
       NewsArticlesTableData(
         id: id ?? this.id,
         title: title ?? this.title,
@@ -524,10 +600,13 @@ class NewsArticlesTableData extends DataClass
         isFavorited: isFavorited ?? this.isFavorited,
         likesCount: likesCount ?? this.likesCount,
         clusterId: clusterId.present ? clusterId.value : this.clusterId,
+        countryCode: countryCode.present ? countryCode.value : this.countryCode,
         trendScore: trendScore ?? this.trendScore,
         lastTrendUpdate: lastTrendUpdate.present
             ? lastTrendUpdate.value
             : this.lastTrendUpdate,
+        rankingScore: rankingScore ?? this.rankingScore,
+        isMajorSource: isMajorSource ?? this.isMajorSource,
       );
   NewsArticlesTableData copyWithCompanion(NewsArticlesTableCompanion data) {
     return NewsArticlesTableData(
@@ -558,11 +637,19 @@ class NewsArticlesTableData extends DataClass
       likesCount:
           data.likesCount.present ? data.likesCount.value : this.likesCount,
       clusterId: data.clusterId.present ? data.clusterId.value : this.clusterId,
+      countryCode:
+          data.countryCode.present ? data.countryCode.value : this.countryCode,
       trendScore:
           data.trendScore.present ? data.trendScore.value : this.trendScore,
       lastTrendUpdate: data.lastTrendUpdate.present
           ? data.lastTrendUpdate.value
           : this.lastTrendUpdate,
+      rankingScore: data.rankingScore.present
+          ? data.rankingScore.value
+          : this.rankingScore,
+      isMajorSource: data.isMajorSource.present
+          ? data.isMajorSource.value
+          : this.isMajorSource,
     );
   }
 
@@ -585,32 +672,39 @@ class NewsArticlesTableData extends DataClass
           ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId, ')
+          ..write('countryCode: $countryCode, ')
           ..write('trendScore: $trendScore, ')
-          ..write('lastTrendUpdate: $lastTrendUpdate')
+          ..write('lastTrendUpdate: $lastTrendUpdate, ')
+          ..write('rankingScore: $rankingScore, ')
+          ..write('isMajorSource: $isMajorSource')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
-      id,
-      title,
-      summary,
-      originalUrl,
-      imageUrl,
-      sourceName,
-      sourceFaviconUrl,
-      publishedAt,
-      createdAt,
-      categories,
-      subCategories,
-      isPaywalled,
-      isLiked,
-      isFavorited,
-      likesCount,
-      clusterId,
-      trendScore,
-      lastTrendUpdate);
+  int get hashCode => Object.hashAll([
+        id,
+        title,
+        summary,
+        originalUrl,
+        imageUrl,
+        sourceName,
+        sourceFaviconUrl,
+        publishedAt,
+        createdAt,
+        categories,
+        subCategories,
+        isPaywalled,
+        isLiked,
+        isFavorited,
+        likesCount,
+        clusterId,
+        countryCode,
+        trendScore,
+        lastTrendUpdate,
+        rankingScore,
+        isMajorSource
+      ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -631,8 +725,11 @@ class NewsArticlesTableData extends DataClass
           other.isFavorited == this.isFavorited &&
           other.likesCount == this.likesCount &&
           other.clusterId == this.clusterId &&
+          other.countryCode == this.countryCode &&
           other.trendScore == this.trendScore &&
-          other.lastTrendUpdate == this.lastTrendUpdate);
+          other.lastTrendUpdate == this.lastTrendUpdate &&
+          other.rankingScore == this.rankingScore &&
+          other.isMajorSource == this.isMajorSource);
 }
 
 class NewsArticlesTableCompanion
@@ -653,8 +750,11 @@ class NewsArticlesTableCompanion
   final Value<bool> isFavorited;
   final Value<int> likesCount;
   final Value<String?> clusterId;
+  final Value<String?> countryCode;
   final Value<double> trendScore;
   final Value<DateTime?> lastTrendUpdate;
+  final Value<double> rankingScore;
+  final Value<bool> isMajorSource;
   final Value<int> rowid;
   const NewsArticlesTableCompanion({
     this.id = const Value.absent(),
@@ -673,8 +773,11 @@ class NewsArticlesTableCompanion
     this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
+    this.countryCode = const Value.absent(),
     this.trendScore = const Value.absent(),
     this.lastTrendUpdate = const Value.absent(),
+    this.rankingScore = const Value.absent(),
+    this.isMajorSource = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NewsArticlesTableCompanion.insert({
@@ -694,8 +797,11 @@ class NewsArticlesTableCompanion
     this.isFavorited = const Value.absent(),
     this.likesCount = const Value.absent(),
     this.clusterId = const Value.absent(),
+    this.countryCode = const Value.absent(),
     this.trendScore = const Value.absent(),
     this.lastTrendUpdate = const Value.absent(),
+    this.rankingScore = const Value.absent(),
+    this.isMajorSource = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         title = Value(title),
@@ -720,8 +826,11 @@ class NewsArticlesTableCompanion
     Expression<bool>? isFavorited,
     Expression<int>? likesCount,
     Expression<String>? clusterId,
+    Expression<String>? countryCode,
     Expression<double>? trendScore,
     Expression<DateTime>? lastTrendUpdate,
+    Expression<double>? rankingScore,
+    Expression<bool>? isMajorSource,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -741,8 +850,11 @@ class NewsArticlesTableCompanion
       if (isFavorited != null) 'is_favorited': isFavorited,
       if (likesCount != null) 'likes_count': likesCount,
       if (clusterId != null) 'cluster_id': clusterId,
+      if (countryCode != null) 'country_code': countryCode,
       if (trendScore != null) 'trend_score': trendScore,
       if (lastTrendUpdate != null) 'last_trend_update': lastTrendUpdate,
+      if (rankingScore != null) 'ranking_score': rankingScore,
+      if (isMajorSource != null) 'is_major_source': isMajorSource,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -764,8 +876,11 @@ class NewsArticlesTableCompanion
       Value<bool>? isFavorited,
       Value<int>? likesCount,
       Value<String?>? clusterId,
+      Value<String?>? countryCode,
       Value<double>? trendScore,
       Value<DateTime?>? lastTrendUpdate,
+      Value<double>? rankingScore,
+      Value<bool>? isMajorSource,
       Value<int>? rowid}) {
     return NewsArticlesTableCompanion(
       id: id ?? this.id,
@@ -784,8 +899,11 @@ class NewsArticlesTableCompanion
       isFavorited: isFavorited ?? this.isFavorited,
       likesCount: likesCount ?? this.likesCount,
       clusterId: clusterId ?? this.clusterId,
+      countryCode: countryCode ?? this.countryCode,
       trendScore: trendScore ?? this.trendScore,
       lastTrendUpdate: lastTrendUpdate ?? this.lastTrendUpdate,
+      rankingScore: rankingScore ?? this.rankingScore,
+      isMajorSource: isMajorSource ?? this.isMajorSource,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -844,11 +962,20 @@ class NewsArticlesTableCompanion
     if (clusterId.present) {
       map['cluster_id'] = Variable<String>(clusterId.value);
     }
+    if (countryCode.present) {
+      map['country_code'] = Variable<String>(countryCode.value);
+    }
     if (trendScore.present) {
       map['trend_score'] = Variable<double>(trendScore.value);
     }
     if (lastTrendUpdate.present) {
       map['last_trend_update'] = Variable<DateTime>(lastTrendUpdate.value);
+    }
+    if (rankingScore.present) {
+      map['ranking_score'] = Variable<double>(rankingScore.value);
+    }
+    if (isMajorSource.present) {
+      map['is_major_source'] = Variable<bool>(isMajorSource.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -875,8 +1002,11 @@ class NewsArticlesTableCompanion
           ..write('isFavorited: $isFavorited, ')
           ..write('likesCount: $likesCount, ')
           ..write('clusterId: $clusterId, ')
+          ..write('countryCode: $countryCode, ')
           ..write('trendScore: $trendScore, ')
           ..write('lastTrendUpdate: $lastTrendUpdate, ')
+          ..write('rankingScore: $rankingScore, ')
+          ..write('isMajorSource: $isMajorSource, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1733,8 +1863,11 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
+  Value<String?> countryCode,
   Value<double> trendScore,
   Value<DateTime?> lastTrendUpdate,
+  Value<double> rankingScore,
+  Value<bool> isMajorSource,
   Value<int> rowid,
 });
 typedef $$NewsArticlesTableTableUpdateCompanionBuilder
@@ -1755,8 +1888,11 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<bool> isFavorited,
   Value<int> likesCount,
   Value<String?> clusterId,
+  Value<String?> countryCode,
   Value<double> trendScore,
   Value<DateTime?> lastTrendUpdate,
+  Value<double> rankingScore,
+  Value<bool> isMajorSource,
   Value<int> rowid,
 });
 
@@ -1823,12 +1959,21 @@ class $$NewsArticlesTableTableFilterComposer
   ColumnFilters<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnFilters(column));
 
+  ColumnFilters<String> get countryCode => $composableBuilder(
+      column: $table.countryCode, builder: (column) => ColumnFilters(column));
+
   ColumnFilters<double> get trendScore => $composableBuilder(
       column: $table.trendScore, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get lastTrendUpdate => $composableBuilder(
       column: $table.lastTrendUpdate,
       builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get rankingScore => $composableBuilder(
+      column: $table.rankingScore, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isMajorSource => $composableBuilder(
+      column: $table.isMajorSource, builder: (column) => ColumnFilters(column));
 }
 
 class $$NewsArticlesTableTableOrderingComposer
@@ -1890,11 +2035,22 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<String> get clusterId => $composableBuilder(
       column: $table.clusterId, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get countryCode => $composableBuilder(
+      column: $table.countryCode, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<double> get trendScore => $composableBuilder(
       column: $table.trendScore, builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get lastTrendUpdate => $composableBuilder(
       column: $table.lastTrendUpdate,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get rankingScore => $composableBuilder(
+      column: $table.rankingScore,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isMajorSource => $composableBuilder(
+      column: $table.isMajorSource,
       builder: (column) => ColumnOrderings(column));
 }
 
@@ -1957,11 +2113,20 @@ class $$NewsArticlesTableTableAnnotationComposer
   GeneratedColumn<String> get clusterId =>
       $composableBuilder(column: $table.clusterId, builder: (column) => column);
 
+  GeneratedColumn<String> get countryCode => $composableBuilder(
+      column: $table.countryCode, builder: (column) => column);
+
   GeneratedColumn<double> get trendScore => $composableBuilder(
       column: $table.trendScore, builder: (column) => column);
 
   GeneratedColumn<DateTime> get lastTrendUpdate => $composableBuilder(
       column: $table.lastTrendUpdate, builder: (column) => column);
+
+  GeneratedColumn<double> get rankingScore => $composableBuilder(
+      column: $table.rankingScore, builder: (column) => column);
+
+  GeneratedColumn<bool> get isMajorSource => $composableBuilder(
+      column: $table.isMajorSource, builder: (column) => column);
 }
 
 class $$NewsArticlesTableTableTableManager extends RootTableManager<
@@ -2009,8 +2174,11 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
+            Value<String?> countryCode = const Value.absent(),
             Value<double> trendScore = const Value.absent(),
             Value<DateTime?> lastTrendUpdate = const Value.absent(),
+            Value<double> rankingScore = const Value.absent(),
+            Value<bool> isMajorSource = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion(
@@ -2030,8 +2198,11 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
+            countryCode: countryCode,
             trendScore: trendScore,
             lastTrendUpdate: lastTrendUpdate,
+            rankingScore: rankingScore,
+            isMajorSource: isMajorSource,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2051,8 +2222,11 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<bool> isFavorited = const Value.absent(),
             Value<int> likesCount = const Value.absent(),
             Value<String?> clusterId = const Value.absent(),
+            Value<String?> countryCode = const Value.absent(),
             Value<double> trendScore = const Value.absent(),
             Value<DateTime?> lastTrendUpdate = const Value.absent(),
+            Value<double> rankingScore = const Value.absent(),
+            Value<bool> isMajorSource = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion.insert(
@@ -2072,8 +2246,11 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             isFavorited: isFavorited,
             likesCount: likesCount,
             clusterId: clusterId,
+            countryCode: countryCode,
             trendScore: trendScore,
             lastTrendUpdate: lastTrendUpdate,
+            rankingScore: rankingScore,
+            isMajorSource: isMajorSource,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

@@ -20,6 +20,9 @@ class AuthState {
     this.needsConflictResolution = false,
     this.conflictData,
     this.previousGuestUid,
+    this.detectedCountry,
+    this.showLocationUpdatePopup = false,
+    this.hasCheckedLocation = false,
   });
 
   final bool isLoading;
@@ -36,6 +39,9 @@ class AuthState {
   final bool needsConflictResolution;
   final Map<String, dynamic>? conflictData;
   final String? previousGuestUid;
+  final String? detectedCountry;
+  final bool showLocationUpdatePopup;
+  final bool hasCheckedLocation;
 
   AuthState copyWith({
     bool? isLoading,
@@ -52,6 +58,9 @@ class AuthState {
     bool? needsConflictResolution,
     Map<String, dynamic>? conflictData,
     String? previousGuestUid,
+    String? Function()? detectedCountry,
+    bool? showLocationUpdatePopup,
+    bool? hasCheckedLocation,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
@@ -68,6 +77,9 @@ class AuthState {
       needsConflictResolution: needsConflictResolution ?? this.needsConflictResolution,
       conflictData: conflictData ?? this.conflictData,
       previousGuestUid: previousGuestUid ?? this.previousGuestUid,
+      detectedCountry: detectedCountry != null ? detectedCountry() : this.detectedCountry,
+      showLocationUpdatePopup: showLocationUpdatePopup ?? this.showLocationUpdatePopup,
+      hasCheckedLocation: hasCheckedLocation ?? this.hasCheckedLocation,
     );
   }
 }
@@ -101,6 +113,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         selectedInterests: interests,
         displayName: () => name,
         avatarUrl: () => avatar,
+        hasCheckedLocation: false,
       );
     });
   }
@@ -112,7 +125,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signInWithEmail(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
-    final oldGuestUid = _repository.isAnonymous ? _repository.currentUserId : null;
+    final oldGuestUid = _repository.isAnonymous ? _repository.getGuestId() : null;
     try {
       await _repository.signInWithEmail(email: email, password: password);
       await _handleSignInResult(oldGuestUid);
@@ -140,7 +153,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signInWithGoogle() async {
     state = state.copyWith(isLoading: true, error: null);
-    final oldGuestUid = _repository.isAnonymous ? _repository.currentUserId : null;
+    final oldGuestUid = _repository.isAnonymous ? _repository.getGuestId() : null;
     try {
       await _repository.signInWithGoogle();
       await _handleSignInResult(oldGuestUid);
@@ -212,14 +225,62 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> detectLocation() async {
+    if (state.hasCheckedLocation) return;
+    
     try {
       final country = await _repository.detectAndSaveCountry();
-      if (country != null && state.preferredCountry == null) {
-        state = state.copyWith(preferredCountry: () => country);
+      if (country == null) {
+        state = state.copyWith(hasCheckedLocation: true);
+        return;
+      }
+
+      final currentCountry = state.preferredCountry;
+      
+      if (currentCountry == null) {
+        // First time detection, just save it
+        await _repository.savePreferredCountry(country);
+        state = state.copyWith(
+          preferredCountry: () => country,
+          hasCheckedLocation: true,
+        );
+      } else if (currentCountry != country && _repository.shouldAskLocationUpdate()) {
+        // Country changed and we should ask the user
+        state = state.copyWith(
+          detectedCountry: () => country,
+          showLocationUpdatePopup: true,
+          hasCheckedLocation: true,
+        );
+      } else {
+        state = state.copyWith(hasCheckedLocation: true);
       }
     } catch (e) {
       debugPrint('[Auth] detectLocation error in Notifier: $e');
+      state = state.copyWith(hasCheckedLocation: true);
     }
+  }
+
+  Future<void> updateLocation(String countryCode) async {
+    state = state.copyWith(isLoading: true, showLocationUpdatePopup: false);
+    try {
+      await _repository.savePreferredCountry(countryCode);
+      state = state.copyWith(
+        isLoading: false,
+        preferredCountry: () => countryCode,
+        detectedCountry: () => null,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Failed to update location: $e');
+    }
+  }
+
+  Future<void> dismissLocationUpdate({required bool permanent}) async {
+    if (permanent) {
+      await _repository.setShouldAskLocationUpdate(false);
+    }
+    state = state.copyWith(
+      showLocationUpdatePopup: false,
+      detectedCountry: () => null,
+    );
   }
 
   Future<void> refreshInterests() async {
@@ -241,16 +302,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
         final guestInterests = List<String>.from(guestData['interests'] ?? []);
         final accountInterests = List<String>.from(accountData['interests'] ?? []);
 
-        // We only trigger resolution if BOTH have interests.
-        // User request: "inform the user which personalization settings they want to continue with"
-        if (guestInterests.isNotEmpty && accountInterests.isNotEmpty) {
+        final guestCountry = guestData['country'] as String?;
+        final accountCountry = accountData['country'] as String?;
+
+        // 1. Check if interests are identical as sets
+        final guestSet = guestInterests.toSet();
+        final accountSet = accountInterests.toSet();
+        final isInterestsEqual = guestSet.length == accountSet.length && guestSet.containsAll(accountSet);
+        
+        // 2. Check if country is equal
+        final isCountryEqual = guestCountry == accountCountry;
+
+        // We only trigger resolution if BOTH have interests AND they differ (interests or country)
+        if (guestInterests.isNotEmpty && accountInterests.isNotEmpty && (!isInterestsEqual || !isCountryEqual)) {
           state = state.copyWith(
             needsConflictResolution: true,
             conflictData: conflict,
             previousGuestUid: oldGuestUid,
           );
         } else if (guestInterests.isNotEmpty) {
-          // Only guest has data, migrate automatically to the new account
+          // Case: Only guest has data, OR they are identical!
+          // We can migrate automatically and cleanly.
           await _repository.selectiveMigrateUserData(
             guestUid: oldGuestUid,
             useGuestSettings: true,

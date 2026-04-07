@@ -110,6 +110,12 @@ abstract class NewsArticle with _$NewsArticle {
 
     /// Country code for localized news (e.g. "US", "KE")
     @JsonKey(name: 'country_code') String? countryCode,
+
+    /// Ranking score for For You feed ordering
+    @JsonKey(name: 'ranking_score') @Default(0.0) double rankingScore,
+
+    /// Whether this is a major news source (Google News, etc)
+    @JsonKey(name: 'is_major_source') @Default(false) bool isMajorSource,
   }) = _NewsArticle;
 
   factory NewsArticle.fromJson(Map<String, dynamic> json) =>

@@ -8,7 +8,7 @@
       "flutterMode": "debug",
       "args": [
         "--dart-define-from-file",
-        "config/dev.json"
+        "config/prod.json"
       ]
     },
     {
@@ -18,7 +18,7 @@
       "flutterMode": "profile",
       "args": [
         "--dart-define-from-file",
-        "config/dev.json"
+        "config/prod.json"
       ]
     },
     {

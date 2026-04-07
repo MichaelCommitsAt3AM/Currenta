@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -10,11 +11,14 @@ class AuthRepositoryImpl implements AuthRepository {
   AuthRepositoryImpl({
     required SupabaseClient supabaseClient,
     required Dio dio,
+    required SharedPreferences prefs,
   })  : _supabase = supabaseClient,
-        _dio = dio;
+        _dio = dio,
+        _prefs = prefs;
 
   final SupabaseClient _supabase;
   final Dio _dio;
+  final SharedPreferences _prefs;
 
   // Session-level cache for country detection
   String? _cachedCountry;
@@ -54,6 +58,15 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   bool get isAnonymous => _supabase.auth.currentUser?.isAnonymous ?? false;
+
+  @override
+  String? getGuestId() {
+    final user = _supabase.auth.currentUser;
+    if (user != null && user.isAnonymous) {
+      return user.id;
+    }
+    return null;
+  }
 
   @override
   Future<void> signInWithEmail({
@@ -505,8 +518,20 @@ class AuthRepositoryImpl implements AuthRepository {
         'account_uid': accountUid,
         'use_guest_settings': useGuestSettings,
       });
+      // Clear country cache so it's re-fetched after migration
+      _cachedCountry = null;
     } catch (e) {
       throw ServerException('Failed to selective migrate user data: $e');
     }
+  }
+
+  @override
+  bool shouldAskLocationUpdate() {
+    return _prefs.getBool('should_ask_location_update') ?? true;
+  }
+
+  @override
+  Future<void> setShouldAskLocationUpdate(bool shouldAsk) async {
+    await _prefs.setBool('should_ask_location_update', shouldAsk);
   }
 }

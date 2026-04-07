@@ -6,6 +6,7 @@ import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'otp_verification_screen.dart';
+import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
 
@@ -78,7 +79,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
         );
       }
-      if (next.isAuthenticated) {
+      if (next.isAuthenticated && !next.isLoading) {
+        if (next.needsConflictResolution && next.conflictData != null) {
+          debugPrint('[Register] Conflict detected! Showing resolution dialog...');
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => PersonalizationConflictScreen(
+                guestData: next.conflictData!['guest'] as Map<String, dynamic>,
+                accountData: next.conflictData!['account'] as Map<String, dynamic>,
+              ),
+            ),
+          );
+          return;
+        }
+
         if (widget.redirectToFeedOnSuccess) {
           // Mark onboarding as complete
           ref.read(onboardingRepositoryProvider).completeOnboarding();

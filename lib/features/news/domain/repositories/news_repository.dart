@@ -11,6 +11,7 @@ abstract class NewsRepository {
   Stream<List<NewsArticle>> watchFeed({
     NewsCategory? category,
     List<String>? preferredCategories,
+    String? countryCode,
   });
 
   /// Returns a single page of locally-cached articles, newest-first.
@@ -19,6 +20,7 @@ abstract class NewsRepository {
   Future<List<NewsArticle>> fetchPage({
     NewsCategory? category,
     List<String>? preferredCategories,
+    String? countryCode,
     int limit = 10,
     int offset = 0,
     DateTime? before,

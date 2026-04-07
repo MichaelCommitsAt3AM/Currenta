@@ -29,6 +29,8 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
       isViewed: json['is_viewed'] as bool? ?? false,
       clusterId: json['cluster_id'] as String?,
       countryCode: json['country_code'] as String?,
+      rankingScore: (json['ranking_score'] as num?)?.toDouble() ?? 0.0,
+      isMajorSource: json['is_major_source'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
@@ -51,4 +53,6 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'is_viewed': instance.isViewed,
       'cluster_id': instance.clusterId,
       'country_code': instance.countryCode,
+      'ranking_score': instance.rankingScore,
+      'is_major_source': instance.isMajorSource,
     };

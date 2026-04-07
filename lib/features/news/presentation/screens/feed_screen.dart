@@ -5,6 +5,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,6 +15,7 @@ import '../widgets/news_card.dart';
 import '../widgets/shimmer_feed.dart';
 import '../widgets/sidebar.dart';
 import '../../../auth/application/auth_notifier.dart';
+import '../../../auth/presentation/widgets/location_update_popup.dart';
 import '../widgets/ai_quick_chat_sheet.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
@@ -50,6 +52,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     // Mark the very first article as viewed
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackPageView(0);
+      
+      // Trigger background location detection once feed is stable
+      ref.read(authNotifierProvider.notifier).detectLocation();
     });
   }
 
@@ -139,6 +144,138 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
   }
 
+  Future<bool?> _showExitConfirmation() {
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        decoration: const BoxDecoration(
+          color: Color(0xFF161B2E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black54,
+              blurRadius: 20,
+              offset: Offset(0, -5),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 28),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.exit_to_app_rounded,
+                color: Color(0xFF6C63FF),
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Exit Currenta?',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                fontFamily: 'Outfit',
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Are you sure you want to close the app?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 15,
+                height: 1.5,
+                fontFamily: 'Inter',
+              ),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                      ),
+                    ),
+                    child: const Text(
+                      'Stay',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF6C63FF).withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF6C63FF),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Exit Now',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: MediaQuery.paddingOf(context).bottom),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen(newsFeedNotifierProvider, (previous, next) {
@@ -201,6 +338,26 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       }
     });
 
+    // ── Listen for Location Update Popup ──
+    ref.listen(authNotifierProvider, (previous, next) {
+      if (next.showLocationUpdatePopup && !(previous?.showLocationUpdatePopup ?? false)) {
+        final detected = next.detectedCountry;
+        final current = next.preferredCountry;
+        
+        if (detected != null && current != null) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => LocationUpdatePopup(
+              detectedCountry: detected,
+              currentCountry: current,
+            ),
+          );
+        }
+      }
+    });
+
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.valueOrNull;
 
@@ -215,106 +372,119 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         : null;
     final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
 
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: const Color(0xFF0A0C14),
-      drawer: Sidebar(catColor: catColor),
-      body: Stack(
-        children: [
-          // ── Main content ─────────────────────────────────────────
-          feedAsync.when(
-            loading: () => const ShimmerFeed(),
-            error: (e, _) => ErrorStateScreen(
-              error: e,
-              onRetry: () =>
-                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
-            ),
-            data: (feed) {
-              // ── Conditional UI: Shimmer vs Empty vs Articles ──
-              // If we have no articles, show shimmer if we are still loading,
-              // or empty state if we are truly done and have nothing.
-              if (feed.articles.isEmpty) {
-                if (feed.isLoadingMore || feedAsync.isLoading) {
-                  return const ShimmerFeed();
-                }
-                return EmptyStateScreen(
-                  onRetry: () =>
-                      ref.read(newsFeedNotifierProvider.notifier).refresh(),
-                );
-              }
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
 
-              // ── Performance: Browser Pre-warming ──
-              // We only warmup once articles are successfully loaded.
-              if (!_hasWarmedUpBrowser && feed.articles.isNotEmpty) {
-                _hasWarmedUpBrowser = true;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  final browser = ref.read(browserServiceProvider);
-                  browser.warmup();
-                });
-              }
-
-              // Total items = articles + optional loading sentinel at the end
-              final itemCount =
-                  feed.articles.length + (feed.isLoadingMore ? 1 : 0);
-
-              return PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                physics: const BouncingScrollPhysics(),
-                itemCount: itemCount,
-                onPageChanged: _onPageChanged,
-                itemBuilder: (context, i) {
-                  // ── Loading sentinel (last slot while fetching) ──
-                  if (i >= feed.articles.length) {
-                    return const _LoadingMorePage();
+        final shouldPop = await _showExitConfirmation();
+        if (shouldPop ?? false) {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: const Color(0xFF0A0C14),
+        drawer: Sidebar(catColor: catColor),
+        body: Stack(
+          children: [
+            // ── Main content ─────────────────────────────────────────
+            feedAsync.when(
+              loading: () => const ShimmerFeed(),
+              error: (e, _) => ErrorStateScreen(
+                error: e,
+                onRetry: () =>
+                    ref.read(newsFeedNotifierProvider.notifier).refresh(),
+              ),
+              data: (feed) {
+                // ── Conditional UI: Shimmer vs Empty vs Articles ──
+                // If we have no articles, show shimmer if we are still loading,
+                // or empty state if we are truly done and have nothing.
+                if (feed.articles.isEmpty) {
+                  if (feed.isLoadingMore || feedAsync.isLoading) {
+                    return const ShimmerFeed();
                   }
-
-                  final article = feed.articles[i];
-
-                  return RepaintBoundary(
-                    child: NewsCard(
-                      article: article,
-                      index: i,
-                      total: feed.articles.length,
-                    ),
+                  return EmptyStateScreen(
+                    onRetry: () =>
+                        ref.read(newsFeedNotifierProvider.notifier).refresh(),
                   );
-                },
-              );
-            },
-          ),
+                }
 
-          // ── Category filter bar ──────────────────────────────────
-          _CategoryBar(
-            selectedCategory: _selectedCategory,
-            onCategoryChanged: (cat) {
-              if (_selectedCategory == cat) return;
+                // ── Performance: Browser Pre-warming ──
+                // We only warmup once articles are successfully loaded.
+                if (!_hasWarmedUpBrowser && feed.articles.isNotEmpty) {
+                  _hasWarmedUpBrowser = true;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    final browser = ref.read(browserServiceProvider);
+                    browser.warmup();
+                  });
+                }
 
-              // Sync UI state immediately for instant feedback
-              setState(() {
-                _selectedCategory = cat;
-              });
-              _lastTriggeredPage = -1;
+                // Total items = articles + optional loading sentinel at the end
+                final itemCount =
+                    feed.articles.length + (feed.isLoadingMore ? 1 : 0);
 
-              // Trigger feed loading immediately
-              ref.read(newsFeedNotifierProvider.notifier).filterByCategory(cat);
-            },
-            onRefresh: () =>
-                ref.read(newsFeedNotifierProvider.notifier).refresh(),
-            onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-          ),
+                return PageView.builder(
+                  controller: _pageController,
+                  scrollDirection: Axis.vertical,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: itemCount,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (context, i) {
+                    // ── Loading sentinel (last slot while fetching) ──
+                    if (i >= feed.articles.length) {
+                      return const _LoadingMorePage();
+                    }
 
-          // ── New Stories Badge ─────────────────────────────────────
-          if (feed != null && feed.newArticlesCount > 0)
-            _NewStoriesBadge(
-              count: feed.newArticlesCount,
-              onTap: () {
-                // Notifier handles list reconstruction and index shift (Current @ 0, New @ 1)
-                ref
-                    .read(newsFeedNotifierProvider.notifier)
-                    .applyPendingArticles();
+                    final article = feed.articles[i];
+
+                    return RepaintBoundary(
+                      child: NewsCard(
+                        article: article,
+                        index: i,
+                        total: feed.articles.length,
+                      ),
+                    );
+                  },
+                );
               },
             ),
-        ],
+
+            // ── Category filter bar ──────────────────────────────────
+            _CategoryBar(
+              selectedCategory: _selectedCategory,
+              onCategoryChanged: (cat) {
+                if (_selectedCategory == cat) return;
+
+                // Sync UI state immediately for instant feedback
+                setState(() {
+                  _selectedCategory = cat;
+                });
+                _lastTriggeredPage = -1;
+
+                // Trigger feed loading immediately
+                ref
+                    .read(newsFeedNotifierProvider.notifier)
+                    .filterByCategory(cat);
+              },
+              onRefresh: () =>
+                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
+              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+            ),
+
+            // ── New Stories Badge ─────────────────────────────────────
+            if (feed != null && feed.newArticlesCount > 0)
+              _NewStoriesBadge(
+                count: feed.newArticlesCount,
+                onTap: () {
+                  // Notifier handles list reconstruction and index shift (Current @ 0, New @ 1)
+                  ref
+                      .read(newsFeedNotifierProvider.notifier)
+                      .applyPendingArticles();
+                },
+              ),
+          ],
+        ),
       ),
     );
   }

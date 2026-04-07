@@ -89,6 +89,14 @@ mixin _$NewsArticle {
   @JsonKey(name: 'country_code')
   String? get countryCode;
 
+  /// Ranking score for For You feed ordering
+  @JsonKey(name: 'ranking_score')
+  double get rankingScore;
+
+  /// Whether this is a major news source (Google News, etc)
+  @JsonKey(name: 'is_major_source')
+  bool get isMajorSource;
+
   /// Create a copy of NewsArticle
   /// with the given fields replaced by the non-null parameter values.
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -135,35 +143,42 @@ mixin _$NewsArticle {
             (identical(other.clusterId, clusterId) ||
                 other.clusterId == clusterId) &&
             (identical(other.countryCode, countryCode) ||
-                other.countryCode == countryCode));
+                other.countryCode == countryCode) &&
+            (identical(other.rankingScore, rankingScore) ||
+                other.rankingScore == rankingScore) &&
+            (identical(other.isMajorSource, isMajorSource) ||
+                other.isMajorSource == isMajorSource));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
-  int get hashCode => Object.hash(
-      runtimeType,
-      id,
-      title,
-      summary,
-      originalUrl,
-      imageUrl,
-      sourceName,
-      sourceFaviconUrl,
-      publishedAt,
-      createdAt,
-      const DeepCollectionEquality().hash(categories),
-      const DeepCollectionEquality().hash(subCategories),
-      isPaywalled,
-      isLiked,
-      likesCount,
-      isFavorited,
-      isViewed,
-      clusterId,
-      countryCode);
+  int get hashCode => Object.hashAll([
+        runtimeType,
+        id,
+        title,
+        summary,
+        originalUrl,
+        imageUrl,
+        sourceName,
+        sourceFaviconUrl,
+        publishedAt,
+        createdAt,
+        const DeepCollectionEquality().hash(categories),
+        const DeepCollectionEquality().hash(subCategories),
+        isPaywalled,
+        isLiked,
+        likesCount,
+        isFavorited,
+        isViewed,
+        clusterId,
+        countryCode,
+        rankingScore,
+        isMajorSource
+      ]);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource)';
   }
 }
 
@@ -199,7 +214,9 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'is_viewed') bool isViewed,
       @JsonKey(name: 'cluster_id') String? clusterId,
-      @JsonKey(name: 'country_code') String? countryCode});
+      @JsonKey(name: 'country_code') String? countryCode,
+      @JsonKey(name: 'ranking_score') double rankingScore,
+      @JsonKey(name: 'is_major_source') bool isMajorSource});
 }
 
 /// @nodoc
@@ -232,6 +249,8 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? isViewed = null,
     Object? clusterId = freezed,
     Object? countryCode = freezed,
+    Object? rankingScore = null,
+    Object? isMajorSource = null,
   }) {
     return _then(_self.copyWith(
       id: null == id
@@ -306,6 +325,14 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.countryCode
           : countryCode // ignore: cast_nullable_to_non_nullable
               as String?,
+      rankingScore: null == rankingScore
+          ? _self.rankingScore
+          : rankingScore // ignore: cast_nullable_to_non_nullable
+              as double,
+      isMajorSource: null == isMajorSource
+          ? _self.isMajorSource
+          : isMajorSource // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }
@@ -429,7 +456,9 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
             @JsonKey(name: 'cluster_id') String? clusterId,
-            @JsonKey(name: 'country_code') String? countryCode)?
+            @JsonKey(name: 'country_code') String? countryCode,
+            @JsonKey(name: 'ranking_score') double rankingScore,
+            @JsonKey(name: 'is_major_source') bool isMajorSource)?
         $default, {
     required TResult orElse(),
   }) {
@@ -454,7 +483,9 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isFavorited,
             _that.isViewed,
             _that.clusterId,
-            _that.countryCode);
+            _that.countryCode,
+            _that.rankingScore,
+            _that.isMajorSource);
       case _:
         return orElse();
     }
@@ -501,7 +532,9 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
             @JsonKey(name: 'cluster_id') String? clusterId,
-            @JsonKey(name: 'country_code') String? countryCode)
+            @JsonKey(name: 'country_code') String? countryCode,
+            @JsonKey(name: 'ranking_score') double rankingScore,
+            @JsonKey(name: 'is_major_source') bool isMajorSource)
         $default,
   ) {
     final _that = this;
@@ -525,7 +558,9 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isFavorited,
             _that.isViewed,
             _that.clusterId,
-            _that.countryCode);
+            _that.countryCode,
+            _that.rankingScore,
+            _that.isMajorSource);
       case _:
         throw StateError('Unexpected subclass');
     }
@@ -571,7 +606,9 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'is_favorited') bool isFavorited,
             @JsonKey(name: 'is_viewed') bool isViewed,
             @JsonKey(name: 'cluster_id') String? clusterId,
-            @JsonKey(name: 'country_code') String? countryCode)?
+            @JsonKey(name: 'country_code') String? countryCode,
+            @JsonKey(name: 'ranking_score') double rankingScore,
+            @JsonKey(name: 'is_major_source') bool isMajorSource)?
         $default,
   ) {
     final _that = this;
@@ -595,7 +632,9 @@ extension NewsArticlePatterns on NewsArticle {
             _that.isFavorited,
             _that.isViewed,
             _that.clusterId,
-            _that.countryCode);
+            _that.countryCode,
+            _that.rankingScore,
+            _that.isMajorSource);
       case _:
         return null;
     }
@@ -631,7 +670,9 @@ class _NewsArticle implements NewsArticle {
       @JsonKey(name: 'is_favorited') this.isFavorited = false,
       @JsonKey(name: 'is_viewed') this.isViewed = false,
       @JsonKey(name: 'cluster_id') this.clusterId,
-      @JsonKey(name: 'country_code') this.countryCode})
+      @JsonKey(name: 'country_code') this.countryCode,
+      @JsonKey(name: 'ranking_score') this.rankingScore = 0.0,
+      @JsonKey(name: 'is_major_source') this.isMajorSource = false})
       : _categories = categories,
         _subCategories = subCategories;
   factory _NewsArticle.fromJson(Map<String, dynamic> json) =>
@@ -744,6 +785,16 @@ class _NewsArticle implements NewsArticle {
   @JsonKey(name: 'country_code')
   final String? countryCode;
 
+  /// Ranking score for For You feed ordering
+  @override
+  @JsonKey(name: 'ranking_score')
+  final double rankingScore;
+
+  /// Whether this is a major news source (Google News, etc)
+  @override
+  @JsonKey(name: 'is_major_source')
+  final bool isMajorSource;
+
   /// Create a copy of NewsArticle
   /// with the given fields replaced by the non-null parameter values.
   @override
@@ -795,35 +846,42 @@ class _NewsArticle implements NewsArticle {
             (identical(other.clusterId, clusterId) ||
                 other.clusterId == clusterId) &&
             (identical(other.countryCode, countryCode) ||
-                other.countryCode == countryCode));
+                other.countryCode == countryCode) &&
+            (identical(other.rankingScore, rankingScore) ||
+                other.rankingScore == rankingScore) &&
+            (identical(other.isMajorSource, isMajorSource) ||
+                other.isMajorSource == isMajorSource));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
   @override
-  int get hashCode => Object.hash(
-      runtimeType,
-      id,
-      title,
-      summary,
-      originalUrl,
-      imageUrl,
-      sourceName,
-      sourceFaviconUrl,
-      publishedAt,
-      createdAt,
-      const DeepCollectionEquality().hash(_categories),
-      const DeepCollectionEquality().hash(_subCategories),
-      isPaywalled,
-      isLiked,
-      likesCount,
-      isFavorited,
-      isViewed,
-      clusterId,
-      countryCode);
+  int get hashCode => Object.hashAll([
+        runtimeType,
+        id,
+        title,
+        summary,
+        originalUrl,
+        imageUrl,
+        sourceName,
+        sourceFaviconUrl,
+        publishedAt,
+        createdAt,
+        const DeepCollectionEquality().hash(_categories),
+        const DeepCollectionEquality().hash(_subCategories),
+        isPaywalled,
+        isLiked,
+        likesCount,
+        isFavorited,
+        isViewed,
+        clusterId,
+        countryCode,
+        rankingScore,
+        isMajorSource
+      ]);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource)';
   }
 }
 
@@ -861,7 +919,9 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       @JsonKey(name: 'is_favorited') bool isFavorited,
       @JsonKey(name: 'is_viewed') bool isViewed,
       @JsonKey(name: 'cluster_id') String? clusterId,
-      @JsonKey(name: 'country_code') String? countryCode});
+      @JsonKey(name: 'country_code') String? countryCode,
+      @JsonKey(name: 'ranking_score') double rankingScore,
+      @JsonKey(name: 'is_major_source') bool isMajorSource});
 }
 
 /// @nodoc
@@ -894,6 +954,8 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? isViewed = null,
     Object? clusterId = freezed,
     Object? countryCode = freezed,
+    Object? rankingScore = null,
+    Object? isMajorSource = null,
   }) {
     return _then(_NewsArticle(
       id: null == id
@@ -968,6 +1030,14 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self.countryCode
           : countryCode // ignore: cast_nullable_to_non_nullable
               as String?,
+      rankingScore: null == rankingScore
+          ? _self.rankingScore
+          : rankingScore // ignore: cast_nullable_to_non_nullable
+              as double,
+      isMajorSource: null == isMajorSource
+          ? _self.isMajorSource
+          : isMajorSource // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }

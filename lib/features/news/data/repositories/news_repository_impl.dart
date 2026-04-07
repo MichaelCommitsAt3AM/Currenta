@@ -32,11 +32,13 @@ class NewsRepositoryImpl implements NewsRepository {
   Stream<List<NewsArticle>> watchFeed({
     NewsCategory? category,
     List<String>? preferredCategories,
+    String? countryCode,
   }) {
     return _dao
         .watchArticles(
           category: category?.name,
           preferredCategories: preferredCategories,
+          countryCode: countryCode,
         )
         .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
@@ -47,6 +49,7 @@ class NewsRepositoryImpl implements NewsRepository {
   Future<List<NewsArticle>> fetchPage({
     NewsCategory? category,
     List<String>? preferredCategories,
+    String? countryCode,
     int limit = 10,
     int offset = 0,
     DateTime? before,
@@ -56,6 +59,7 @@ class NewsRepositoryImpl implements NewsRepository {
     return _dao.getArticlesPage(
       category: category?.name,
       preferredCategories: preferredCategories,
+      countryCode: countryCode,
       limit: limit,
       offset: offset,
       before: before,
