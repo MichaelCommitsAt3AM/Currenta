@@ -7,23 +7,38 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 def start_scheduler():
-    # Import locally to avoid circular dependencies
-    from .ingestion import orchestrate_sync_wrapper
-    from .trending import update_trending_scores
-    
-    # Run orchestration every ~3 hours
-    scheduler.add_job(orchestrate_sync_wrapper, 'interval', minutes=180, id='orchestrate_news', replace_existing=True)
-    
-    # Run trending updates every 60 minutes
-    from ..main import db_pool, redis_client
-    scheduler.add_job(update_trending_scores, 'interval', minutes=60, id='update_trends', args=[db_pool], replace_existing=True)
-
-    # Flush view buffer every 60 seconds (Audit Recommendation)
+    """
+    Starts system-wide background jobs (Trending, View Flushing).
+    In the split architecture, this runs within the API server (GCP).
+    """
     from .ingestion import flush_view_buffer
-    scheduler.add_job(flush_view_buffer, 'interval', seconds=60, id='flush_views', args=[db_pool, redis_client], replace_existing=True)
+    from .trending import update_trending_scores
+    from ..core import db
 
+    # 1. Trending updates (DB intensive)
+    scheduler.add_job(
+        update_trending_scores, 
+        'interval', 
+        minutes=60, 
+        id='update_trends', 
+        args=[db.db_pool], 
+        replace_existing=True
+    )
+    
+    # 2. View buffer flushing (Redis -> PG)
+    scheduler.add_job(
+        flush_view_buffer, 
+        'interval', 
+        seconds=60, 
+        id='flush_views', 
+        args=[db.db_pool, db.redis_client], 
+        replace_existing=True
+    )
+    
     scheduler.start()
-    logger.info("Background scheduler started: orchestration (180m), trends (12h), view-flush (60s).")
+    logger.info("System scheduler started (Trends: 60m, View-Flush: 60s).")
 
 def stop_scheduler():
-    scheduler.shutdown(wait=False)
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+        logger.info("System scheduler stopped.")

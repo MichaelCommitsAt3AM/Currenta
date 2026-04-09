@@ -3,20 +3,18 @@ services:
     build:
       context: .
       dockerfile: ./backend/Dockerfile
-    # Remove direct exposing of 8000; handled by Caddy
     environment:
-      # Pass through all environment variables from .env
       - DATABASE_URL=${DATABASE_URL}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - REDIS_URL=redis://redis:6379  # Override for Docker network
+      - REDIS_URL=redis://redis:6379
       - LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1
       - LOCAL_LLM_MODEL=${OLLAMA_MODEL:-llama3.1}
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-voyage}
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
-      - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-3.5-lite}
+      - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-4-lite}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       - TRUST_PROXY_HEADERS=true
       - TRUSTED_PROXY_IPS=*
@@ -28,6 +26,28 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - VOYAGE_API_KEY=${VOYAGE_API_KEY}
+      - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-4-lite}
+    volumes:
+      - .:/app
+    command: python -m backend.worker
+    depends_on:
+      - redis
     networks:
       - app-network
     restart: unless-stopped

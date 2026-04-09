@@ -115,6 +115,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         avatarUrl: () => avatar,
         hasCheckedLocation: false,
       );
+
+      // Trigger detection automatically once the initial profile is loaded
+      if (isAuthenticated || _repository.isAnonymous) {
+        detectLocation();
+      }
     });
   }
 

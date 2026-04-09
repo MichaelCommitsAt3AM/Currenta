@@ -62,7 +62,7 @@ else
 fi
 
 # ── Backend & Redis (Docker) ──────────────────────────────────────────────────
-info "Stopping Docker services (API, Redis, Caddy)..."
+info "Stopping Docker services (API, Worker, Redis, Caddy)..."
 if docker compose ps >/dev/null 2>&1; then
   docker compose down && ok "Stopped Docker services" || warn "Failed to stop Docker services"
 else

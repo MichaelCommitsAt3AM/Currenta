@@ -33,7 +33,7 @@ if not LOCAL_LLM_BASE_URL.endswith("/v1"):
 
 LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL")
 VOYAGE_API_KEY = os.environ.get("VOYAGE_API_KEY", "")
-VOYAGE_EMBED_MODEL = os.environ.get("VOYAGE_EMBED_MODEL", "voyage-3.5-lite")
+VOYAGE_EMBED_MODEL = os.environ.get("VOYAGE_EMBED_MODEL", "voyage-4-lite")
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "voyage").strip().lower()
 OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
@@ -1847,13 +1847,9 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
         # After successfully ingesting items, we proactively refresh the category caches.
         if results["ingested"] > 0:
             # We don't block ingestion on warming, just spawn it
-            # Try to get redis_client from app state or global
-            redis_client = None
-            try:
-                from ..main import app, redis_client as global_redis
-                redis_client = getattr(app.state, "redis_client", global_redis)
-            except (ImportError, AttributeError):
-                pass
+            # Try to get redis_client from shared core
+            from ..core import db
+            redis_client = db.redis_client
             
             asyncio.create_task(warm_category_cache(category, country_code, db_pool, redis_client))
 
@@ -1911,10 +1907,13 @@ async def orchestrate():
     """
     Background task to orchestrate the ingestion of all feeds.
     """
-    from ..main import db_pool
-    if not db_pool:
+    from ..core import db
+    if not db.db_pool:
         logger.error("Orchestrator: Database pool not ready.")
         return
+
+    # Use the shared pool
+    db_pool = db.db_pool
 
     logger.info(f"Orchestrator: Starting orchestration for {len(FEEDS)} feeds")
     
@@ -1956,10 +1955,12 @@ async def orchestrate_sync_wrapper():
     await orchestrate()
 
 async def add_source_feed_to_queue(feed_url: str, category_hint: str = None):
-    from ..main import db_pool
-    if not db_pool:
+    from ..core import db
+    if not db.db_pool:
         print("[ManualTrigger] Database pool not ready.")
         return
+        
+    db_pool = db.db_pool
         
     # Default category to 'world' if not provided
     cat = category_hint or 'world'

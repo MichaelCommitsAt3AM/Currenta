@@ -19,9 +19,12 @@ import redis.asyncio as redis
 from brotli_asgi import BrotliMiddleware
 
 from .core.logging_config import setup_logging
+from .core.db import init_db_pool, init_redis, close_connections
+import backend.core.db as db_state
+from .version import VERSION
 
 # ---------------------------------------------------------------------------
-# Logging — configure once at startup so all modules use structured output
+# Logging — configure once at startup
 # ---------------------------------------------------------------------------
 setup_logging()
 
@@ -35,9 +38,6 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Security headers middleware — applied to every response
-# ---------------------------------------------------------------------------
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
@@ -47,93 +47,28 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Global database pool and Redis client
-db_pool = None
-redis_client = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_pool, redis_client
-    
-    # Initialize state attributes to None to avoid AttributeErrors in dependencies
-    app.state.db_pool = None
-    app.state.redis_client = None
-
-    database_url = os.environ.get("DATABASE_URL")
-    if database_url:
-        max_retries = 5
-        base_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Connecting to PostgreSQL (Attempt {attempt+1}/{max_retries})...")
-                # min_size/max_size tuned for Supabase PgBouncer in transaction mode.
-                # statement_cache_size=0 is REQUIRED for pgbouncer transaction mode.
-                db_pool = await asyncio.wait_for(
-                    asyncpg.create_pool(
-                        dsn=database_url,
-                        ssl='require',
-                        statement_cache_size=0,
-                        min_size=2,
-                        max_size=12,
-                        max_inactive_connection_lifetime=300,
-                    ),
-                    timeout=10.0
-                )
-                app.state.db_pool = db_pool
-                logger.info("Connected to PostgreSQL (pool min=2, max=12).")
-                break
-            except (asyncio.TimeoutError, asyncpg.PostgresError, OSError) as e:
-                wait_time = base_delay * (2 ** attempt)
-                if attempt < max_retries - 1:
-                    logger.error(f"Failed to connect to database (attempt {attempt+1}/{max_retries}): {e}. Retrying in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"Failed to connect to database after {max_retries} attempts: {e}. Backend features will be unavailable.")
-    else:
-        logger.warning("DATABASE_URL is not set — database features will be unavailable.")
-
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-    try:
-        logger.info(f"Connecting to Redis at {redis_url}...")
-        redis_client = redis.from_url(redis_url, decode_responses=True)
-        # Test connection
-        await redis_client.ping()
-        app.state.redis_client = redis_client
-        logger.info("Connected to Redis.")
-    except Exception as e:
-        logger.error("Failed to connect to Redis: %s", e)
-        app.state.redis_client = None
+    # Initialize shared connections
+    app.state.db_pool = await init_db_pool()
+    app.state.redis_client = await init_redis()
 
     if ENABLE_INTERNAL_SCHEDULER:
+        # Pass the pool and client to the scheduler (simplified)
         start_scheduler()
     else:
-        logger.info("Internal scheduler is disabled (ENABLE_INTERNAL_SCHEDULER=False). Use Cloud Scheduler for orchestration.")
+        logger.info("Internal scheduler is disabled (ENABLE_INTERNAL_SCHEDULER=False).")
 
     yield
 
-    if ENABLE_INTERNAL_SCHEDULER:
-        stop_scheduler()
-    if db_pool:
-        await db_pool.close()
-        logger.info("Closed PostgreSQL pool.")
-    if redis_client:
-        await redis_client.close()
-        logger.info("Closed Redis connection.")
+    await close_connections()
 
 app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
 
-# --- Middleware stack (order matters: outermost = last added) ---
-
-# 1. Trust forwarded headers from reverse proxy / ngrok
+# --- Middleware stack ---
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
-
-# 2. Security response headers on every reply
 app.add_middleware(SecurityHeadersMiddleware)
 
-# 3. CORS — mobile-only API, so no browser origin is needed.
-#    Restrict to your production domain when you have one.
-#    For local dev of the admin portal, we allow localhost.
 ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,https://hidden-paper-0d93.michaelnjonge905.workers.dev")
 ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
@@ -144,21 +79,14 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
-
-# 4. Compression — Reduces JSON payload size by ~30% for article feeds.
-#    Must be after CORS to avoid issues with headers.
 app.add_middleware(BrotliMiddleware, minimum_size=1000)
 
-# --- Rate limiting ---
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# --- Scheduler Config (Recommendation 2) ---
-# In GCP Cloud Run, scaling to zero stops background jobs. 
-# Set ENABLE_INTERNAL_SCHEDULER=False in prod and use Google Cloud Scheduler instead.
 ENABLE_INTERNAL_SCHEDULER = os.environ.get("ENABLE_INTERNAL_SCHEDULER", "true").lower() == "true"
 
-# --- Routers ---
+# --- Routers (Always included in API) ---
 app.include_router(feed.router, prefix="/api/feed", tags=["feed"])
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
@@ -177,16 +105,6 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """
-    Real dependency health check. Probes each downstream system and returns
-    a structured report. HTTP 503 is returned if any critical component fails,
-    so load balancers and uptime monitors can act on it correctly.
-
-        Components checked:
-            - database  : runs SELECT 1 through an actual pool connection (latency reported)
-            - gemini    : verifies GEMINI_API_KEY was loaded and a client was created
-            - scheduler : required only when ENABLE_INTERNAL_SCHEDULER=true
-    """
     import time
     from .api.chat import _gemini_client, _vertex_client, LLM_PROVIDER
     from .services.scheduler import scheduler
@@ -194,7 +112,6 @@ async def health_check():
     report: dict = {}
     overall_ok = True
 
-    # ── 1. PostgreSQL — live round-trip query ─────────────────────────────────
     pool = getattr(app.state, "db_pool", None)
     if pool:
         try:
@@ -211,7 +128,6 @@ async def health_check():
         report["database"] = {"status": "error", "detail": "Pool not initialised"}
         overall_ok = False
 
-    # ── 1.5. Redis ────────────────────────────────────────────────────────────
     redis_cli = getattr(app.state, "redis_client", None)
     if redis_cli:
         try:
@@ -227,15 +143,10 @@ async def health_check():
         report["redis"] = {"status": "unconfigured", "detail": "REDIS_URL not set or connection failed"}
         overall_ok = False
         
-    # ── 2. Google Generative AI (AI Studio & Vertex) ──────────────────────────
-    # Checking both implementations
     report["google_ai_studio"] = {"status": "ok" if _gemini_client is not None else "unconfigured"}
     report["google_vertex_ai"] = {"status": "ok" if _vertex_client is not None else "unconfigured"}
-    
-    # Backward compatibility for health check consumers
     report["gemini"] = report["google_ai_studio"] if LLM_PROVIDER == "gemini" else report["google_vertex_ai"]
 
-    # ── 3. APScheduler (optional in Cloud Run) ─────────────────────────────
     if ENABLE_INTERNAL_SCHEDULER:
         jobs = scheduler.get_jobs()
         report["scheduler"] = {
@@ -243,18 +154,10 @@ async def health_check():
             "job_count": len(jobs),
             "jobs": [j.name for j in jobs],
         }
-        if not scheduler.running:
-            overall_ok = False
     else:
-        report["scheduler"] = {
-            "status": "external",
-            "detail": "Internal scheduler disabled; external Cloud Scheduler is expected.",
-        }
+        report["scheduler"] = {"status": "external"}
 
     return JSONResponse(
         status_code=200 if overall_ok else 503,
-        content={
-            "status": "healthy" if overall_ok else "degraded",
-            "components": report,
-        },
+        content={"status": "healthy" if overall_ok else "degraded", "components": report},
     )

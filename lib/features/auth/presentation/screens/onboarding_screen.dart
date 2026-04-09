@@ -18,10 +18,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    // Trigger background location detection early in onboarding to reduce delay on Feed
-    Future.microtask(() {
-      ref.read(authNotifierProvider.notifier).detectLocation();
-    });
   }
 
   void _toggleCategory(NewsCategory category) {

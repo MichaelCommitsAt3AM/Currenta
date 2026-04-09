@@ -170,37 +170,40 @@ class SettingsScreen extends ConsumerWidget {
           FutureBuilder<List<String>>(
             future: Future.wait([
               PackageInfo.fromPlatform().then((info) => info.version),
-              // We fetch backend version from the root endpoint
-              ref.read(dioClientProvider).get('/').then((res) => res.data['backend_version']?.toString() ?? 'Unknown'),
+              ref.read(dioClientProvider).get('/').then((res) => res.data['backend_version']?.toString() ?? '1.0.0'),
             ]),
             builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                final appVersion = snapshot.data![0];
-                final backendVersion = snapshot.data![1];
-                return Column(
-                  children: [
-                    Text(
-                      'App v$appVersion • Backend v$backendVersion',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.2,
+              final appVersion = snapshot.data?[0] ?? '...';
+              final backendVersion = snapshot.data?[1] ?? '...';
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: Opacity(
+                  opacity: 0.3,
+                  child: Column(
+                    children: [
+                      Text(
+                        'CURRENTA v$appVersion',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Separately Versioned Systems',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        fontSize: 11,
-                        letterSpacing: 0.5,
+                      const SizedBox(height: 4),
+                      Text(
+                        'Backend: $backendVersion',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
-                    ),
-                  ],
-                );
-              }
-              return const SizedBox.shrink();
+                    ],
+                  ),
+                ),
+              );
             },
           ),
           

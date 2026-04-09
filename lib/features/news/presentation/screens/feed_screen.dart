@@ -52,9 +52,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     // Mark the very first article as viewed
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackPageView(0);
-      
-      // Trigger background location detection once feed is stable
-      ref.read(authNotifierProvider.notifier).detectLocation();
     });
   }
 

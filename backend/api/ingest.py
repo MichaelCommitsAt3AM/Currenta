@@ -11,6 +11,10 @@ class IngestRequest(BaseModel):
     feedUrl: str
     categoryHint: Optional[str] = None
 
+# NOTE: In the Hybrid Architecture, these endpoints trigger scraping from the 
+# current container's IP. To avoid IP blocks, use these manual triggers primarily 
+# on your local instance rather than the GCP API instance.
+
 @router.post("/trigger")
 @limiter.limit("5/minute;100/day")
 async def trigger_ingestion(

@@ -369,8 +369,10 @@ class AuthRepositoryImpl implements AuthRepository {
         'preferred_country': countryCode,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       });
-      // Update cache
+      // Update caches (in-memory and disk)
       _cachedCountry = countryCode;
+      await _prefs.setString('primary_country_code', countryCode);
+      await _prefs.setInt('last_location_check_at', DateTime.now().millisecondsSinceEpoch);
     } catch (e) {
       debugPrint('[Auth] Error saving preferred country: $e');
       throw ServerException('Failed to save country preference: $e');
@@ -379,9 +381,17 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<String?> getPreferredCountry() async {
-    // Use session-level cache if available
+    // 1. Session-level cache (fastest)
     if (_cachedCountry != null) return _cachedCountry;
 
+    // 2. Local persistence fallback (immediate availability on app start)
+    final saved = _prefs.getString('primary_country_code');
+    if (saved != null) {
+      _cachedCountry = saved;
+      return saved;
+    }
+
+    // 3. Remote source of truth
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return null;
 
@@ -392,10 +402,14 @@ class AuthRepositoryImpl implements AuthRepository {
           .eq('user_id', uid)
           .maybeSingle();
       
-      _cachedCountry = response?['preferred_country'] as String?;
-      return _cachedCountry;
+      final remoteCountry = response?['preferred_country'] as String?;
+      if (remoteCountry != null) {
+        _cachedCountry = remoteCountry;
+        await _prefs.setString('primary_country_code', remoteCountry);
+      }
+      return remoteCountry;
     } catch (e) {
-      debugPrint('[Auth] Error fetching preferred country: $e');
+      debugPrint('[Auth] Error fetching preferred country from remote: $e');
       return null;
     }
   }
@@ -460,6 +474,16 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<String?> detectAndSaveCountry() async {
+    // 1. Check Cache TTL to avoid redundant network overhead
+    final lastCheck = _prefs.getInt('last_location_check_at') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsedHours = (now - lastCheck) / (1000 * 60 * 60);
+
+    if (elapsedHours < AppConfig.locationCacheTtlHours) {
+      debugPrint('[Auth] Skipping background location detection; cache is fresh (${elapsedHours.toStringAsFixed(1)}h elapsed).');
+      return getPreferredCountry();
+    }
+
     try {
       final session = _supabase.auth.currentSession;
       final url = '${AppConfig.apiBaseUrl}/api/feed/detect-location';
@@ -475,6 +499,8 @@ class AuthRepositoryImpl implements AuthRepository {
       
       if (country != null) {
         _cachedCountry = country;
+        await _prefs.setString('primary_country_code', country);
+        await _prefs.setInt('last_location_check_at', DateTime.now().millisecondsSinceEpoch);
       }
 
       debugPrint('[Auth] Background location detection result: $country');

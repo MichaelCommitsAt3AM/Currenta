@@ -154,7 +154,7 @@ if curl -sf "http://localhost:${BACKEND_PORT}/health" > /dev/null 2>&1; then
   BACKEND_READY=true
 else
   info "Starting Backend via Docker Compose..."
-  docker compose up -d api redis caddy
+  docker compose up -d api worker redis caddy
   
   info "Waiting for Backend Service to be ready..."
   HEALTH_JSON=""
