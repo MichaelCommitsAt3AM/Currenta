@@ -354,7 +354,7 @@ async def get_feed(
                         where_clauses.append(f"categories && ${cat_params_idx}::text[]")
                 
                 if before:
-                    where_clauses.append(f"published_at < ${len(params) + 1}::timestamp")
+                    where_clauses.append(f"published_at <= ${len(params) + 1}::timestamp")
                     params.append(before)
                 
                 # Push viewed filtering into the DB subquery
@@ -390,7 +390,7 @@ async def get_feed(
                     SELECT {ARTICLE_COLUMNS}, ranking_score
                     FROM articles
                     {where_sql}
-                    ORDER BY {country_boost} ASC, {category_priority} ASC, {trending_tier} ASC, {major_source_tier} ASC, ranking_score DESC
+                    ORDER BY {country_boost} ASC, {category_priority} ASC, {trending_tier} ASC, {major_source_tier} ASC, ranking_score DESC, published_at DESC, id DESC
                     LIMIT 300
                 """
                 async with db_pool.acquire() as conn:

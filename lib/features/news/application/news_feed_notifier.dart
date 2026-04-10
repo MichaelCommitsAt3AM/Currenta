@@ -164,16 +164,22 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // 4. Initialization: Default to 'For You' (null category)
     const NewsCategory? savedCategoryId = null;
     final savedArticleId = _persistence.getCurrentArticleId();
-    final includeViewed = savedArticleId != null;
 
-    // 5. Fetch first page with personalization.
+    // CRM: Fresh session starts should focus on new, unviewed content. 
+    // We always set includeViewed to false here to ensure the user doesn't 
+    // land on 'yesterday's feed' if they've already read it.
+    // If a savedArticleId exists and is unviewed, it will still be found 
+    // in the articles list and restored.
+    const bool includeViewed = false;
+
+    // 5. Fetch first page.
     // If restoring, we fetch a larger batch (30) to increase the chance of 
     // finding the saved article in its chronological context.
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
       countryCode: auth.preferredCountry,
-      limit: includeViewed ? 30 : _kPageSize,
+      limit: savedArticleId != null ? 30 : _kPageSize,
       offset: 0,
       includeViewed: includeViewed,
     );
@@ -573,6 +579,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       newArticlesCount: 0,
       currentIndex: currentArticle != null ? 1 : 0,
       includeViewedInPaging: false, // Reverting to 'unviewed only' for a fresh session
+      hasMore: true, // Reset hasMore to true since we have fresh content to paginate from
     );
 
     state = AsyncData(nextState);
@@ -732,6 +739,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         final nextState = current.copyWith(
           newArticlesCount: newArticles.length,
           pendingArticles: newArticles,
+          hasMore: true, // We found new articles, so there might be even more beyond them
         );
         state = AsyncData(nextState);
         _feedCache[category] = nextState;

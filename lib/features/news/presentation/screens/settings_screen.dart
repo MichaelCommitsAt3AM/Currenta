@@ -9,6 +9,7 @@ import 'chat_history_screen.dart';
 import 'personalization_screen.dart';
 import 'liked_articles_screen.dart';
 import 'reading_history_screen.dart';
+import 'about_screen.dart';
 import '../../../auth/presentation/screens/account_management_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -16,9 +17,8 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authNotifierProvider);
-    final isAuthenticated = authState.isAuthenticated;
-    final isAnon = Supabase.instance.client.auth.currentSession?.user.isAnonymous ?? true;
+    final isAnon =
+        Supabase.instance.client.auth.currentSession?.user.isAnonymous ?? true;
     final userEmail = Supabase.instance.client.auth.currentSession?.user.email;
 
     return Scaffold(
@@ -36,7 +36,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+          icon:
+              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -50,28 +51,20 @@ class SettingsScreen extends ConsumerWidget {
               _SettingsTile(
                 icon: Icons.account_circle_outlined,
                 title: 'Account Management',
-                subtitle: isAnon 
-                    ? 'Guest Account - Tap to Secure Data' 
+                subtitle: isAnon
+                    ? 'Guest Account - Tap to Secure Data'
                     : (userEmail ?? 'Signed in via Google'),
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const AccountManagementScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const AccountManagementScreen()),
                   );
                 },
                 isDestructive: false,
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
-              if (isAuthenticated) ...[
-                const _Divider(),
-                _SettingsTile(
-                  icon: Icons.logout_rounded,
-                  title: 'Log Out',
-                  subtitle: 'Sign out of your account',
-                  isDestructive: true,
-                  onTap: () => _showLogoutConfirmation(context, ref),
-                ),
-              ],
             ],
           ),
 
@@ -88,10 +81,12 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const FavoritesScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const FavoritesScreen()),
                   );
                 },
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
               const _Divider(),
               _SettingsTile(
@@ -101,10 +96,12 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ChatHistoryScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const ChatHistoryScreen()),
                   );
                 },
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
             ],
           ),
@@ -122,10 +119,12 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const LikedArticlesScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const LikedArticlesScreen()),
                   );
                 },
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
               const _Divider(),
               _SettingsTile(
@@ -135,10 +134,12 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ReadingHistoryScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const ReadingHistoryScreen()),
                   );
                 },
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
             ],
           ),
@@ -156,203 +157,47 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const PersonalizationScreen()),
+                    MaterialPageRoute(
+                        builder: (context) => const PersonalizationScreen()),
                   );
                 },
-                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 20),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
               ),
             ],
           ),
-          
+
+          const SizedBox(height: 24),
+
+          // ── Support & About ───────────────────────────────────────────────
+          _SectionHeader(title: 'Support & About'),
+          _SettingsCard(
+            children: [
+              _SettingsTile(
+                icon: Icons.info_outline_rounded,
+                title: 'About',
+                subtitle: 'Version, legal information, and more',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const AboutScreen()),
+                  );
+                },
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white54, size: 20),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 48),
 
-          // ── App Versions ─────────────────────────────────────────────────
-          FutureBuilder<List<String>>(
-            future: Future.wait([
-              PackageInfo.fromPlatform().then((info) => info.version),
-              ref.read(dioClientProvider).get('/').then((res) => res.data['backend_version']?.toString() ?? '1.0.0'),
-            ]),
-            builder: (context, snapshot) {
-              final appVersion = snapshot.data?[0] ?? '...';
-              final backendVersion = snapshot.data?[1] ?? '...';
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 32),
-                child: Opacity(
-                  opacity: 0.3,
-                  child: Column(
-                    children: [
-                      Text(
-                        'CURRENTA v$appVersion',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Backend: $backendVersion',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          
           const SizedBox(height: 24), // Padding at bottom
         ],
       ),
     );
   }
-
-  void _showLogoutConfirmation(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        padding: EdgeInsets.fromLTRB(
-          24,
-          16,
-          24,
-          MediaQuery.paddingOf(context).bottom + 32,
-        ),
-        decoration: BoxDecoration(
-          color: const Color(0xFF141621),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-          border: Border(
-            top: BorderSide(
-              color: Colors.white.withValues(alpha: 0.1),
-              width: 1,
-            ),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 32),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.logout_rounded,
-                color: Colors.redAccent,
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Log Out?',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Are you sure you want to log out? You will need to sign in again to access your personalized feed and saved articles.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 32),
-            Row(
-              children: [
-                Expanded(
-                  child: _DialogButton(
-                    label: 'Cancel',
-                    onTap: () => Navigator.pop(context),
-                    isPrimary: false,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _DialogButton(
-                    label: 'Log Out',
-                    onTap: () async {
-                      Navigator.pop(context); // Close sheet
-                      await ref.read(authNotifierProvider.notifier).signOut();
-                      if (context.mounted) {
-                        Navigator.pop(context); // Go back after logout
-                      }
-                    },
-                    isPrimary: true,
-                    isDestructive: true,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
-
-class _DialogButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  final bool isPrimary;
-  final bool isDestructive;
-
-  const _DialogButton({
-    required this.label,
-    required this.onTap,
-    required this.isPrimary,
-    this.isDestructive = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: isPrimary 
-          ? (isDestructive ? Colors.redAccent : const Color(0xFF6C63FF))
-          : Colors.white.withValues(alpha: 0.05),
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              color: isPrimary ? Colors.white : Colors.white.withValues(alpha: 0.7),
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -419,7 +264,7 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isDestructive ? Colors.redAccent : Colors.white;
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(

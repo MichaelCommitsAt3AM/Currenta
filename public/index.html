@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Currenta | Modern news, simplified.</title>
+    <meta name="description" content="Stay ahead with Currenta. Personalized news, AI-powered summaries, and a premium reading experience.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav id="navbar">
+        <div class="container nav-content">
+            <div class="logo">
+                <img src="assets/icons/logo.png" alt="Currenta Logo" id="nav-logo">
+                <span class="logo-text">Currenta</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#about">About</a>
+                <a href="#waitlist" class="btn btn-primary-outline">Join Waitlist</a>
+            </div>
+            <button class="mobile-menu-toggle" id="menu-toggle">
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero">
+        <div class="container hero-content">
+            <div class="hero-text animate-up">
+                <h1 class="hero-title">Modern news, <br><span class="accent">simplified.</span></h1>
+                <p class="hero-description">Experience the next generation of news. Personalized for you, summarized by AI, and designed for focus.</p>
+                <div class="hero-ctas">
+                    <a href="#waitlist" class="btn btn-primary">Join the Waitlist</a>
+                    <div class="store-buttons">
+                        <!-- TODO: Add live store links when available -->
+                        <div class="store-placeholder">
+                            <span class="coming-soon">Coming Soon to</span>
+                            <div class="badges">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg" alt="App Store" class="badge">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/7/78/Google_Play_Store_badge_EN.svg" alt="Play Store" class="badge">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-image animate-fade">
+                <div class="mockup-container">
+                    <img src="assets/images/hero_mockup.png" alt="Currenta App Mockup" class="main-mockup">
+                </div>
+            </div>
+        </div>
+        <div id="scroll-indicator">
+            <div class="mouse"></div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features">
+        <div class="container">
+            <div class="section-header center">
+                <h2 class="section-title">Why Currenta?</h2>
+                <p class="section-subtitle">We've reimagined how you consume information.</p>
+            </div>
+            <div class="feature-grid">
+                <div class="feature-card animate-up">
+                    <div class="feature-icon icon-ai"></div>
+                    <h3>AI-Powered Summaries</h3>
+                    <p>Get the gist of any story in seconds. Our AI distills complex news into readable, bite-sized summaries.</p>
+                </div>
+                <div class="feature-card animate-up" style="transition-delay: 0.1s;">
+                    <div class="feature-icon icon-personal"></div>
+                    <h3>Truly Personalized</h3>
+                    <p>No more noise. Our algorithms learn your interests to deliver only the stories that matter to you.</p>
+                </div>
+                <div class="feature-card animate-up" style="transition-delay: 0.2s;">
+                    <div class="feature-icon icon-realtime"></div>
+                    <h3>Real-time Intelligence</h3>
+                    <p>Stay updated as events unfold. Get instant alerts for breaking news in your favorite categories.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Waitlist Section -->
+    <section id="waitlist">
+        <div class="container waitlist-container animate-fade">
+            <div class="waitlist-content">
+                <h2 class="section-title white">Be the first to know.</h2>
+                <p class="waitlist-description">We're launching soon on iOS and Android. Join 2,000+ others already on the waitlist for early access.</p>
+                <form id="waitlist-form" onsubmit="return false;">
+                    <div class="form-group">
+                        <input type="email" id="email" placeholder="Enter your email" required>
+                        <button type="submit" class="btn btn-primary">Reserve Spot</button>
+                    </div>
+                    <p id="form-message" class="hidden">Thanks! You've been added to the waitlist.</p>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container footer-content">
+            <div class="footer-brand">
+                <!-- Removed logo and tagline per user request -->
+            </div>
+            <div class="footer-links">
+                <div class="link-group">
+                    <h4>Legal</h4>
+                    <a href="privacy.html">Privacy Policy</a>
+                    <a href="terms.html">Terms of Service</a>
+                </div>
+                <div class="link-group">
+                    <h4>Connect</h4>
+                    <!-- TODO: Add live social links -->
+                    <a href="#">Twitter</a>
+                    <a href="#">LinkedIn</a>
+                    <a href="mailto:support@currenta.tech">Support</a>
+                </div>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <div class="container">
+                <p>&copy; 2026 Currenta. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
