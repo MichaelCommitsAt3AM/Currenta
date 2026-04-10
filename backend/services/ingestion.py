@@ -59,7 +59,7 @@ if LLM_PROVIDER == "vertex" or VERTEX_PROJECT:
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
-SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.80"))
+SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.75"))
 DUPLICATE_LOOKBACK_DAYS = int(os.environ.get("DUPLICATE_LOOKBACK_DAYS", "7"))
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
@@ -2205,18 +2205,18 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             # We use a CTE to ensure we get the ID even if it exists.
             result = await conn.fetchrow('''
                 INSERT INTO articles (
-                    title, summary, original_url, image_url, source_name,
+                    id, title, summary, original_url, image_url, source_name,
                     published_at, categories, subcategory, embedding, content_hash, 
                     summary_model, country_code, is_paywalled, ingestion_method, created_at,
-                    ranking_score
-                ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8::float8[]::vector, $9, $10, $11, $12, $13, NOW(), $14)
+                    ranking_score, cluster_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15, $16)
                 ON CONFLICT (original_url) DO UPDATE SET last_trend_update = NOW() -- Dummy update to trigger RETURNING
                 RETURNING id
             ''', 
-            llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
+            article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
             llm_res["categories"], llm_res["subcategory"],
             embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, 
-            scraper_result.get("is_paywalled", False), "scraper", ranking_score)
+            scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id)
             
             article_id = result["id"] if result else None
 

@@ -10,6 +10,7 @@ class AuthTextField extends StatefulWidget {
     required this.icon,
     this.isPassword = false,
     this.keyboardType = TextInputType.text,
+    this.textCapitalization,
     this.validator,
   });
 
@@ -18,6 +19,7 @@ class AuthTextField extends StatefulWidget {
   final IconData icon;
   final bool isPassword;
   final TextInputType keyboardType;
+  final TextCapitalization? textCapitalization;
   final String? Function(String?)? validator;
 
   @override
@@ -33,6 +35,10 @@ class _AuthTextFieldState extends State<AuthTextField> {
       controller: widget.controller,
       obscureText: widget.isPassword ? _obscureText : false,
       keyboardType: widget.keyboardType,
+      textCapitalization: widget.textCapitalization ??
+          (widget.isPassword || widget.keyboardType == TextInputType.emailAddress
+              ? TextCapitalization.none
+              : TextCapitalization.sentences),
       validator: widget.validator,
       style: const TextStyle(
         color: Color(0xFFF0F2FF),

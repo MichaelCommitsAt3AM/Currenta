@@ -146,6 +146,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                           borderSide: const BorderSide(color: Color(0xFF6C63FF), width: 2),
                         ),
                       ),
+                      textCapitalization: TextCapitalization.none,
                     ),
                   );
                 }),

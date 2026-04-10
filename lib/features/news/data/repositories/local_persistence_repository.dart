@@ -6,6 +6,7 @@ class LocalPersistenceRepository {
   final SharedPreferences _prefs;
 
   static const _kCurrentArticleId = 'current_article_id';
+  static const _kHasSeenFeedOnboarding = 'has_seen_feed_onboarding';
 
   Future<void> saveCurrentArticleId(String? articleId) async {
     if (articleId == null) {
@@ -17,5 +18,13 @@ class LocalPersistenceRepository {
 
   String? getCurrentArticleId() {
     return _prefs.getString(_kCurrentArticleId);
+  }
+
+  bool hasSeenFeedOnboarding() {
+    return _prefs.getBool(_kHasSeenFeedOnboarding) ?? false;
+  }
+
+  Future<void> setHasSeenFeedOnboarding(bool value) async {
+    await _prefs.setBool(_kHasSeenFeedOnboarding, value);
   }
 }

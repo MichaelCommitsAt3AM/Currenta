@@ -17,10 +17,12 @@ import '../widgets/sidebar.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/widgets/location_update_popup.dart';
 import '../widgets/ai_quick_chat_sheet.dart';
+import '../widgets/feed_onboarding_overlay.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
 import '../../../../theme/app_theme.dart';
 import '../../../../core/utils/browser_service.dart';
+import '../../../../core/providers/providers.dart';
 
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
@@ -37,6 +39,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   bool _hasWarmedUpBrowser = false;
   Timer? _viewTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _showOnboarding = false;
 
   @override
   void initState() {
@@ -53,6 +56,45 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackPageView(0);
     });
+  }
+
+  void _checkOnboarding() {
+    final prefs = ref.read(localPersistenceRepositoryProvider);
+    if (!prefs.hasSeenFeedOnboarding()) {
+      setState(() {
+        _showOnboarding = true;
+      });
+      _runScrollNudge();
+    }
+  }
+
+  void _runScrollNudge() async {
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (!mounted || !_pageController.hasClients || !_showOnboarding) return;
+
+    // Nudge 20% down
+    await _pageController.animateTo(
+      MediaQuery.sizeOf(context).height * 0.2,
+      duration: const Duration(milliseconds: 800),
+      curve: Curves.easeInOutQuart,
+    );
+
+    if (!mounted || !_pageController.hasClients) return;
+
+    // Return to 0
+    await _pageController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutBack,
+    );
+  }
+
+  void _dismissOnboarding() {
+    if (!_showOnboarding) return;
+    setState(() {
+      _showOnboarding = false;
+    });
+    ref.read(localPersistenceRepositoryProvider).setHasSeenFeedOnboarding(true);
   }
 
   @override
@@ -333,6 +375,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           builder: (context) => AiQuickChatSheet(article: article),
         );
       }
+
+      // 3. Trigger onboarding when feed is first loaded
+      if (nextFeed.articles.isNotEmpty && !_showOnboarding) {
+        final prefs = ref.read(localPersistenceRepositoryProvider);
+        if (!prefs.hasSeenFeedOnboarding()) {
+          _checkOnboarding();
+        }
+      }
     });
 
     // ── Listen for Location Update Popup ──
@@ -479,6 +529,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                       .read(newsFeedNotifierProvider.notifier)
                       .applyPendingArticles();
                 },
+              ),
+
+            // ── Onboarding Overlay ────────────────────────────────────
+            if (_showOnboarding)
+              FeedOnboardingOverlay(
+                showCategoryHint: true,
+                onDismiss: _dismissOnboarding,
               ),
           ],
         ),

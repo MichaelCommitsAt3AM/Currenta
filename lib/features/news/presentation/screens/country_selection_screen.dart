@@ -77,6 +77,7 @@ class _CountrySelectionScreenState extends State<CountrySelectionScreen> {
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                 ),
+                textCapitalization: TextCapitalization.sentences,
               ),
             ),
           ),

@@ -148,6 +148,7 @@ class _AiQuickChatSheetState extends State<AiQuickChatSheet> {
                           TextStyle(color: Colors.white.withValues(alpha: 0.3)),
                       border: InputBorder.none,
                     ),
+                    textCapitalization: TextCapitalization.sentences,
                     onSubmitted: (_) => _navigateToChat(),
                   ),
                 ),
