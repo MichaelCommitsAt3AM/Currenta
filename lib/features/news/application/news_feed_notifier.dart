@@ -2,6 +2,7 @@
 // Paginated feed state — 10 articles per batch, with two-tier category sort.
 
 import 'dart:async';
+import 'package:currenta/core/config/app_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
@@ -101,6 +102,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// for each category durante the session.
   final Map<NewsCategory?, FeedState> _feedCache = {};
 
+  /// The wall-clock time of the last successful background or full refresh.
+  DateTime? _lastRefreshTime;
+
   Future<void>? _refreshInFlight;
   bool _isDisposed = false;
 
@@ -109,7 +113,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     ref.onDispose(() => _isDisposed = true);
 
     // 0. Trigger cache cleaning on startup.
-    unawaited(_repo.clearOldCache());
+    // We await this to ensure old cache is cleared BEFORE the local fetch (line 178).
+    await _repo.clearOldCache();
 
     // 1. Watch Auth status and profile loading state.
     // We wait for 'isProfileLoaded' to ensure we have the user's interests
@@ -131,7 +136,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     ref.listen(authNotifierProvider, (previous, next) {
       Future.microtask(() {
         if (_isDisposed) return;
-        
+
         // Handle login transition (e.g. guest -> user logged in)
         if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
           debugPrint('[Feed] Auth state transitioned: authenticated.');
@@ -165,15 +170,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     const NewsCategory? savedCategoryId = null;
     final savedArticleId = _persistence.getCurrentArticleId();
 
-    // CRM: Fresh session starts should focus on new, unviewed content. 
-    // We always set includeViewed to false here to ensure the user doesn't 
+    // CRM: Fresh session starts should focus on new, unviewed content.
+    // We always set includeViewed to false here to ensure the user doesn't
     // land on 'yesterday's feed' if they've already read it.
-    // If a savedArticleId exists and is unviewed, it will still be found 
+    // If a savedArticleId exists and is unviewed, it will still be found
     // in the articles list and restored.
     const bool includeViewed = false;
 
     // 5. Fetch first page.
-    // If restoring, we fetch a larger batch (30) to increase the chance of 
+    // If restoring, we fetch a larger batch (30) to increase the chance of
     // finding the saved article in its chronological context.
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
@@ -200,14 +205,46 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       } catch (e) {
         debugPrint('[Feed] Remote refresh failed: $e');
       }
-    } else if (articles.isNotEmpty && 
-               articles.first.rankingScore == 0 && 
-               articles.every((a) => !a.isMajorSource) &&
-               !isAuthenticated) {
-      // If we have articles but they look like legacy cache (no ranking metadata),
-      // and we are a guest (server truth matters most for 'trending' guest feeds),
-      // suggest a refresh sooner.
-      debugPrint('[Feed] Local cache lacks ranking metadata. Will refresh soon.');
+    } else if (articles.isNotEmpty) {
+      // 6.5. Check for staleness
+      final topArticle = articles.firstOrNull;
+      if (topArticle != null) {
+        final age = DateTime.now().difference(topArticle.publishedAt);
+
+        if (age.inHours >= AppConfig.hardTtlHours) {
+          debugPrint(
+              '[Feed] Cache exceeds Hard TTL (${age.inHours}h). Forcing blocking refresh.');
+          try {
+            await _repo.refreshFeed();
+            articles = await _repo.fetchPage(
+              category: savedCategoryId,
+              preferredCategories: interests,
+              countryCode: auth.preferredCountry,
+              limit: _kPageSize,
+              offset: 0,
+              includeViewed: includeViewed,
+            );
+          } catch (e) {
+            debugPrint('[Feed] Hard refresh failed: $e');
+          }
+        } else if (age.inHours >= AppConfig.softTtlHours) {
+          debugPrint(
+              '[Feed] Cache exceeds Soft TTL (${age.inHours}h). Forcing background refresh.');
+          // Use microtask to let the UI render the cached items first for speed,
+          // but then immediately pull new ones which will populate the 'Refresh' badge.
+          Future.microtask(_backgroundRefresh);
+        }
+      }
+
+      if (articles.first.rankingScore == 0 &&
+          articles.every((a) => !a.isMajorSource) &&
+          !isAuthenticated) {
+        // If we have articles but they look like legacy cache (no ranking metadata),
+        // and we are a guest (server truth matters most for 'trending' guest feeds),
+        // suggest a refresh sooner.
+        debugPrint(
+            '[Feed] Local cache lacks ranking metadata. Will refresh soon.');
+      }
     }
 
     // 7. Position restoration
@@ -324,7 +361,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           category: category,
           before: last?.publishedAt,
           limit: 30, // Fetch a healthy batch
-        remoteOffset: 0, // When using 'before' (cursor), skip offset to avoid jumping articles
+          remoteOffset:
+              0, // When using 'before' (cursor), skip offset to avoid jumping articles
         );
 
         if (syncedCount > 0) {
@@ -485,6 +523,49 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
+  /// Triggers a refresh only if the cache is considered stale.
+  /// Typically called when the app is resumed from the background.
+  Future<void> refreshIfStale() async {
+    final lastRefresh = _lastRefreshTime;
+    final now = DateTime.now();
+
+    // If we've refreshed very recently (e.g. within 5 mins), skip.
+    if (lastRefresh != null && now.difference(lastRefresh).inMinutes < 5) {
+      return;
+    }
+
+    final currentFeed = state.valueOrNull;
+    final topArticle = currentFeed?.articles.firstOrNull;
+
+    bool needsRefresh = false;
+
+    if (topArticle == null) {
+      needsRefresh = true;
+    } else {
+      final articleAge = now.difference(topArticle.publishedAt);
+      if (articleAge.inHours >= AppConfig.softTtlHours) {
+        needsRefresh = true;
+      }
+    }
+
+    if (needsRefresh) {
+      final isHard = topArticle != null &&
+          now.difference(topArticle.publishedAt).inHours >=
+              AppConfig.hardTtlHours;
+
+      if (isHard) {
+        debugPrint(
+            '[Feed] Hard TTL exceeded on resume. Forcing blocking refresh.');
+        state = const AsyncLoading(); // Shows shimmer
+        await _backgroundRefresh();
+      } else {
+        debugPrint(
+            '[Feed] Soft TTL exceeded on resume. Triggering silent sync.');
+        await _backgroundRefresh(); // Populates 'Refresh' badge
+      }
+    }
+  }
+
   /// Toggles the like status of an article.
   Future<void> toggleLike(String articleId) async {
     final current = state.valueOrNull;
@@ -578,8 +659,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       pendingArticles: [],
       newArticlesCount: 0,
       currentIndex: currentArticle != null ? 1 : 0,
-      includeViewedInPaging: false, // Reverting to 'unviewed only' for a fresh session
-      hasMore: true, // Reset hasMore to true since we have fresh content to paginate from
+      includeViewedInPaging:
+          false, // Reverting to 'unviewed only' for a fresh session
+      hasMore:
+          true, // Reset hasMore to true since we have fresh content to paginate from
     );
 
     state = AsyncData(nextState);
@@ -739,11 +822,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         final nextState = current.copyWith(
           newArticlesCount: newArticles.length,
           pendingArticles: newArticles,
-          hasMore: true, // We found new articles, so there might be even more beyond them
+          hasMore:
+              true, // We found new articles, so there might be even more beyond them
         );
         state = AsyncData(nextState);
         _feedCache[category] = nextState;
       }
+
+      _lastRefreshTime = DateTime.now();
     } catch (e, st) {
       if (isInitial && state.isLoading) {
         state = AsyncError(e, st);

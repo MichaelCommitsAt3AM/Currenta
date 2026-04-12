@@ -31,7 +31,8 @@ class FeedScreen extends ConsumerStatefulWidget {
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends ConsumerState<FeedScreen> {
+class _FeedScreenState extends ConsumerState<FeedScreen>
+    with WidgetsBindingObserver {
   NewsCategory? _selectedCategory;
   late final PageController _pageController;
   int _currentIndex = 0;
@@ -51,6 +52,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     _selectedCategory =
         ref.read(newsFeedNotifierProvider).valueOrNull?.selectedCategory;
     _pageController.addListener(_onPageScroll);
+    WidgetsBinding.instance.addObserver(this);
 
     // Mark the very first article as viewed
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -99,10 +101,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
     _viewTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Check for staleness and refresh if needed when app comes back to foreground
+      ref.read(newsFeedNotifierProvider.notifier).refreshIfStale();
+    }
   }
 
   int _lastTriggeredPage = -1;
@@ -579,12 +590,12 @@ class _NewStoriesBadge extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.arrow_upward_rounded,
+                const Icon(Icons.refresh_rounded,
                     color: Colors.white, size: 16),
                 const SizedBox(width: 8),
-                Text(
-                  '$count new ${count == 1 ? 'story' : 'stories'}',
-                  style: const TextStyle(
+                const Text(
+                  'Refresh',
+                  style: TextStyle(
                     color: Colors.white,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
