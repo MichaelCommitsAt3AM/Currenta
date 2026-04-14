@@ -20,12 +20,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     List<String>? preferredCategories,
     String? countryCode,
   }) {
-    final categoryPrefix = category != null ? '["$category"%' : '';
+    final categoryFirstPrefix = category != null ? '["$category"%' : '';
+    final categoryContains = category != null ? '%"$category"%' : '';
 
     Expression<int> priorityExpr;
     if (category != null) {
       priorityExpr = CustomExpression<int>(
-          "CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END");
+          "CASE WHEN categories LIKE '$categoryFirstPrefix' THEN 0 ELSE 1 END");
     } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
       final likes = preferredCategories
           .map((c) => "categories LIKE '%\"$c\"%'")
@@ -39,28 +40,33 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final countryBoostExpr = CustomExpression<int>(
         "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
 
-    final trendingTierExpr = CustomExpression<int>(
-        "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
+    final trendingTierExpr =
+        CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
 
     final majorSourceTierExpr = CustomExpression<int>(
         "CASE WHEN is_major_source = 1 THEN 0 ELSE 1 END");
 
-    final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
+    final hasPriority = category != null ||
+        (preferredCategories != null && preferredCategories.isNotEmpty);
 
     return (select(newsArticlesTable)
           ..orderBy([
-            (_) => OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
             if (hasPriority)
-              (_) => OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
-            (_) => OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
-            (_) => OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
+              (_) => OrderingTerm(
+                  expression: priorityExpr, mode: OrderingMode.asc),
+            (_) => OrderingTerm(
+                expression: trendingTierExpr, mode: OrderingMode.asc),
+            (_) => OrderingTerm(
+                expression: countryBoostExpr, mode: OrderingMode.asc),
+            (_) => OrderingTerm(
+                expression: majorSourceTierExpr, mode: OrderingMode.asc),
             (t) => OrderingTerm.desc(t.rankingScore),
             (t) => OrderingTerm.desc(t.publishedAt),
             (t) => OrderingTerm.desc(t.id),
           ])
           ..where((t) {
             final catFilter = category != null
-                ? t.categories.like(categoryPrefix)
+                ? t.categories.like(categoryContains)
                 : const Constant(true);
             final viewedIds = selectOnly(viewedArticlesTable)
               ..addColumns([viewedArticlesTable.id]);
@@ -95,12 +101,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     String? afterId,
     bool includeViewed = false,
   }) async {
-    final categoryPrefix = category != null ? '["$category"%' : '';
+    final categoryFirstPrefix = category != null ? '["$category"%' : '';
+    final categoryContains = category != null ? '%"$category"%' : '';
 
     Expression<int> priorityExpr;
     if (category != null) {
       priorityExpr = CustomExpression<int>(
-          "CASE WHEN categories LIKE '$categoryPrefix' THEN 0 ELSE 1 END");
+          "CASE WHEN categories LIKE '$categoryFirstPrefix' THEN 0 ELSE 1 END");
     } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
       final likes = preferredCategories
           .map((c) => "categories LIKE '%\"$c\"%'")
@@ -114,8 +121,8 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final countryBoostExpr = CustomExpression<int>(
         "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
 
-    final trendingTierExpr = CustomExpression<int>(
-        "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
+    final trendingTierExpr =
+        CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
 
     final majorSourceTierExpr = CustomExpression<int>(
         "CASE WHEN is_major_source = 1 THEN 0 ELSE 1 END");
@@ -128,8 +135,10 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
 
       if (lastArticle != null) {
         if (category != null) {
-          lastPriority =
-              (lastArticle.categories.any((c) => c.name == category)) ? 0 : 1;
+          lastPriority = (lastArticle.categories.isNotEmpty &&
+                  lastArticle.categories.first.name == category)
+              ? 0
+              : 1;
         } else if (preferredCategories != null &&
             preferredCategories.isNotEmpty) {
           lastPriority = (lastArticle.categories
@@ -151,27 +160,31 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           .getSingleOrNull();
 
       if (lastArticle != null) {
-        lastCountryBoost = (countryCode != null && lastArticle.countryCode == countryCode) ? 0 : 1;
+        lastCountryBoost =
+            (countryCode != null && lastArticle.countryCode == countryCode)
+                ? 0
+                : 1;
         lastTrendingTier = (lastArticle.trendScore > 0) ? 0 : 1;
         lastMajorTier = (lastArticle.isMajorSource) ? 0 : 1;
         lastRankingScore = lastArticle.rankingScore;
       }
     }
 
-    final hasPriority = category != null || (preferredCategories != null && preferredCategories.isNotEmpty);
+    final hasPriority = category != null ||
+        (preferredCategories != null && preferredCategories.isNotEmpty);
 
     final query = select(newsArticlesTable).join([
       leftOuterJoin(viewedArticlesTable,
           viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
     ])
       ..orderBy([
-        OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
         if (hasPriority)
           OrderingTerm(
             expression: priorityExpr,
             mode: OrderingMode.asc,
           ),
         OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
+        OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
         OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
         OrderingTerm.desc(newsArticlesTable.rankingScore),
         OrderingTerm.desc(newsArticlesTable.publishedAt),
@@ -179,13 +192,11 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       ])
       ..where(() {
         final catFilter = category != null
-            ? newsArticlesTable.categories.like(categoryPrefix)
+            ? newsArticlesTable.categories.like(categoryContains)
             : (preferredCategories != null && preferredCategories.isNotEmpty)
-                ? CustomExpression<bool>("(" +
-                    preferredCategories
-                        .map((c) => "categories LIKE '%\"$c\"%'")
-                        .join(' OR ') +
-                    ")")
+                ? CustomExpression<bool>(
+                    "(${preferredCategories.map((c) => "categories LIKE '%\"$c\"%'").join(' OR ')})",
+                  )
                 : const Constant(true);
 
         Expression<bool> cursorFilter = const Constant(true);
@@ -198,24 +209,27 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
                         newsArticlesTable.id.isSmallerThanValue(afterId));
 
             final sameRankingFilter =
-                (newsArticlesTable.rankingScore.equals(lastRankingScore) & sameTierFilter) |
-                    newsArticlesTable.rankingScore.isSmallerThanValue(lastRankingScore);
+                (newsArticlesTable.rankingScore.equals(lastRankingScore) &
+                        sameTierFilter) |
+                    newsArticlesTable.rankingScore
+                        .isSmallerThanValue(lastRankingScore);
 
-            final sameMajorFilter =
-                (majorSourceTierExpr.equals(lastMajorTier) & sameRankingFilter) |
-                    majorSourceTierExpr.isBiggerThanValue(lastMajorTier);
+            final sameMajorFilter = (majorSourceTierExpr.equals(lastMajorTier) &
+                    sameRankingFilter) |
+                majorSourceTierExpr.isBiggerThanValue(lastMajorTier);
+
+            final sameCountryFilter =
+                (countryBoostExpr.equals(lastCountryBoost) & sameMajorFilter) |
+                    countryBoostExpr.isBiggerThanValue(lastCountryBoost);
 
             final sameTrendingFilter =
-                (trendingTierExpr.equals(lastTrendingTier) & sameMajorFilter) |
+                (trendingTierExpr.equals(lastTrendingTier) &
+                        sameCountryFilter) |
                     trendingTierExpr.isBiggerThanValue(lastTrendingTier);
 
-            final samePriorityFilter =
+            cursorFilter =
                 (priorityExpr.equals(lastPriority) & sameTrendingFilter) |
                     priorityExpr.isBiggerThanValue(lastPriority);
-
-            cursorFilter =
-                (countryBoostExpr.equals(lastCountryBoost) & samePriorityFilter) |
-                    countryBoostExpr.isBiggerThanValue(lastCountryBoost);
           } else {
             cursorFilter =
                 newsArticlesTable.publishedAt.isSmallerThanValue(before);
@@ -248,7 +262,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final query = selectOnly(newsArticlesTable)
       ..addColumns([newsArticlesTable.id.count()])
       ..where(category != null
-          ? newsArticlesTable.categories.like('["$category"%')
+          ? newsArticlesTable.categories.like('%"$category"%')
           : const Constant(true));
     final result = await query.getSingle();
     return result.read(newsArticlesTable.id.count()) ?? 0;

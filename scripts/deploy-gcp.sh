@@ -57,6 +57,7 @@ fi
 if [[ "${SKIP_BUILD}" != "true" ]]; then
   echo "[deploy] Building image with Cloud Build: ${IMAGE}"
   gcloud builds submit "${ROOT_DIR}" \
+    --project="${PROJECT_ID}" \
     --config="${ROOT_DIR}/cloudbuild.yaml" \
     --substitutions="_TAG=${IMAGE}"
 else
@@ -80,15 +81,16 @@ else
   echo "[deploy] RUNTIME_SA is empty; keeping existing Cloud Run runtime service account."
 fi
 
-gcloud run deploy "${DEPLOY_ARGS[@]}"
+gcloud run deploy "${DEPLOY_ARGS[@]}" --project="${PROJECT_ID}"
 
 if [[ "${VERIFY}" == "true" ]]; then
   echo "[deploy] Service summary"
   gcloud run services describe "${SERVICE}" \
-    --region "${REGION}" \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" \
     --format="table(metadata.name,status.url,status.latestReadyRevisionName)"
 
-  SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)')"
+  SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(status.url)')"
   if [[ -z "${SERVICE_URL}" ]]; then
     echo "[deploy] Could not determine service URL for endpoint verification."
     exit 1
@@ -121,6 +123,7 @@ PY
   echo "[deploy] Recent Cloud Run logs"
   gcloud logging read \
     "resource.type=cloud_run_revision AND resource.labels.service_name=${SERVICE}" \
+    --project="${PROJECT_ID}" \
     --limit=20 \
     --format="value(timestamp, severity, textPayload)"
 fi

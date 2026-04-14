@@ -1,10 +1,11 @@
 import logging
 import asyncio
 import re
-from datetime import datetime
+import sys
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, BackgroundTasks
-from uuid import UUID
+from uuid import UUID, uuid4
 import asyncpg
 from typing import Optional, List, Dict, Set
 import orjson
@@ -25,7 +26,7 @@ VALID_CATEGORIES = frozenset([
 # Only these columns are sent to the client — never the embedding vector or internal fields
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
-    published_at, created_at, categories, subcategory, is_paywalled, country_code, trend_score, cluster_id, is_major_source
+    published_at, created_at, categories, subcategory, is_paywalled, country_code, ranking_score, cluster_id, is_major_source
 """
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -141,16 +142,16 @@ def _get_rank_tuple(article: dict, preferred_country: Optional[str], interest_ca
     """
     country_code = article.get("country_code")
     categories = article.get("categories") or []
-    trend_score = article.get("trend_score") or 0.0
-    is_major = article.get("is_major_source", False)
     rank_score = article.get("ranking_score") or 0.0
+    is_major = article.get("is_major_source", False)
 
     country_boost = 0 if (preferred_country and country_code == preferred_country) else 1
     
     # Priority if the primary category matches one of the user's interests
     cat_priority = 0 if (categories and categories[0] in interest_categories) else 1
     
-    trending_tier = 0 if trend_score > 0 else 1
+    # Simple tiering: high score articles first
+    trending_tier = 0 if rank_score > 0 else 1
     major_tier = 0 if is_major else 1
     
     # We use negative ranking_score for ASC sorting to achieve DESC behavior in the tuple
@@ -214,8 +215,8 @@ async def get_feed(
     category: Optional[str] = Query(None, description="Filter articles by category"),
     country: Optional[str] = Query(None, description="Country code for local news (e.g. KE, US)"),
     limit: int = Query(30, ge=1, le=100, description="Number of items to return"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    before: Optional[str] = Query(None, description="Only return articles published before this ISO timestamp (cursor)"),
+    session_id: Optional[str] = Query(None, description="Active session ID for deterministic pagination"),
+    cursor: Optional[str] = Query(None, description="Next page cursor (offset)"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db_pool: asyncpg.Pool = Depends(get_db),
     user: Optional[User] = Depends(verify_supabase_jwt)
@@ -239,11 +240,64 @@ async def get_feed(
         redis_client = getattr(request.app.state, "redis_client", None)
         ip = get_client_ip(request)
         
-        country_source = "default"
-        detected_country = None
-        user_state = None
-        
-        # 1. Parallelize Geo-IP Detection and User State Fetch (Recommendation 2.3)
+        # 0. Session Handling (Recommendation 1.2)
+        # If a session_id is provided, we try to fulfill the request from the session cache
+        if session_id and redis_client:
+            session_key = f"session_articles:{session_id}"
+            try:
+                cached_ids_data = await redis_client.get(session_key)
+                if cached_ids_data:
+                    article_ids = orjson.loads(cached_ids_data)
+                    start_idx = int(cursor) if cursor and cursor.isdigit() else 0
+                    paged_ids = article_ids[start_idx : start_idx + limit]
+                    
+                    if paged_ids:
+                        # Fetch the articles from DB (or global cache) for these specific IDs
+                        async with db_pool.acquire() as conn:
+                            records = await conn.fetch(
+                                f"SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = ANY($1::uuid[])",
+                                [UUID(aid) for aid in paged_ids]
+                            )
+                        
+                        # Maintain the session's deterministic order
+                        id_to_record = {str(r['id']): r for r in records}
+                        ordered_articles = []
+                        for aid in paged_ids:
+                            if aid in id_to_record:
+                                r = dict(id_to_record[aid])
+                                r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
+                                r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+                                r['id'] = str(r['id'])
+                                r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
+                                ordered_articles.append(r)
+
+                        has_more = (start_idx + limit) < len(article_ids)
+                        next_cursor = str(start_idx + limit) if has_more else None
+                        expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+
+                        logger.info(f"Feed Session Hit: session={session_id} cursor={cursor} items={len(ordered_articles)}")
+                        return {
+                            "articles": ordered_articles,
+                            "session_id": session_id,
+                            "next_cursor": next_cursor,
+                            "has_more": has_more,
+                            "expires_at": expires_at
+                        }
+                    else:
+                        logger.info(f"Feed Session Exhausted: session={session_id} cursor={cursor}")
+                        return {
+                            "articles": [],
+                            "session_id": session_id,
+                            "next_cursor": None,
+                            "has_more": False,
+                            "expires_at": (datetime.now() + timedelta(hours=4)).isoformat()
+                        }
+                else:
+                    logger.warning(f"Feed Session Expired/Missing: session={session_id}. Starting new session.")
+            except Exception as e:
+                logger.error(f"Error serving session-based feed: {e}")
+
+        # 1. Parallelize Geo-IP Detection and User State Fetch
         geo_task = get_country_from_ip(ip) if (not country or country.lower() == 'auto') else asyncio.sleep(0)
         state_task = get_user_state(str(user_id), db_pool, redis_client) if user_id else asyncio.sleep(0)
         
@@ -255,33 +309,20 @@ async def get_feed(
         if not country or country.lower() == 'auto':
             if user_state and user_state.get("preferred_country"):
                 country = user_state["preferred_country"]
-                country_source = "preference"
             elif detected_country:
                 country = detected_country
-                country_source = "auto_ip"
             else:
                 country = None
-        else:
-            country_source = "parameter"
 
-        categories_to_fetch = []
-        if category:
-            categories_to_fetch.append(category)
-        elif user_state and user_state.get("interests"):
-            categories_to_fetch = list(user_state["interests"])
-        
-        if not categories_to_fetch:
-            categories_to_fetch.append("all")
-        
-        # Normalize categories
+        categories_to_fetch = [category] if category else (user_state.get("interests") if user_state else ["all"])
+        if not categories_to_fetch: categories_to_fetch = ["all"]
         categories_to_fetch = [str(c).strip().lower() for c in categories_to_fetch]
             
-        # 3. Fetch from Redis
+        # 3. Fetch from Global Redis (Warm Cache)
         country_key = country or 'all'
         articles_by_cat = {}
         missing_categories = []
-        required_cached_count = max(limit + offset, 10)
-        before_dt = _parse_iso_datetime(before) if before else None
+        required_cached_count = 150 # Fetch a healthy buffer for sessionization
         
         if redis_client:
             keys = [f"feed:v4:{country_key}:{cat}" for cat in categories_to_fetch]
@@ -289,222 +330,110 @@ async def get_feed(
                 cached_results = await asyncio.gather(*[redis_client.get(k) for k in keys])
                 for cat, cached in zip(categories_to_fetch, cached_results):
                     if cached:
-                        try:
-                            cat_articles = orjson.loads(cached)
-                            if before_dt:
-                                cat_articles = [
-                                    a for a in cat_articles
-                                    if (
-                                        (parsed := _parse_iso_datetime(a.get("published_at")))
-                                        and parsed < before_dt
-                                    )
-                                ]
-                            articles_by_cat[cat] = cat_articles
-                            # Treat sparse cache as a partial miss and top up from DB.
-                            if len(cat_articles) < required_cached_count:
-                                missing_categories.append(cat)
-                        except Exception as e:
-                            logger.warning("Failed to parse cached JSON for %s: %s", cat, e)
+                        cat_articles = orjson.loads(cached)
+                        articles_by_cat[cat] = cat_articles
+                        if len(cat_articles) < required_cached_count:
                             missing_categories.append(cat)
                     else:
                         missing_categories.append(cat)
             except Exception as e:
-                logger.warning("Redis fetch error: %s", e)
+                logger.warning("Redis warm-cache fetch error: %s", e)
                 missing_categories = list(categories_to_fetch)
         else:
             missing_categories = list(categories_to_fetch)
         
-        # 4. Fallback to DB for missing categories
+        # 4. Fallback to DB for missing/sparse categories
         all_articles = []
-        # Add cached ones first
         for cat in categories_to_fetch:
             if cat in articles_by_cat:
                 all_articles.extend(articles_by_cat[cat])
         
         if missing_categories:
             named_categories = [c for c in missing_categories if c != "all"]
-            if named_categories or "all" in missing_categories:
-                where_clauses = []
-                params = []
-                
-                # We always want country as $1 for the ORDER BY boost if it exists
-                # This ensures consistent parameter indexing.
-                params.append(country if (country and country != 'all') else None)
-                
-                cat_params_idx = None
-                if "all" not in missing_categories:
-                    cat_params_idx = len(params) + 1
-                    params.append(named_categories)
-                    
-                    if "local" in named_categories:
-                        if country and country != 'all':
-                            # For the 'local' category specifically, we are still strict.
-                            # For other categories, we allow anything but prioritize $1.
-                            where_clauses.append(f"""
-                                (
-                                    (categories && ARRAY['local']::text[] AND country_code = $1)
-                                    OR 
-                                    (categories && ${cat_params_idx}::text[] AND (country_code = $1 OR country_code IS NULL OR country_code != $1))
-                                )
-                            """)
-                        else:
-                            where_clauses.append(f"categories && ${cat_params_idx}::text[]")
-                    else:
-                        # General categories: allow all country codes, sorting handles priority
-                        where_clauses.append(f"categories && ${cat_params_idx}::text[]")
-                
-                if before:
-                    where_clauses.append(f"published_at <= ${len(params) + 1}::timestamp")
-                    params.append(before)
-                
-                # Push viewed filtering into the DB subquery
-                if user_id:
-                    where_clauses.append(f"""
-                        id NOT IN (
-                            SELECT article_id FROM article_views
-                            WHERE user_id = ${len(params) + 1}::uuid
-                            ORDER BY viewed_at DESC
-                            LIMIT 300
-                        )
-                    """)
-                    params.append(user_id)
-                
-                # Background sync for local news
-                if country and country != 'all' and (category == 'local' or 'local' in categories_to_fetch):
-                    background_tasks.add_task(fetch_local_news_on_demand, country, db_pool)
-                
-                where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-                
-                # Sort Priority:
-                # 1. Matching country code (if set)
-                # 2. Main category match (if requested)
-                # 3. Tier 1: Trending (trend_score > 0)
-                # 4. Tier 2: Major News (is_major_source = TRUE)
-                # 5. Tier 3: Others / Ranking score (score as tie-breaker)
-                country_boost = "CASE WHEN $1::text IS NOT NULL AND country_code = $1 THEN 0 ELSE 1 END"
-                category_priority = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "0"
-                trending_tier = "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END"
-                major_source_tier = "CASE WHEN is_major_source = TRUE THEN 0 ELSE 1 END"
+            params = [country if (country and country != 'all') else None]
+            where_clauses = []
+            
+            cat_params_idx = None
+            if "all" not in missing_categories:
+                cat_params_idx = len(params) + 1
+                params.append(named_categories)
+                where_clauses.append(f"categories && ${cat_params_idx}::text[]")
+            
+            # Viewed filtering (Partial)
+            if user_id:
+                where_clauses.append(f"id NOT IN (SELECT article_id FROM article_views WHERE user_id = ${len(params) + 1}::uuid ORDER BY viewed_at DESC LIMIT 300)")
+                params.append(user_id)
+            
+            where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            country_boost = "CASE WHEN $1::text IS NOT NULL AND country_code = $1 THEN 0 ELSE 1 END"
+            category_priority = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "0"
 
-                batch_query = f"""
-                    SELECT {ARTICLE_COLUMNS}, ranking_score
-                    FROM articles
-                    {where_sql}
-                    ORDER BY {country_boost} ASC, {category_priority} ASC, {trending_tier} ASC, {major_source_tier} ASC, ranking_score DESC, published_at DESC, id DESC
-                    LIMIT 300
-                """
-                async with db_pool.acquire() as conn:
-                    records = await conn.fetch(batch_query, *params)
-                logger.info(
-                    "Feed DB fallback: country=%s categories=%s missing=%s required_cached_count=%s db_rows=%s",
-                    country,
-                    categories_to_fetch,
-                    missing_categories,
-                    required_cached_count,
-                    len(records),
-                )
-                
-                temp_results = {cat: [] for cat in missing_categories}
-                for record in records:
-                    r = dict(record)
-                    r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
-                    r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
-                    r['id'] = str(r['id']) if r.get('id') else None
-                    r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
-                    r['ranking_score'] = record.get('ranking_score', 0.0)
-                    all_articles.append(r)
-                    
-                    if "all" in missing_categories:
-                        temp_results["all"].append(r)
-                        
-                    article_cats = r.get('categories', [])
-                    if "local" in named_categories and r.get('country_code') == country:
-                        if len(temp_results["local"]) < 150:
-                            temp_results["local"].append(r)
-                            
-                    for cat in named_categories:
-                        if cat in article_cats:
-                            if len(temp_results[cat]) < 150:
-                                temp_results[cat].append(r)
+            batch_query = f"""
+                SELECT {ARTICLE_COLUMNS},
+                       {country_boost} as country_boost_val,
+                       {category_priority} as category_priority_val
+                FROM articles
+                {where_sql}
+                ORDER BY country_boost_val ASC, category_priority_val ASC, ranking_score DESC, published_at DESC
+                LIMIT 300
+            """
+            async with db_pool.acquire() as conn:
+                records = await conn.fetch(batch_query, *params)
+            
+            for record in records:
+                r = dict(record)
+                r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
+                r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
+                r['id'] = str(r['id'])
+                r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
+                all_articles.append(r)
 
-                should_write_cache = before is None and offset == 0
-                if redis_client and should_write_cache:
-                    for cat, cat_articles in temp_results.items():
-                        if cat_articles:
-                            try:
-                                await redis_client.set(
-                                    f"feed:v4:{country_key}:{cat}",
-                                    orjson.dumps(cat_articles),
-                                    ex=10800,
-                                )
-                            except Exception as e:
-                                logger.warning("Redis cache write error for %s: %s", cat, e)
-
-        # 6. High-Performance Deduplication and Viewed Filtering (Audit Recommendation)
-        # We deduplicate by EXACT ID and Semantic Cluster (populated during ingestion).
-        # We also filter out viewed articles from ALL sources (cache and DB) using Redis Set.
+        # 5. Global Ranking and Deduplication
         viewed_ids: Set[str] = set()
         if user_id and redis_client:
-            try:
-                seen_key = f"user_seen_v2:{user_id}"
-                # Retrieve all recently seen IDs for this user
-                res = await redis_client.smembers(seen_key)
-                if res:
-                    viewed_ids = set(res)
-            except Exception as e:
-                logger.warning("Failed to fetch viewed_ids from Redis: %s", e)
+            seen_res = await redis_client.smembers(f"user_seen_v2:{user_id}")
+            if seen_res: viewed_ids = set(seen_res)
 
-        seen_ids: Set[str] = set()
-        seen_clusters: Set[str] = set()
+        seen_ids, seen_clusters = set(), set()
         unique_filtered = []
-        
         for a in all_articles:
-            aid = str(a['id'])
-            cid = str(a['cluster_id']) if a.get('cluster_id') else None
-            
-            # Skip if exact ID seen OR similar story (Cluster) seen
-            if aid in seen_ids or (cid and cid in seen_clusters):
+            aid, cid = str(a['id']), str(a['cluster_id']) if a.get('cluster_id') else None
+            if aid in seen_ids or (cid and cid in seen_clusters) or aid in viewed_ids:
                 continue
-            
-            # Skip if user has already viewed this article
-            if aid in viewed_ids:
-                continue
-
             seen_ids.add(aid)
-            if cid:
-                seen_clusters.add(cid)
+            if cid: seen_clusters.add(cid)
             unique_filtered.append(a)
 
-        # 7. Final Global Sort (Recommendation 1.1)
-        # Even after merging cache and DB, we MUST re-sort to ensure correct tiers.
         unique_filtered.sort(key=lambda x: _get_rank_tuple(x, country, categories_to_fetch))
 
-        # 8. Final slice
-        # If 'before' (cursor) is used, we generally don't want to skip with 'offset' 
-        # unless explicitly requested relative to that cursor.
-        actual_offset = offset if before is None else 0
-        final_result = unique_filtered[actual_offset:actual_offset+limit]
-
-        # Ranking Diagnostics (Recommendation 1.7)
-        top_diagnostics = []
-        for x in final_result[:5]:
-            rt = _get_rank_tuple(x, country, categories_to_fetch)
-            top_diagnostics.append(f"{x['id'][:8]}:{rt}")
-
-        logger.info(
-            f"Feed request: user={user_id} country={country} ({country_source}) "
-            f"redis_cats={len(articles_by_cat)} merged={len(all_articles)} "
-            f"filtered_views={len(viewed_ids)} returned={len(final_result)} "
-            f"top_ranks=[{', '.join(top_diagnostics)}]"
-        )
+        # 6. Session Creation (New)
+        new_session_id = str(uuid4())
+        session_articles = unique_filtered[:300] # Cap session size
         
-        return final_result
+        if redis_client:
+            session_key = f"session_articles:{new_session_id}"
+            all_ids = [str(a['id']) for a in session_articles]
+            await redis_client.set(session_key, orjson.dumps(all_ids), ex=14400) # 4 Hour TTL
 
-    except HTTPException:
-        raise
+        final_result = session_articles[:limit]
+        has_more = len(session_articles) > limit
+        next_cursor = str(limit) if has_more else None
+        expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+
+        logger.info(f"New Feed Session Created: session={new_session_id} items={len(session_articles)}")
+        return {
+            "articles": final_result,
+            "session_id": new_session_id,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+            "expires_at": expires_at
+        }
+
     except Exception as e:
-        logger.exception("Database error in get_feed")
-        raise HTTPException(status_code=500, detail="Failed to fetch articles")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        logger.exception("Error in get_feed")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch articles: {str(e)}")
 
 
 @router.post("/view")

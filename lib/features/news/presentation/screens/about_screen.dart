@@ -1,5 +1,7 @@
+import 'package:currenta/core/config/app_config.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
@@ -95,17 +97,14 @@ class AboutScreen extends StatelessWidget {
                 _AboutTile(
                   title: 'Privacy Policy',
                   icon: Icons.privacy_tip_outlined,
-                  onTap: () {
-                    // TODO: Open Privacy Policy URL
-                  },
+                  onTap: () => launchUrl(Uri.parse(AppConfig.privacyPolicyUrl)),
                 ),
                 const SizedBox(height: 16),
                 _AboutTile(
                   title: 'Terms of Service',
                   icon: Icons.description_outlined,
-                  onTap: () {
-                    // TODO: Open Terms of Service URL
-                  },
+                  onTap: () =>
+                      launchUrl(Uri.parse(AppConfig.termsOfServiceUrl)),
                 ),
                 const SizedBox(height: 16),
                 _AboutTile(

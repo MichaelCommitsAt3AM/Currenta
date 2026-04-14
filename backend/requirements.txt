@@ -5,11 +5,11 @@ beautifulsoup4==4.14.3
 httpx==0.28.1
 APScheduler==3.11.2
 trafilatura==2.0.0
-pillow==12.1.1
+pillow==12.2.0
 python-dotenv==1.2.2
 pydantic==2.12.5
 supabase==2.28.0
-curl_cffi==0.14.0
+curl_cffi==0.15.0
 lxml_html_clean==0.4.4
 slowapi==0.1.9
 PyJWT[crypto]==2.12.0

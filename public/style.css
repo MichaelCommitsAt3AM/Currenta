@@ -380,6 +380,25 @@ img {
     font-size: 15px;
 }
 
+/* About Section */
+#about {
+    padding: var(--section-padding);
+    background: linear-gradient(to bottom, transparent, rgba(108, 99, 255, 0.05));
+}
+
+.about-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.about-links {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
 /* Waitlist Section */
 #waitlist {
     padding: var(--section-padding);

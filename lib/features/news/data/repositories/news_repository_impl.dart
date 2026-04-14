@@ -2,6 +2,8 @@
 // Cache-First strategy: serve local data immediately, then refresh from remote.
 
 import 'package:flutter/foundation.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import '../../domain/entities/feed_response.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
 import '../../domain/repositories/news_repository.dart';
@@ -74,8 +76,9 @@ class NewsRepositoryImpl implements NewsRepository {
   Future<void> refreshFeed() async {
     try {
       final country = await _auth.getPreferredCountry();
-      final remoteArticles = await _remote.fetchArticles(country: country);
-      final companions = remoteArticles.map((a) => a.toCompanion()).toList();
+      // Background refresh usually starts a fresh "sessionless" fetch
+      final feedResponse = await _remote.fetchArticles(country: country);
+      final companions = feedResponse.articles.map((a) => a.toCompanion()).toList();
       await _dao.upsertArticles(companions);
     } on AppException {
       rethrow;
@@ -84,32 +87,46 @@ class NewsRepositoryImpl implements NewsRepository {
     }
   }
 
-  /// Fetches a batch of [limit] articles from remote starting at [remoteOffset]
+  /// Fetches a batch of articles from remote using session/cursor
   /// and upserts them into the local cache.
-  /// Returns the number of articles written (0 = no more remote data).
+  /// Returns a FeedResponse containing the new articles and session metadata.
   @override
-  Future<int> syncMoreFromRemote({
+  Future<FeedResponse> syncMoreFromRemote({
     NewsCategory? category,
-    int remoteOffset = 0,
-    DateTime? before,
+    String? sessionId,
+    String? cursor,
     int limit = 30,
   }) async {
+    final catName = category?.name ?? 'all';
+    FirebaseCrashlytics.instance.log('[Repo] syncMoreFromRemote starting for $catName (sessionId: $sessionId, cursor: $cursor)');
+    
     try {
       final country = await _auth.getPreferredCountry();
-      final remoteArticles = await _remote.fetchArticles(
+      final feedResponse = await _remote.fetchArticles(
         category: category,
         country: country,
         limit: limit,
-        offset: remoteOffset,
-        before: before,
+        sessionId: sessionId,
+        cursor: cursor,
       );
-      if (remoteArticles.isEmpty) return 0;
-      final companions = remoteArticles.map((a) => a.toCompanion()).toList();
+      
+      FirebaseCrashlytics.instance.log('[Repo] remote.fetchArticles returned ${feedResponse.articles.length} items');
+
+      if (feedResponse.articles.isEmpty) {
+        debugPrint('[Repo] No more articles available for $catName');
+        return feedResponse;
+      }
+
+      final companions = feedResponse.articles.map((a) => a.toCompanion()).toList();
       await _dao.upsertArticles(companions);
-      return remoteArticles.length;
-    } on AppException {
+      
+      FirebaseCrashlytics.instance.log('[Repo] Successfully upserted ${companions.length} articles to local DB');
+      return feedResponse;
+    } on AppException catch (e, st) {
+      FirebaseCrashlytics.instance.recordError(e, st, reason: 'AppException in syncMoreFromRemote ($catName)');
       rethrow;
-    } catch (e) {
+    } catch (e, st) {
+      FirebaseCrashlytics.instance.recordError(e, st, reason: 'Unexpected error in syncMoreFromRemote ($catName)');
       throw ServerException('syncMoreFromRemote failed: $e');
     }
   }
@@ -155,8 +172,8 @@ class NewsRepositoryImpl implements NewsRepository {
       {int count = AppConfig.backgroundPrefetchCount}) async {
     try {
       final country = await _auth.getPreferredCountry();
-      final articles = await _remote.fetchArticles(limit: count, country: country);
-      await _dao.upsertArticles(articles.map((a) => a.toCompanion()).toList());
+      final feedResponse = await _remote.fetchArticles(limit: count, country: country);
+      await _dao.upsertArticles(feedResponse.articles.map((a) => a.toCompanion()).toList());
     } on AppException {
       rethrow;
     } catch (e) {

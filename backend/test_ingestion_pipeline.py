@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from typing import Optional
+from datetime import datetime
 
 from backend.services import ingestion
 from backend.services.scraper import scrape_article_sync
@@ -118,6 +119,7 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
         category_bias: str = "neutral",
         http_client=None,
         country_code: Optional[str] = None,
+        published_at: Optional[datetime] = None,
     ):
         stage_flags["summarized"] = True
         assert len(text.split()) >= 30
@@ -158,9 +160,9 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
     assert len(conn.inserted_rows) == 1
     insert_query, insert_args = conn.inserted_rows[0]
     assert "INSERT INTO articles" in insert_query
-    assert insert_args[2] == ARTICLE_URL
-    assert insert_args[5] == ["tech", "business"]
-    assert insert_args[7] == [0.01, 0.11, 0.21, 0.31]
+    assert insert_args[3] == ARTICLE_URL
+    assert insert_args[6] == ["tech", "business"]
+    assert insert_args[8] == [0.01, 0.11, 0.21, 0.31]
 
     success_logs = [row for row in conn.log_rows if "ingestion_logs" in row[0] and row[1][1] == "SUCCESS"]
     assert len(success_logs) >= 1
@@ -198,6 +200,7 @@ def test_ingest_single_google_news_article_skips_high_confidence_non_local(monke
         category_bias: str = "neutral",
         http_client=None,
         country_code: Optional[str] = None,
+        published_at: Optional[datetime] = None,
     ):
         return {
             "title": "US lawmakers debate AI antitrust policy",
@@ -227,6 +230,6 @@ def test_ingest_single_google_news_article_skips_high_confidence_non_local(monke
 
     rejected_logs = [
         row for row in conn.log_rows
-        if "ingestion_logs" in row[0] and row[1][1] == "SKIPPED" and row[1][9] == "LOW_LOCAL_RELEVANCE"
+        if "ingestion_logs" in row[0] and row[1][1] == "SKIPPED" and row[1][10] == "LOW_LOCAL_RELEVANCE"
     ]
     assert len(rejected_logs) >= 1

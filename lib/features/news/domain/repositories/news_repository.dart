@@ -1,5 +1,6 @@
 // lib/features/news/domain/repositories/news_repository.dart
 
+import '../entities/feed_response.dart';
 import '../entities/news_article.dart';
 import '../entities/news_category.dart';
 
@@ -32,11 +33,11 @@ abstract class NewsRepository {
   Future<void> refreshFeed();
 
   /// Fetches a batch of articles from remote and syncs to local cache.
-  /// Returns the number of articles synced.
-  Future<int> syncMoreFromRemote({
+  /// Returns a FeedResponse containing articles and session metadata.
+  Future<FeedResponse> syncMoreFromRemote({
     NewsCategory? category,
-    int remoteOffset = 0,
-    DateTime? before,
+    String? sessionId,
+    String? cursor,
     int limit = 30,
   });
 

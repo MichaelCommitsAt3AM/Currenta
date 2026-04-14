@@ -2,6 +2,7 @@
 
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../domain/entities/feed_response.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
 import 'package:flutter/widgets.dart';
@@ -15,21 +16,22 @@ class NewsRemoteDataSource {
 
   final Dio _dio;
 
-  /// Fetches articles from the FastAPI backend.
-  /// [offset] enables remote pagination: skip the first [offset] rows.
-  Future<List<NewsArticle>> fetchArticles({
+  /// Fetches articles from the FastAPI backend using session-based pagination.
+  Future<FeedResponse> fetchArticles({
     NewsCategory? category,
     String? country,
     int limit = 30,
-    int offset = 0,
-    DateTime? before,
+    String? sessionId,
+    String? cursor,
   }) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed';
       final queryParams = <String, dynamic>{
         'limit': limit,
-        'offset': offset,
       };
+
+      if (sessionId != null) queryParams['session_id'] = sessionId;
+      if (cursor != null) queryParams['cursor'] = cursor;
 
       if (category != null) {
         queryParams['category'] = category.name;
@@ -40,10 +42,6 @@ class NewsRemoteDataSource {
       } else {
         // Signal backend to use IP-based detection or stored preference
         queryParams['country'] = 'auto';
-      }
-
-      if (before != null) {
-        queryParams['before'] = before.toUtc().toIso8601String();
       }
 
       // Pass the Supabase JWT to authenticate the feed request asymmetrically
@@ -57,15 +55,13 @@ class NewsRemoteDataSource {
       final response =
           await _dio.get(url, queryParameters: queryParams, options: options);
 
-      final data = response.data as List<dynamic>;
-      final articles = data
-          .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
-          .toList();
+      final responseData = response.data as Map<String, dynamic>;
+      final feedResponse = FeedResponse.fromJson(responseData);
 
       // Backend local feed is country-filtered; ensure local-tab cache queries can
       // retrieve these articles by including the virtual `local` category marker.
       if (category == NewsCategory.local) {
-        return articles.map((article) {
+        final transformedArticles = feedResponse.articles.map((article) {
           if (article.categories.contains(NewsCategory.local)) return article;
           return article.copyWith(
             categories: [
@@ -74,9 +70,11 @@ class NewsRemoteDataSource {
             ],
           );
         }).toList();
+
+        return feedResponse.copyWith(articles: transformedArticles);
       }
 
-      return articles;
+      return feedResponse;
     } on DioException catch (e) {
       throw ServerException(
         'API request failed: ${e.message}',

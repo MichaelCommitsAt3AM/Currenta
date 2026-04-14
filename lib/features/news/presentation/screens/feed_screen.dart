@@ -135,6 +135,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     if (currentPage == _lastTriggeredPage) return;
 
     _lastTriggeredPage = currentPage;
+    debugPrint(
+        '[FeedScreen] Triggering loadNextPage (currentPage: $currentPage, totalPages: $totalPages)');
     ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
   }
 
@@ -447,64 +449,27 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         body: Stack(
           children: [
             // ── Main content ─────────────────────────────────────────
+            // ── Main content ─────────────────────────────────────────
             feedAsync.when(
-              loading: () => const ShimmerFeed(),
+              skipLoadingOnReload: true,
+              loading: () {
+                final cachedValue = feedAsync.valueOrNull;
+                if (cachedValue != null && cachedValue.articles.isNotEmpty) {
+                  return _buildFeedContent(cachedValue);
+                }
+                return const ShimmerFeed();
+              },
               error: (e, _) => ErrorStateScreen(
                 error: e,
                 onRetry: () =>
                     ref.read(newsFeedNotifierProvider.notifier).refresh(),
               ),
               data: (feed) {
-                // ── Conditional UI: Shimmer vs Empty vs Articles ──
-                // If we have no articles, show shimmer if we are still loading,
-                // or empty state if we are truly done and have nothing.
-                if (feed.articles.isEmpty) {
-                  if (feed.isLoadingMore || feedAsync.isLoading) {
-                    return const ShimmerFeed();
-                  }
-                  return EmptyStateScreen(
-                    onRetry: () =>
-                        ref.read(newsFeedNotifierProvider.notifier).refresh(),
-                  );
+                // If we are loading and have no articles (e.g. switching categories), show shimmer
+                if (feed.articles.isEmpty && feedAsync.isLoading) {
+                  return const ShimmerFeed();
                 }
-
-                // ── Performance: Browser Pre-warming ──
-                // We only warmup once articles are successfully loaded.
-                if (!_hasWarmedUpBrowser && feed.articles.isNotEmpty) {
-                  _hasWarmedUpBrowser = true;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    final browser = ref.read(browserServiceProvider);
-                    browser.warmup();
-                  });
-                }
-
-                // Total items = articles + optional loading sentinel at the end
-                final itemCount =
-                    feed.articles.length + (feed.isLoadingMore ? 1 : 0);
-
-                return PageView.builder(
-                  controller: _pageController,
-                  scrollDirection: Axis.vertical,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: itemCount,
-                  onPageChanged: _onPageChanged,
-                  itemBuilder: (context, i) {
-                    // ── Loading sentinel (last slot while fetching) ──
-                    if (i >= feed.articles.length) {
-                      return const _LoadingMorePage();
-                    }
-
-                    final article = feed.articles[i];
-
-                    return RepaintBoundary(
-                      child: NewsCard(
-                        article: article,
-                        index: i,
-                        total: feed.articles.length,
-                      ),
-                    );
-                  },
-                );
+                return _buildFeedContent(feed);
               },
             ),
 
@@ -542,7 +507,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                 },
               ),
 
-            // ── Onboarding Overlay ────────────────────────────────────
             if (_showOnboarding)
               FeedOnboardingOverlay(
                 showCategoryHint: true,
@@ -551,6 +515,48 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildFeedContent(FeedState feed) {
+    if (feed.articles.isEmpty) {
+      return EmptyStateScreen(
+        onRetry: () => ref.read(newsFeedNotifierProvider.notifier).refresh(),
+      );
+    }
+
+    // ── Performance: Browser Pre-warming ──
+    if (!_hasWarmedUpBrowser) {
+      _hasWarmedUpBrowser = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final browser = ref.read(browserServiceProvider);
+        browser.warmup();
+      });
+    }
+
+    final itemCount = feed.articles.length + (feed.isLoadingMore ? 1 : 0);
+
+    return PageView.builder(
+      controller: _pageController,
+      scrollDirection: Axis.vertical,
+      physics: const BouncingScrollPhysics(),
+      itemCount: itemCount,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, i) {
+        if (i >= feed.articles.length) {
+          return const _LoadingMorePage();
+        }
+
+        final article = feed.articles[i];
+
+        return RepaintBoundary(
+          child: NewsCard(
+            article: article,
+            index: i,
+            total: feed.articles.length,
+          ),
+        );
+      },
     );
   }
 }
