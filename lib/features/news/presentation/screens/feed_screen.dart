@@ -136,7 +136,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
     _lastTriggeredPage = currentPage;
     debugPrint(
-        '[FeedScreen] Triggering loadNextPage (currentPage: $currentPage, totalPages: $totalPages)');
+        '[FeedScreen] Triggering loadNextPage (currentPage: $currentPage, totalPages: $totalPages, hasMore: ${feed.hasMore}, isLoadingMore: ${feed.isLoadingMore})');
     ref.read(newsFeedNotifierProvider.notifier).loadNextPage();
   }
 

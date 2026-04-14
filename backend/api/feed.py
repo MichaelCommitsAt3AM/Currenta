@@ -249,19 +249,28 @@ async def get_feed(
                 if cached_ids_data:
                     article_ids = orjson.loads(cached_ids_data)
                     start_idx = int(cursor) if cursor and cursor.isdigit() else 0
-                    paged_ids = article_ids[start_idx : start_idx + limit]
-                    
-                    if paged_ids:
-                        # Fetch the articles from DB (or global cache) for these specific IDs
+
+                    # Loop up to 5 times to skip over any DB-missing IDs.
+                    # Without this, a batch of stale Redis IDs returns articles=[]
+                    # while has_more=True, which permanently halts client pagination.
+                    ordered_articles = []
+                    final_start_idx = start_idx
+                    max_skip_attempts = 5
+
+                    for attempt in range(max_skip_attempts):
+                        paged_ids = article_ids[final_start_idx : final_start_idx + limit]
+                        if not paged_ids:
+                            # Truly exhausted the session
+                            break
+
                         async with db_pool.acquire() as conn:
                             records = await conn.fetch(
                                 f"SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = ANY($1::uuid[])",
                                 [UUID(aid) for aid in paged_ids]
                             )
-                        
-                        # Maintain the session's deterministic order
+
                         id_to_record = {str(r['id']): r for r in records}
-                        ordered_articles = []
+                        batch_articles = []
                         for aid in paged_ids:
                             if aid in id_to_record:
                                 r = dict(id_to_record[aid])
@@ -269,29 +278,51 @@ async def get_feed(
                                 r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
                                 r['id'] = str(r['id'])
                                 r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
-                                ordered_articles.append(r)
+                                batch_articles.append(r)
 
-                        has_more = (start_idx + limit) < len(article_ids)
-                        next_cursor = str(start_idx + limit) if has_more else None
-                        expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+                        if batch_articles:
+                            ordered_articles = batch_articles
+                            break
+                        else:
+                            # All IDs in this batch are missing from DB — skip ahead
+                            missing_count = len(paged_ids)
+                            logger.warning(
+                                f"Feed Session: {missing_count} IDs missing from DB "
+                                f"(session={session_id}, attempt={attempt+1}). Skipping ahead."
+                            )
+                            final_start_idx += limit
 
-                        logger.info(f"Feed Session Hit: session={session_id} cursor={cursor} items={len(ordered_articles)}")
-                        return {
-                            "articles": ordered_articles,
-                            "session_id": session_id,
-                            "next_cursor": next_cursor,
-                            "has_more": has_more,
-                            "expires_at": expires_at
-                        }
-                    else:
-                        logger.info(f"Feed Session Exhausted: session={session_id} cursor={cursor}")
+                    expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+
+                    # If no articles were found after all skip attempts, the session is
+                    # effectively exhausted (either truly out of IDs, or all remaining
+                    # IDs are missing from the DB). Signal the client to stop or refresh.
+                    if not ordered_articles:
+                        logger.warning(
+                            f"Feed Session Exhausted after {max_skip_attempts} skip attempts: "
+                            f"session={session_id} cursor={cursor}"
+                        )
                         return {
                             "articles": [],
                             "session_id": session_id,
                             "next_cursor": None,
                             "has_more": False,
-                            "expires_at": (datetime.now() + timedelta(hours=4)).isoformat()
+                            "expires_at": expires_at
                         }
+
+                    # Success: compute the cursor for the NEXT page from where we found articles.
+                    next_start_idx = final_start_idx + limit
+                    has_more = next_start_idx < len(article_ids)
+                    next_cursor = str(next_start_idx) if has_more else None
+
+                    logger.info(f"Feed Session Hit: session={session_id} cursor={cursor} items={len(ordered_articles)}")
+                    return {
+                        "articles": ordered_articles,
+                        "session_id": session_id,
+                        "next_cursor": next_cursor,
+                        "has_more": has_more,
+                        "expires_at": expires_at
+                    }
                 else:
                     logger.warning(f"Feed Session Expired/Missing: session={session_id}. Starting new session.")
             except Exception as e:

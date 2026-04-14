@@ -229,6 +229,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     );
 
     _feedCache[savedCategoryId] = finalState;
+
+    // 7. If we served from cache (no remote fetch yet), establish a session in
+    //    the background so that loadNextPage() has a valid sessionId + nextCursor.
+    //    Without this, every pagination call sends sessionId=null which the backend
+    //    treats as a fresh session restart — returning page 1 again.
+    if (sessionId == null && articles.isNotEmpty) {
+      debugPrint('[Feed] Cache-hit boot: establishing background session for pagination...');
+      Future.microtask(() => _establishSessionInBackground(savedCategoryId));
+    }
+
     return finalState;
   }
 
@@ -273,39 +283,56 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     final category = startState.selectedCategory;
 
-    // 1. Concurrency Guard: prevent duplicate fetches for the same category
-    if (_fetchingStates.contains(category)) {
-      debugPrint('[FeedPaging] Category ${category?.name ?? 'all'} is already fetching.');
-      return;
-    }
+    // 1. Concurrency Guard
+    if (_fetchingStates.contains(category)) return;
 
     _fetchingStates.add(category);
     state = AsyncData(startState.copyWith(isLoadingMore: true));
 
     try {
-      if (_isDisposed) return;
-      
       // 2. Session Validity Check (Client-side TTL fallback)
-      if (startState.expiresAt != null && 
+      if (startState.expiresAt != null &&
           DateTime.now().isAfter(startState.expiresAt!)) {
         debugPrint('[FeedPaging] Session expired. Resetting category ${category?.name ?? 'all'}.');
         await filterByCategory(category);
         return;
       }
 
-      // 3. Remote Sync (Fetch next page from backend)
+      // 3a. If background session hasn't arrived yet, wait up to 3 s for it.
+      if (startState.sessionId == null) {
+        debugPrint('[FeedPaging] Waiting for background session...');
+        for (var i = 0; i < 30; i++) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          final interim = state.valueOrNull;
+          if (interim == null || interim.selectedCategory != category) return;
+          if (interim.sessionId != null) break;
+        }
+      }
+
+      // Re-read state after the optional wait
+      final resolvedState = state.valueOrNull;
+      if (resolvedState == null || resolvedState.selectedCategory != category) return;
+
+      // 3b. Remote Sync (Fetch next page from backend)
+      debugPrint('[FeedPaging] Fetching next page (sessionId=${resolvedState.sessionId}, cursor=${resolvedState.nextCursor})');
       final response = await _repo.syncMoreFromRemote(
         category: category,
-        sessionId: startState.sessionId,
-        cursor: startState.nextCursor,
+        sessionId: resolvedState.sessionId,
+        cursor: resolvedState.nextCursor,
         limit: _kPageSize,
       );
+
+      debugPrint('[FeedPaging] Received response: ${response.articles.length} articles, session=${response.sessionId}, nextCursor=${response.nextCursor}, hasMore=${response.hasMore}');
 
       final current = state.valueOrNull;
       if (current == null || current.selectedCategory != category) return;
 
-      // 4. Session Guard: If backend silently reset the session, client must reset local list too.
-      if (response.sessionId != null && response.sessionId != current.sessionId) {
+      // 4. Session Guard: Only detect a mismatch when we had a known sessionId.
+      //    Skipping this check when current.sessionId == null avoids a false reset
+      //    during the background-session-establishment window.
+      if (current.sessionId != null &&
+          response.sessionId != null &&
+          response.sessionId != current.sessionId) {
         debugPrint('[FeedPaging] Session ID mismatch! Performing hard reset.');
         final resetState = current.copyWith(
           articles: response.articles,
@@ -320,21 +347,51 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         return;
       }
 
-      // 5. Empty Page Guard: break potential infinite loops if hasMore is true but articles are empty
+      // 5. Empty Page Guard
       if (response.articles.isEmpty) {
-        debugPrint('[FeedPaging] Received empty articles page. Stopping pagination.');
-        final endState = current.copyWith(
-          hasMore: false,
-          isLoadingMore: false,
-        );
-        state = AsyncData(endState);
-        _feedCache[category] = endState;
+        if (response.hasMore && response.nextCursor != null) {
+          // Server skipped ahead (e.g. some DB-missing IDs were bypassed) but there are
+          // still articles further in the session. Trust the server's cursor and keep going.
+          debugPrint('[FeedPaging] Empty page but server says has_more=true — advancing cursor.');
+          final advancedState = current.copyWith(
+            isLoadingMore: false,
+            hasMore: response.hasMore,
+            nextCursor: () => response.nextCursor,
+            expiresAt: response.expiresAt,
+          );
+          state = AsyncData(advancedState);
+          _feedCache[category] = advancedState;
+        } else {
+          // Genuinely no more articles
+          debugPrint('[FeedPaging] Received empty articles page with has_more=false. Stopping pagination.');
+          final endState = current.copyWith(
+            hasMore: false,
+            isLoadingMore: false,
+          );
+          state = AsyncData(endState);
+          _feedCache[category] = endState;
+        }
         return;
       }
 
-      // 6. Success: Append new articles to the existing list
+      // 6. Success: Deduplicate and Append
+      final existingIds = current.articles.map((a) => a.id).toSet();
+      final uniqueNewArticles = response.articles.where((a) => !existingIds.contains(a.id)).toList();
+
+      if (uniqueNewArticles.length < response.articles.length) {
+        debugPrint('[FeedPaging] Filtered out ${response.articles.length - uniqueNewArticles.length} duplicate articles.');
+      }
+
+      var nextArticles = [...current.articles, ...uniqueNewArticles];
+      
+      // Memory Guard: Prune the list if it exceeds 200 articles to prevent OOM
+      if (nextArticles.length > 200) {
+        debugPrint('[FeedPaging] Memory Guard: Pruning list from ${nextArticles.length} to 200 articles.');
+        nextArticles = nextArticles.sublist(nextArticles.length - 200);
+      }
+
       final nextState = current.copyWith(
-        articles: [...current.articles, ...response.articles],
+        articles: nextArticles,
         isLoadingMore: false,
         hasMore: response.hasMore,
         nextCursor: () => response.nextCursor,
@@ -343,6 +400,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       state = AsyncData(nextState);
       _feedCache[category] = nextState;
+      debugPrint('[FeedPaging] Success. New total articles: ${nextArticles.length}');
       
     } catch (e, st) {
       FirebaseCrashlytics.instance.recordError(e, st, reason: 'Paging failure in loadNextPage');
@@ -528,6 +586,39 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     debugPrint('[Feed] Handling pending activity: $activity');
     if (activity == PendingActivityType.viewHistory) {
       // Logic to switch to a history view if we had one
+    }
+  }
+
+  /// Called after a cache-hit boot to establish a remote session so that
+  /// subsequent [loadNextPage] calls have a valid [sessionId] + [nextCursor].
+  /// Only updates session metadata in the state — does NOT replace articles.
+  Future<void> _establishSessionInBackground(NewsCategory? category) async {
+    if (_isDisposed) return;
+    debugPrint('[Feed] Establishing background session for ${category?.name ?? 'all'}...');
+    try {
+      final response = await _repo.syncMoreFromRemote(
+        category: category,
+        limit: _kPageSize,
+      );
+
+      if (_isDisposed) return;
+      final current = state.valueOrNull;
+      if (current == null || current.selectedCategory != category) return;
+
+      // Patch the state with session metadata only — keep cached articles intact.
+      final patched = current.copyWith(
+        sessionId: response.sessionId,
+        nextCursor: () => response.nextCursor,
+        hasMore: response.hasMore,
+        expiresAt: response.expiresAt,
+      );
+      state = AsyncData(patched);
+      _feedCache[category] = patched;
+      debugPrint('[Feed] Background session established: ${response.sessionId}, cursor: ${response.nextCursor}');
+    } catch (e) {
+      // Non-fatal: pagination will still work on a session that is established
+      // lazily at the next loadNextPage call.
+      debugPrint('[Feed] Background session establishment failed: $e');
     }
   }
 

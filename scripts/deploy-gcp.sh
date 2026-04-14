@@ -98,7 +98,9 @@ if [[ "${VERIFY}" == "true" ]]; then
 
   echo "[deploy] Verifying admin session endpoint in OpenAPI: ${SERVICE_URL}/openapi.json"
   OPENAPI_JSON="$(curl -fsSL --max-time 20 "${SERVICE_URL}/openapi.json")"
-  if ! python3 - <<'PY' <<<"${OPENAPI_JSON}"
+  if ! python3 - <<'PY' <<EOF
+${OPENAPI_JSON}
+EOF
 import json
 import sys
 

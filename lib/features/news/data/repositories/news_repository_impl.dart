@@ -101,6 +101,7 @@ class NewsRepositoryImpl implements NewsRepository {
     FirebaseCrashlytics.instance.log('[Repo] syncMoreFromRemote starting for $catName (sessionId: $sessionId, cursor: $cursor)');
     
     try {
+      debugPrint('[RepoSync] Fetching remote: category=$catName, sessionId=$sessionId, cursor=$cursor');
       final country = await _auth.getPreferredCountry();
       final feedResponse = await _remote.fetchArticles(
         category: category,
@@ -110,10 +111,14 @@ class NewsRepositoryImpl implements NewsRepository {
         cursor: cursor,
       );
       
-      FirebaseCrashlytics.instance.log('[Repo] remote.fetchArticles returned ${feedResponse.articles.length} items');
+      debugPrint('[RepoSync] Received ${feedResponse.articles.length} articles. Session: ${feedResponse.sessionId}, NextCursor: ${feedResponse.nextCursor}');
+      if (feedResponse.articles.isNotEmpty) {
+        final ids = feedResponse.articles.take(3).map((a) => a.id.toString().substring(0, 8)).join(', ');
+        debugPrint('[RepoSync] Sample IDs: [$ids...]');
+      }
 
       if (feedResponse.articles.isEmpty) {
-        debugPrint('[Repo] No more articles available for $catName');
+        debugPrint('[RepoSync] Server returned 0 articles for $catName (hasMore: ${feedResponse.hasMore})');
         return feedResponse;
       }
 

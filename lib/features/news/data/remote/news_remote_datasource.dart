@@ -52,10 +52,12 @@ class NewsRemoteDataSource {
         },
       );
 
+      debugPrint('[DIO →] GET $url with params: $queryParams');
       final response =
           await _dio.get(url, queryParameters: queryParams, options: options);
 
       final responseData = response.data as Map<String, dynamic>;
+      debugPrint('[DIO ←] 200 Received articles: ${(responseData['articles'] as List?)?.length}, session_id: ${responseData['session_id']}, has_more: ${responseData['has_more']}');
       final feedResponse = FeedResponse.fromJson(responseData);
 
       // Backend local feed is country-filtered; ensure local-tab cache queries can
