@@ -9,6 +9,7 @@ import 'otp_verification_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({
@@ -71,13 +72,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     ref.listen(authNotifierProvider, (previous, next) {
       if (next.error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.error!),
-            backgroundColor: const Color(0xFFFF6B6B),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        AppSnackbar.showError(context, next.error!);
       }
       if (next.isAuthenticated && !next.isLoading) {
         if (next.needsConflictResolution && next.conflictData != null) {

@@ -80,3 +80,8 @@ final localPersistenceRepositoryProvider = Provider<LocalPersistenceRepository>(
     prefs: ref.watch(sharedPreferencesProvider),
   );
 });
+
+// ── UI Triggers ──────────────────────────────────────────────────
+
+/// Set to true to signal the FeedScreen to perform a visible hard refresh.
+final needsFeedRefreshProvider = StateProvider<bool>((ref) => false);

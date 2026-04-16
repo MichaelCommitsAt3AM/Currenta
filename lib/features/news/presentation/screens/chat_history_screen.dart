@@ -8,6 +8,7 @@ import 'ai_chat_screen.dart';
 import 'empty_state_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class ChatHistoryScreen extends ConsumerStatefulWidget {
   const ChatHistoryScreen({super.key});
@@ -134,9 +135,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
         ),
       );
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not find original article')),
-      );
+      AppSnackbar.showError(context, 'Could not find original article');
     }
   }
 

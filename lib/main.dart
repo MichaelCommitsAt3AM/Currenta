@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/config/app_config.dart';
 import 'core/providers/providers.dart';
+import 'core/navigation/app_route_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme/theme.dart';
@@ -22,7 +23,7 @@ void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
   // until you wire up a real reporter.
   debugPrint('[CrashReporter] ${fatal ? "FATAL" : "ERROR"}: $error');
   debugPrintStack(stackTrace: stack);
-  
+
   // Crashlytics integration:
   if (Firebase.apps.isNotEmpty) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: fatal);
@@ -31,7 +32,7 @@ void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
 
 Future<void> main() async {
   // ── Error Handling ────────────────────────────────────────────────────────
-  
+
   // Catch all errors thrown synchronously in Flutter framework callbacks
   FlutterError.onError = (FlutterErrorDetails details) {
     _reportError(details.exception, details.stack ?? StackTrace.current);
@@ -51,11 +52,11 @@ Future<void> main() async {
   }
 
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  
+
   // ── Splash Screen ──────────────────────────────────────────────────────────
   // Preserve the native splash screen until critical initializations are done.
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
-  
+
   // ── System UI ──────────────────────────────────────────────────────────────
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -77,7 +78,8 @@ Future<void> main() async {
   ]);
 
   final prefs = initResults[2] as SharedPreferences;
-  final hasCompletedOnboarding = prefs.getBool('has_completed_onboarding') ?? false;
+  final hasCompletedOnboarding =
+      prefs.getBool('has_completed_onboarding') ?? false;
 
   // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
   // These tasks don't need to block the first frame.
@@ -89,9 +91,8 @@ Future<void> main() async {
         sharedPreferencesProvider.overrideWithValue(prefs),
       ],
       child: CurrentaApp(
-        initialScreen: hasCompletedOnboarding 
-            ? const FeedScreen() 
-            : const WelcomeScreen(),
+        initialScreen:
+            hasCompletedOnboarding ? const FeedScreen() : const WelcomeScreen(),
       ),
     ),
   );
@@ -104,18 +105,18 @@ Future<void> main() async {
 /// Tasks that can run after the app has started or in the background
 /// to improve the 'Time to Interactive'.
 Future<void> _initializeDeferredTasks() async {
-    try {
-      // Sign in anonymously if no session exists to track 'seen' state
-      final supabase = Supabase.instance.client;
-      if (supabase.auth.currentSession == null) {
-        debugPrint(
-            '[Auth] No session found. Signing in anonymously (deferred)...');
-        await supabase.auth.signInAnonymously();
-      }
-    } catch (e) {
-      debugPrint('[Init] Deferred initialization failed: $e');
+  try {
+    // Sign in anonymously if no session exists to track 'seen' state
+    final supabase = Supabase.instance.client;
+    if (supabase.auth.currentSession == null) {
+      debugPrint(
+          '[Auth] No session found. Signing in anonymously (deferred)...');
+      await supabase.auth.signInAnonymously();
     }
+  } catch (e) {
+    debugPrint('[Init] Deferred initialization failed: $e');
   }
+}
 
 class CurrentaApp extends StatelessWidget {
   const CurrentaApp({super.key, required this.initialScreen});
@@ -128,6 +129,7 @@ class CurrentaApp extends StatelessWidget {
       title: 'Currenta',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
+      navigatorObservers: [appRouteObserver],
       home: initialScreen,
     );
   }

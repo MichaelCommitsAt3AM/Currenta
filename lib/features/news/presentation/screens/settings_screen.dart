@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import '../../../auth/application/auth_notifier.dart';
-import '../../../../core/providers/providers.dart';
 import 'favorites_screen.dart';
 import 'chat_history_screen.dart';
 import 'personalization_screen.dart';

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../application/auth_notifier.dart';
 import '../../../news/domain/entities/news_category.dart';
 import 'auth_bridge_screen.dart';
 import 'login_screen.dart';

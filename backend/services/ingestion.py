@@ -11,7 +11,7 @@ import httpx
 import asyncpg
 from supabase import create_client, Client
 from .scraper import scrape_article_sync, discover_techcrunch_articles
-from dateutil import parser as date_parser
+from dateutil import parser as date_parser, tz
 import random
 import uuid
 from uuid import UUID
@@ -88,6 +88,18 @@ else:
 # Control signals for background tasks
 # ---------------------------------------------------------------------------
 SHOULD_STOP_INGESTION = False
+
+# Mapping for ambiguous timezone abbreviations to help dateutil.parser
+TIMEZONE_INFOS = {
+    "EST": tz.gettz("America/New_York"),
+    "EDT": tz.gettz("America/New_York"),
+    "CST": tz.gettz("America/Chicago"),
+    "CDT": tz.gettz("America/Chicago"),
+    "MST": tz.gettz("America/Denver"),
+    "MDT": tz.gettz("America/Denver"),
+    "PST": tz.gettz("America/Los_Angeles"),
+    "PDT": tz.gettz("America/Los_Angeles"),
+}
 
 def cancel_ingestion():
     global SHOULD_STOP_INGESTION
@@ -823,7 +835,7 @@ def is_junk_content(text: str, title: str, source_url: Optional[str] = None, pub
         try:
             # Handle both string (if any) and datetime objects
             if isinstance(published_at, str):
-                pub_dt = date_parser.parse(published_at)
+                pub_dt = date_parser.parse(published_at, tzinfos=TIMEZONE_INFOS)
             else:
                 pub_dt = published_at
             
@@ -1334,7 +1346,7 @@ async def parse_rss(feed_url: str) -> list[dict]:
         pub_date_str = item.pubDate.text if item.pubDate else (item.published.text if item.published else (item.updated.text if item.updated else ""))
         try:
             # Parse to a timezone-aware datetime object (asyncpg requires datetime, not str)
-            pub_date = date_parser.parse(pub_date_str, ignoretz=False)
+            pub_date = date_parser.parse(pub_date_str, ignoretz=False, tzinfos=TIMEZONE_INFOS)
             if pub_date.tzinfo is None:
                 pub_date = pub_date.replace(tzinfo=timezone.utc)
         except Exception:
@@ -1535,7 +1547,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             # Ensure pubDate is a datetime object for DB compatibility
             if isinstance(item.get("pubDate"), str):
                 try:
-                    item["pubDate"] = date_parser.parse(item["pubDate"])
+                    item["pubDate"] = date_parser.parse(item["pubDate"], tzinfos=TIMEZONE_INFOS)
                 except Exception:
                     item["pubDate"] = datetime.now(timezone.utc)
             elif not item.get("pubDate"):

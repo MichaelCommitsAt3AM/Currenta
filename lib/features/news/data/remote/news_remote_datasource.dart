@@ -78,9 +78,11 @@ class NewsRemoteDataSource {
 
       return feedResponse;
     } on DioException catch (e) {
-      throw ServerException(
-        'API request failed: ${e.message}',
-      );
+      final errorType = e.type.toString().split('.').last;
+      final statusCode = e.response?.statusCode ?? 'NoStatus';
+      final message = 'API Failure ($errorType, $statusCode): ${e.message ?? e.error ?? 'Unknown error'}';
+      debugPrint('[Remote] $message');
+      throw ServerException(message);
     }
   }
 

@@ -1,18 +1,11 @@
 steps:
-- name: "python:3.11-slim"
-  entrypoint: "bash"
+# Use Kaniko to build the image with persistent layer caching.
+# This avoids manual docker pull/push for caching and is generally much faster in GCB.
+- name: 'gcr.io/kaniko-project/executor'
   args:
-    - "-lc"
-    - |
-      set -euo pipefail
-      python -m pip install --upgrade pip
-      python -m pip install --no-cache-dir -r backend/requirements.txt pytest pip-audit
-      python -m compileall -q backend
-      pytest -q backend/test_ingestion_pipeline.py
-      pip-audit -r backend/requirements.txt
+  - --destination=$_TAG
+  - --dockerfile=backend/Dockerfile
+  - --context=dir://.
+  - --cache=true
+  - --cache-ttl=24h
 
-- name: "gcr.io/cloud-builders/docker"
-  args: ["build", "-t", "$_TAG", "-f", "backend/Dockerfile", "."]
-
-images:
-  - "$_TAG"

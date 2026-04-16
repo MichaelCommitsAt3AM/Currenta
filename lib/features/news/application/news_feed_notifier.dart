@@ -7,12 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
 import '../domain/entities/news_category.dart';
-import '../domain/entities/feed_response.dart';
 import '../domain/repositories/news_repository.dart';
 import '../../../core/providers/providers.dart';
 import '../../auth/application/auth_notifier.dart';
 
-import 'pending_activity_provider.dart';
 import '../data/repositories/local_persistence_repository.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
@@ -21,9 +19,6 @@ part 'news_feed_notifier.g.dart';
 const _kPageSize = 10;
 
 // ── Feed State ────────────────────────────────────────────────────────────────
-
-/// Enum for pending activities that require user attention.
-enum PendingActivityType { viewHistory, none }
 
 @immutable
 class FeedState {
@@ -158,9 +153,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       });
     });
 
-    // 3. Initialization: Default to 'For You' (null category)
+    // 3. Initialization: Always default to 'For You' (null category) on cold boot
     const NewsCategory? savedCategoryId = null;
-    final savedArticleId = _persistence.getCurrentArticleId();
+    final savedArticleId = _persistence.getLastForYouArticleId();
     final bool includeViewed = savedArticleId != null;
 
     // 4. Local Fetch (Cache-First)
@@ -185,8 +180,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (topArticle != null) {
         final age = DateTime.now().difference(topArticle.publishedAt);
         if (age.inHours >= AppConfig.hardTtlHours) {
+          debugPrint('[Feed] Hard TTL reached (${AppConfig.hardTtlHours}h). Forcing fresh refresh.');
           needsRefresh = true;
           articles = []; // Discard stale articles on hard TTL
+          // Also clear the saved position to start fresh at the top
+          _persistence.saveLastForYouArticleId(null);
         } else if (age.inHours >= AppConfig.softTtlHours) {
           Future.microtask(_backgroundRefresh);
         }
@@ -384,10 +382,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       var nextArticles = [...current.articles, ...uniqueNewArticles];
       
-      // Memory Guard: Prune the list if it exceeds 200 articles to prevent OOM
-      if (nextArticles.length > 200) {
-        debugPrint('[FeedPaging] Memory Guard: Pruning list from ${nextArticles.length} to 200 articles.');
-        nextArticles = nextArticles.sublist(nextArticles.length - 200);
+      // Memory Guard: Prune the list if it exceeds 500 articles to prevent OOM
+      if (nextArticles.length > 500) {
+        debugPrint('[FeedPaging] Memory Guard: Pruning list from ${nextArticles.length} to 500 articles.');
+        nextArticles = nextArticles.sublist(0, 500);
       }
 
       final nextState = current.copyWith(
@@ -462,17 +460,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
-  /// Full refresh: re-syncs remote data then resets to page 1.
+  /// Full refresh: invalidates ALL cached sessions and resets to page 1 with new data.
   Future<void> refresh() async {
     final startState = state.valueOrNull;
-    state = AsyncLoading<FeedState>().copyWithPrevious(state);
+    state = const AsyncLoading<FeedState>().copyWithPrevious(state);
 
     final currentCategory = startState?.selectedCategory;
     
+    // Clear all cached sessions to ensure diversity fixes apply to every category
+    _feedCache.clear();
+    
     try {
+      debugPrint('[Feed] Performing full refresh (Resetting all sessions)...');
       final response = await _repo.syncMoreFromRemote(
         category: currentCategory,
         limit: _kPageSize,
+        // Passing null sessionId triggers a brand new session on the backend
+        sessionId: null, 
       );
 
       final newState = FeedState(
@@ -486,8 +490,18 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       state = AsyncData(newState);
       _feedCache[currentCategory] = newState;
+
+      // Persistence: Reset scroll position to top on refresh
+      if (newState.articles.isNotEmpty) {
+        _persistence.saveCurrentArticleId(newState.articles.first.id);
+      }
     } catch (e, st) {
-      state = AsyncData(startState!).copyWithPrevious(AsyncError(e, st));
+      debugPrint('[Feed] Refresh failed: $e');
+      if (startState != null) {
+        state = AsyncData(startState).copyWithPrevious(AsyncError(e, st));
+      } else {
+        state = AsyncError(e, st);
+      }
     }
   }
 
@@ -564,7 +578,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (current == null) return;
     state = AsyncData(current.copyWith(currentIndex: index));
     if (index < current.articles.length) {
-      _persistence.saveCurrentArticleId(current.articles[index].id);
+      final articleId = current.articles[index].id;
+      _persistence.saveCurrentArticleId(articleId);
+      
+      // Specialized tracking for 'For You' feed to support reset-to-main on startup
+      if (current.selectedCategory == null) {
+        _persistence.saveLastForYouArticleId(articleId);
+      }
     }
   }
 
@@ -581,13 +601,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   void clearPendingChat() => closeChat();
-
-  Future<void> _handlePendingActivity(PendingActivityType activity) async {
-    debugPrint('[Feed] Handling pending activity: $activity');
-    if (activity == PendingActivityType.viewHistory) {
-      // Logic to switch to a history view if we had one
-    }
-  }
 
   /// Called after a cache-hit boot to establish a remote session so that
   /// subsequent [loadNextPage] calls have a valid [sessionId] + [nextCursor].
@@ -622,9 +635,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
+  /// Triggered by AuthNotifier when interests or country changes.
   Future<void> _backgroundRefresh({NewsCategory? forcedCategory}) async {
-    // Background refresh logic in session-based mode usually just checks for "Newer" sessions.
-    // For now, we can skip implementing this to focus on core stability.
+    if (_isDisposed) return;
+    debugPrint('[Feed] Auth state changed. Invalidating sessions for diversity rebalancing...');
+    
+    // 1. Wipe all existing sessions (they are now based on old interests/country)
+    _feedCache.clear();
+    
+    // 2. Refresh the current active feed immediately
+    await refresh();
   }
   
   Future<void> applyPendingArticles() async {

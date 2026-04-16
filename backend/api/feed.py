@@ -135,27 +135,96 @@ def _collapse_near_duplicate_articles(articles: List[dict]) -> List[dict]:
     return kept
 
 
+class Diversifier:
+    """
+    Interleaves articles from multiple buckets while enforcing diversity rules.
+    Designed to be extensible for future personalization (likes/dislikes).
+    """
+    def __init__(self, buckets: List[List[dict]], ratios: List[float], max_consecutive_cat: int = 3, max_consecutive_source: int = 2, ignore_cat_limit: bool = False):
+        self.buckets = [list(b) for b in buckets]
+        self.ratios = ratios
+        self.max_consecutive_cat = max_consecutive_cat
+        self.max_consecutive_source = max_consecutive_source
+        self.ignore_cat_limit = ignore_cat_limit
+        
+        self.last_categories: List[str] = []
+        self.last_sources: List[str] = []
+        
+    def _is_diverse(self, article: dict) -> bool:
+        # Category Guard - bypassed if ignore_cat_limit is True (e.g. for specific category pages)
+        if not self.ignore_cat_limit:
+            cats = article.get("categories") or ["unknown"]
+            primary_cat = cats[0]
+            if len(self.last_categories) >= self.max_consecutive_cat:
+                if all(c == primary_cat for c in self.last_categories[-self.max_consecutive_cat:]):
+                    return False
+                
+        # Source Guard
+        source = article.get("source_name") or "unknown"
+        if len(self.last_sources) >= self.max_consecutive_source:
+            if all(s == source for s in self.last_sources[-self.max_consecutive_source:]):
+                return False
+                
+        return True
+
+    def _update_state(self, article: dict):
+        cats = article.get("categories") or ["unknown"]
+        self.last_categories.append(cats[0])
+        self.last_sources.append(article.get("source_name") or "unknown")
+        
+        # Keep window size small
+        if len(self.last_categories) > 5: self.last_categories.pop(0)
+        if len(self.last_sources) > 5: self.last_sources.pop(0)
+
+    def interleave(self, limit: int) -> List[dict]:
+        result = []
+        # Normalization of ratios not needed if they sum to ~1, but we use a round-robin approach
+        # we try to fulfill the ratio over the course of the feed.
+        
+        bucket_indices = [0] * len(self.buckets)
+        
+        # We'll do a simple round-robin for the 33/33/33 case
+        # For more complex ratios, a weighted scheduler would be better.
+        while len(result) < limit:
+            added_in_round = False
+            for i in range(len(self.buckets)):
+                bucket = self.buckets[i]
+                start_idx = bucket_indices[i]
+                
+                # Search for the first diverse article in this bucket
+                found_idx = -1
+                for j in range(start_idx, len(bucket)):
+                    candidate = bucket[j]
+                    if self._is_diverse(candidate):
+                        found_idx = j
+                        break
+                
+                if found_idx != -1:
+                    article = bucket.pop(found_idx)
+                    result.append(article)
+                    self._update_state(article)
+                    added_in_round = True
+                    if len(result) >= limit: break
+                else:
+                    # If we can't find a diverse article in this bucket, 
+                    # we might have to relax the rules or just move on.
+                    # For now, if a bucket is exhausted of diverse options, we just skip it.
+                    pass
+            
+            if not added_in_round:
+                # All buckets are either empty or have no diverse options left. 
+                # Relax guards or break.
+                break
+        
+        return result
+
+
 def _get_rank_tuple(article: dict, preferred_country: Optional[str], interest_categories: List[str]) -> tuple:
     """
-    Returns a sortable tuple that mirrors the SQL ORDER BY logic for mid-layer merging.
-    SQL Order: country_boost ASC, category_priority ASC, trending_tier ASC, major_source_tier ASC, ranking_score DESC
+    Returns a sortable tuple for intra-bucket ranking.
     """
-    country_code = article.get("country_code")
-    categories = article.get("categories") or []
     rank_score = article.get("ranking_score") or 0.0
-    is_major = article.get("is_major_source", False)
-
-    country_boost = 0 if (preferred_country and country_code == preferred_country) else 1
-    
-    # Priority if the primary category matches one of the user's interests
-    cat_priority = 0 if (categories and categories[0] in interest_categories) else 1
-    
-    # Simple tiering: high score articles first
-    trending_tier = 0 if rank_score > 0 else 1
-    major_tier = 0 if is_major else 1
-    
-    # We use negative ranking_score for ASC sorting to achieve DESC behavior in the tuple
-    return (country_boost, cat_priority, trending_tier, major_tier, -rank_score)
+    return (-rank_score,)
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -345,113 +414,156 @@ async def get_feed(
             else:
                 country = None
 
-        categories_to_fetch = [category] if category else (user_state.get("interests") if user_state else ["all"])
-        if not categories_to_fetch: categories_to_fetch = ["all"]
-        categories_to_fetch = [str(c).strip().lower() for c in categories_to_fetch]
-            
-        # 3. Fetch from Global Redis (Warm Cache)
-        country_key = country or 'all'
-        articles_by_cat = {}
-        missing_categories = []
-        required_cached_count = 150 # Fetch a healthy buffer for sessionization
+        # 3. Internal Interest Logic
+        # If a specific category is requested, we override personal interests to focus 
+        # strictly on that category, applying the ranking boost and bypassing diversification limits.
+        is_category_page = category is not None
         
-        if redis_client:
-            keys = [f"feed:v4:{country_key}:{cat}" for cat in categories_to_fetch]
-            try:
-                cached_results = await asyncio.gather(*[redis_client.get(k) for k in keys])
-                for cat, cached in zip(categories_to_fetch, cached_results):
-                    if cached:
-                        cat_articles = orjson.loads(cached)
-                        articles_by_cat[cat] = cat_articles
-                        if len(cat_articles) < required_cached_count:
-                            missing_categories.append(cat)
-                    else:
-                        missing_categories.append(cat)
-            except Exception as e:
-                logger.warning("Redis warm-cache fetch error: %s", e)
-                missing_categories = list(categories_to_fetch)
+        if is_category_page:
+            interests = [category]
+            topic_interests = [category]
+            has_local_interest = True # For category pages, we check local bucket if applicable
+            category_boost = category
         else:
-            missing_categories = list(categories_to_fetch)
-        
-        # 4. Fallback to DB for missing/sparse categories
-        all_articles = []
-        for cat in categories_to_fetch:
-            if cat in articles_by_cat:
-                all_articles.extend(articles_by_cat[cat])
-        
-        if missing_categories:
-            named_categories = [c for c in missing_categories if c != "all"]
-            params = [country if (country and country != 'all') else None]
-            where_clauses = []
-            
-            cat_params_idx = None
-            if "all" not in missing_categories:
-                cat_params_idx = len(params) + 1
-                params.append(named_categories)
-                where_clauses.append(f"categories && ${cat_params_idx}::text[]")
-            
-            # Viewed filtering (Partial)
-            if user_id:
-                where_clauses.append(f"id NOT IN (SELECT article_id FROM article_views WHERE user_id = ${len(params) + 1}::uuid ORDER BY viewed_at DESC LIMIT 300)")
-                params.append(user_id)
-            
-            where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            country_boost = "CASE WHEN $1::text IS NOT NULL AND country_code = $1 THEN 0 ELSE 1 END"
-            category_priority = f"CASE WHEN categories[1] = ANY(${cat_params_idx}::text[]) THEN 0 ELSE 1 END" if cat_params_idx else "0"
+            user_interests = user_state.get("interests", []) if user_state else []
+            interests = user_interests
+            has_local_interest = "local" in user_interests
+            topic_interests = [i for i in user_interests if i != "local"]
+            category_boost = None
 
-            batch_query = f"""
-                SELECT {ARTICLE_COLUMNS},
-                       {country_boost} as country_boost_val,
-                       {category_priority} as category_priority_val
+        # 4. Bucketized Fetching (Portfolio Interleave Architecture)
+        async def fetch_bucket(conn, where_clause, params, label, category_boost: Optional[str] = None):
+            order_by = "ranking_score DESC, published_at DESC"
+            if category_boost:
+                # Prioritize articles where the requested category is the PRIMARY category (index 1)
+                order_by = f"(categories[1] = '{category_boost}') DESC, {order_by}"
+
+            query = f"""
+                SELECT {ARTICLE_COLUMNS}
                 FROM articles
-                {where_sql}
-                ORDER BY country_boost_val ASC, category_priority_val ASC, ranking_score DESC, published_at DESC
-                LIMIT 300
+                WHERE {where_clause}
+                ORDER BY {order_by}
+                LIMIT 150
             """
-            async with db_pool.acquire() as conn:
-                records = await conn.fetch(batch_query, *params)
-            
-            for record in records:
-                r = dict(record)
-                r['published_at'] = r['published_at'].isoformat() if r.get('published_at') else None
-                r['created_at'] = r['created_at'].isoformat() if r.get('created_at') else None
-                r['id'] = str(r['id'])
-                r['cluster_id'] = str(r['cluster_id']) if r.get('cluster_id') else None
-                all_articles.append(r)
+            recs = await conn.fetch(query, *params)
+            articles = []
+            for r in recs:
+                dict_r = dict(r)
+                dict_r['published_at'] = dict_r['published_at'].isoformat() if dict_r.get('published_at') else None
+                dict_r['created_at'] = dict_r['created_at'].isoformat() if dict_r.get('created_at') else None
+                dict_r['id'] = str(dict_r['id'])
+                dict_r['cluster_id'] = str(dict_r['cluster_id']) if dict_r.get('cluster_id') else None
+                articles.append(dict_r)
+            logger.info(f"Bucket '{label}' fetched: {len(articles)} items")
+            return articles
 
-        # 5. Global Ranking and Deduplication
+        # Seen filter for all buckets
         viewed_ids: Set[str] = set()
         if user_id and redis_client:
             seen_res = await redis_client.smembers(f"user_seen_v2:{user_id}")
             if seen_res: viewed_ids = set(seen_res)
 
-        seen_ids, seen_clusters = set(), set()
-        unique_filtered = []
-        for a in all_articles:
-            aid, cid = str(a['id']), str(a['cluster_id']) if a.get('cluster_id') else None
-            if aid in seen_ids or (cid and cid in seen_clusters) or aid in viewed_ids:
-                continue
-            seen_ids.add(aid)
-            if cid: seen_clusters.add(cid)
-            unique_filtered.append(a)
+        common_where = "published_at > NOW() - INTERVAL '72 hours'"
+        if viewed_ids:
+            common_where += f" AND id NOT IN ({','.join([f'${i+1}' for i in range(len(viewed_ids))])})"
+            viewed_params = [UUID(vid) for vid in viewed_ids]
+        else:
+            viewed_params = []
 
-        unique_filtered.sort(key=lambda x: _get_rank_tuple(x, country, categories_to_fetch))
+        async with db_pool.acquire() as conn:
+            # Bucket 1: Local (Only if user has "local" interest or anon)
+            # Must match user's current country AND fall within their selected interests.
+            local_bucket = await fetch_bucket(
+                conn, 
+                f"{common_where} AND country_code = ${len(viewed_params)+1} AND categories && ${len(viewed_params)+2}::text[]", 
+                viewed_params + [country, interests], 
+                "Local",
+                category_boost=category_boost
+            ) if (country and has_local_interest and interests) else []
+            
+            # Bucket 2: Interests (Topic-based, Global Perspective)
+            # Pulls from topics the user is interested in, but only where the news is truly international (NULL country).
+            interest_bucket = await fetch_bucket(
+                conn, 
+                f"{common_where} AND categories && ${len(viewed_params)+1}::text[] AND country_code IS NULL", 
+                viewed_params + [topic_interests], 
+                "Interests",
+                category_boost=category_boost
+            ) if topic_interests else []
+            
+            # Bucket 3: World (Strictly International Headlines)
+            # Pulls global news (NULL country), but ONLY if it matches the user's interest profile.
+            world_bucket = await fetch_bucket(
+                conn, 
+                f"{common_where} AND country_code IS NULL AND categories && ${len(viewed_params)+1}::text[]", 
+                viewed_params + [interests], 
+                "World",
+                category_boost=category_boost
+            ) if interests else []
 
-        # 6. Session Creation (New)
+        # Deduplicate across buckets (prefer Interests > Local > World)
+        all_ids = set()
+        def dedupe(bucket):
+            unique = []
+            for a in bucket:
+                if a['id'] not in all_ids:
+                    unique.append(a)
+                    all_ids.add(a['id'])
+            return unique
+        
+        final_interest = dedupe(interest_bucket)
+        final_local = dedupe(local_bucket)
+        final_world = dedupe(world_bucket)
+
+        # 5. Dynamic Interleave Ratio Calculation
+        # We determine which buckets are active to rebalance the 100% weight.
+        active_buckets = []
+        active_ratios = []
+        
+        if final_interest:
+            active_buckets.append(final_interest)
+        if final_local:
+            active_buckets.append(final_local)
+        if final_world:
+            active_buckets.append(final_world)
+            
+        num_active = len(active_buckets)
+        if num_active > 0:
+            # Rebalance evenly: if 3 buckets -> 0.33 each, if 2 -> 0.50 each, if 1 -> 1.0
+            active_ratios = [1.0 / num_active] * num_active
+        else:
+            # Fallback (should not happen due to World bucket)
+            active_buckets = [[]]
+            active_ratios = [1.0]
+
+        # 6. Interleave using Diversifier
+        diversifier = Diversifier(
+            buckets=active_buckets,
+            ratios=active_ratios,
+            max_consecutive_cat=3,
+            max_consecutive_source=2,
+            ignore_cat_limit=is_category_page # Relax category guards on specific category pages
+        )
+        
+        session_articles = diversifier.interleave(limit=300)
+
+        # 5. Global Deduplication (just in case)
+        # (Already handled by the dedupe function above)
+
+        # 6. Session Creation
         new_session_id = str(uuid4())
-        session_articles = unique_filtered[:300] # Cap session size
         
         if redis_client:
             session_key = f"session_articles:{new_session_id}"
-            all_ids = [str(a['id']) for a in session_articles]
-            await redis_client.set(session_key, orjson.dumps(all_ids), ex=14400) # 4 Hour TTL
+            all_ids_list = [str(a['id']) for a in session_articles]
+            await redis_client.set(session_key, orjson.dumps(all_ids_list), ex=14400) # 4 Hour TTL
 
         final_result = session_articles[:limit]
         has_more = len(session_articles) > limit
         next_cursor = str(limit) if has_more else None
         expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
 
-        logger.info(f"New Feed Session Created: session={new_session_id} items={len(session_articles)}")
+        logger.info(f"New Diversified Feed Session: session={new_session_id} items={len(session_articles)}")
         return {
             "articles": final_result,
             "session_id": new_session_id,

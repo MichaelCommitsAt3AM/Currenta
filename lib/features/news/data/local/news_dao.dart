@@ -384,6 +384,12 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
         .go();
   }
 
+  Future<void> deleteNonPersonalizedArticles() async {
+    await (delete(newsArticlesTable)
+          ..where((t) => t.isFavorited.equals(false) & t.isLiked.equals(false)))
+        .go();
+  }
+
   // ── Reading History ───────────────────────────────────────────
 
   Stream<List<NewsArticlesTableData>> watchReadingHistory({int limit = 100}) {

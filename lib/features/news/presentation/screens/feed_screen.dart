@@ -23,6 +23,7 @@ import 'error_state_screen.dart';
 import '../../../../theme/app_theme.dart';
 import '../../../../core/utils/browser_service.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/navigation/app_route_observer.dart';
 
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
@@ -32,7 +33,7 @@ class FeedScreen extends ConsumerStatefulWidget {
 }
 
 class _FeedScreenState extends ConsumerState<FeedScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   NewsCategory? _selectedCategory;
   late final PageController _pageController;
   int _currentIndex = 0;
@@ -41,6 +42,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   Timer? _viewTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _showOnboarding = false;
+  bool _isManualShimmering = false;
+  bool _didSubscribeRouteAware = false;
+  bool _isRouteVisible = false;
+  bool _isShowingRefreshAck = false;
 
   @override
   void initState() {
@@ -58,6 +63,20 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackPageView(0);
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_didSubscribeRouteAware) return;
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      appRouteObserver.subscribe(this, route);
+      _didSubscribeRouteAware = true;
+      _isRouteVisible = route.isCurrent;
+      _maybeShowPendingRefreshAck();
+    }
   }
 
   void _checkOnboarding() {
@@ -101,6 +120,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   @override
   void dispose() {
+    if (_didSubscribeRouteAware) {
+      appRouteObserver.unsubscribe(this);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
@@ -113,6 +135,62 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     if (state == AppLifecycleState.resumed) {
       // Check for staleness and refresh if needed when app comes back to foreground
       ref.read(newsFeedNotifierProvider.notifier).refreshIfStale();
+      _maybeShowPendingRefreshAck();
+    }
+  }
+
+  @override
+  void didPush() {
+    _isRouteVisible = true;
+    _maybeShowPendingRefreshAck();
+  }
+
+  @override
+  void didPopNext() {
+    _isRouteVisible = true;
+    _maybeShowPendingRefreshAck();
+  }
+
+  @override
+  void didPushNext() {
+    _isRouteVisible = false;
+  }
+
+  @override
+  void didPop() {
+    _isRouteVisible = false;
+  }
+
+  Future<void> _maybeShowPendingRefreshAck() async {
+    if (!mounted || !_isRouteVisible || _isShowingRefreshAck) return;
+
+    final needsRefresh = ref.read(needsFeedRefreshProvider);
+    if (!needsRefresh) return;
+
+    _isShowingRefreshAck = true;
+    try {
+      debugPrint(
+          '[FeedScreen] Route visible. Showing manual shimmer for 1s...');
+
+      // Enter manual shimmer and clear pending flag immediately.
+      setState(() => _isManualShimmering = true);
+      ref.read(needsFeedRefreshProvider.notifier).state = false;
+
+      // Reset local scroll index to the top for the fresh session.
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
+      if (mounted) {
+        setState(() => _currentIndex = 0);
+      }
+
+      await Future.delayed(const Duration(seconds: 1));
+
+      if (mounted) {
+        setState(() => _isManualShimmering = false);
+      }
+    } finally {
+      _isShowingRefreshAck = false;
     }
   }
 
@@ -398,12 +476,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
     });
 
+    ref.listen<bool>(needsFeedRefreshProvider, (previous, next) {
+      if (!next) return;
+      _maybeShowPendingRefreshAck();
+    });
+
     // ── Listen for Location Update Popup ──
     ref.listen(authNotifierProvider, (previous, next) {
-      if (next.showLocationUpdatePopup && !(previous?.showLocationUpdatePopup ?? false)) {
+      if (next.showLocationUpdatePopup &&
+          !(previous?.showLocationUpdatePopup ?? false)) {
         final detected = next.detectedCountry;
         final current = next.preferredCountry;
-        
+
         if (detected != null && current != null) {
           showModalBottomSheet(
             context: context,
@@ -449,29 +533,31 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         body: Stack(
           children: [
             // ── Main content ─────────────────────────────────────────
-            // ── Main content ─────────────────────────────────────────
-            feedAsync.when(
-              skipLoadingOnReload: true,
-              loading: () {
-                final cachedValue = feedAsync.valueOrNull;
-                if (cachedValue != null && cachedValue.articles.isNotEmpty) {
-                  return _buildFeedContent(cachedValue);
-                }
-                return const ShimmerFeed();
-              },
-              error: (e, _) => ErrorStateScreen(
-                error: e,
-                onRetry: () =>
-                    ref.read(newsFeedNotifierProvider.notifier).refresh(),
-              ),
-              data: (feed) {
-                // If we are loading and have no articles (e.g. switching categories), show shimmer
-                if (feed.articles.isEmpty && feedAsync.isLoading) {
-                  return const ShimmerFeed();
-                }
-                return _buildFeedContent(feed);
-              },
-            ),
+            _isManualShimmering
+                ? const ShimmerFeed()
+                : feedAsync.when(
+                    // DO NOT skip loading on reload, we want to see the shimmer for hard refreshes
+                    skipLoadingOnReload: false,
+                    loading: () => const ShimmerFeed(),
+                    error: (e, _) => ErrorStateScreen(
+                      error: e,
+                      onRetry: () =>
+                          ref.read(newsFeedNotifierProvider.notifier).refresh(),
+                    ),
+                    data: (feed) {
+                      // Category Mismatch Guard: If the data state contains the OLD category,
+                      // keep shimmering until the new category's data arrives.
+                      if (feed.selectedCategory != _selectedCategory) {
+                        return const ShimmerFeed();
+                      }
+
+                      // If we are loading and have no articles (e.g. switching categories), show shimmer
+                      if (feed.articles.isEmpty && feedAsync.isLoading) {
+                        return const ShimmerFeed();
+                      }
+                      return _buildFeedContent(feed);
+                    },
+                  ),
 
             // ── Category filter bar ──────────────────────────────────
             _CategoryBar(

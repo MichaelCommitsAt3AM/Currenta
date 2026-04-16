@@ -21,7 +21,7 @@ def start_scheduler():
         'interval', 
         minutes=60, 
         id='update_trends', 
-        args=[db.db_pool], 
+        args=[db.db_pool, db.redis_client], 
         replace_existing=True
     )
     

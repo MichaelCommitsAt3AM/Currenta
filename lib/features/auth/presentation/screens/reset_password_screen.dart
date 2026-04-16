@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -29,20 +30,10 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       if (mounted) {
         final error = ref.read(authNotifierProvider).error;
         if (error == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Password reset successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          AppSnackbar.showSuccess(context, 'Password reset successfully!');
           Navigator.of(context).popUntil((route) => route.isFirst);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(error),
-              backgroundColor: const Color(0xFFFF6B6B),
-            ),
-          );
+          AppSnackbar.showError(context, error);
         }
       }
     }

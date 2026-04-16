@@ -21,7 +21,7 @@ async def run_ingestion_and_trending():
     logger.info("--- Starting Scheduled Ingestion Cycle ---")
     await orchestrate_sync_wrapper()
     logger.info("Ingestion complete. Starting post-sync trending update...")
-    await update_trending_scores(db.db_pool)
+    await update_trending_scores(db.db_pool, db.redis_client)
     logger.info("--- Ingestion and Trending Cycle Complete ---")
 
 async def main():
@@ -52,7 +52,7 @@ async def main():
         update_trending_scores,
         'interval',
         minutes=60,
-        args=[active_pool],
+        args=[active_pool, db.redis_client],
         id='periodic_trends',
         replace_existing=True
     )

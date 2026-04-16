@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/providers.dart';
 import '../../../news/domain/entities/news_category.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class AuthBridgeScreen extends ConsumerStatefulWidget {
   const AuthBridgeScreen({super.key, required this.selectedInterests});
@@ -60,9 +61,7 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error saving preferences: $e')),
-      );
+      AppSnackbar.showError(context, 'Error saving preferences: $e');
       setState(() {
         _isLoading = false;
       });
@@ -86,9 +85,7 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
       await _completeOnboardingFlow();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to start guest session: $e')),
-      );
+      AppSnackbar.showError(context, 'Failed to start guest session: $e');
       setState(() {
         _isLoading = false;
       });
@@ -113,9 +110,7 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
       
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to sign in: $e')),
-      );
+      AppSnackbar.showError(context, 'Failed to sign in: $e');
       setState(() {
         _isLoading = false;
       });

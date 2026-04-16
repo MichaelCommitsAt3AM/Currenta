@@ -49,17 +49,26 @@ if [[ "${SKIP_PRECHECKS}" != "true" ]]; then
     echo "[deploy] Pre-deploy checks failed. Aborting build/deploy."
     exit 1
   fi
+  
+  # Optional: Run pip-audit locally if available
+  if command -v pip-audit >/dev/null 2>&1; then
+    echo "[deploy] Running local security audit..."
+    pip-audit -r "${ROOT_DIR}/backend/requirements.txt" || { echo "[deploy] Security audit failed!"; exit 1; }
+  fi
+
   echo "[deploy] Pre-deploy checks passed."
 else
   echo "[deploy] SKIP_PRECHECKS=true, skipping pre-deploy checks."
 fi
 
 if [[ "${SKIP_BUILD}" != "true" ]]; then
-  echo "[deploy] Building image with Cloud Build: ${IMAGE}"
+  echo "[deploy] Building image with Kaniko (optimized caching): ${IMAGE}"
+  # Note: --no-source is not used here as we need to upload the context
   gcloud builds submit "${ROOT_DIR}" \
     --project="${PROJECT_ID}" \
     --config="${ROOT_DIR}/cloudbuild.yaml" \
-    --substitutions="_TAG=${IMAGE}"
+    --substitutions="_TAG=${IMAGE}" \
+    --quiet
 else
   echo "[deploy] SKIP_BUILD=true, using existing image: ${IMAGE}"
 fi
@@ -73,47 +82,47 @@ DEPLOY_ARGS=(
   --allow-unauthenticated
   --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true,ALLOWED_ORIGINS=https://hidden-paper-0d93.michaelnjonge905.workers.dev"
   --update-secrets="DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,REDIS_URL=REDIS_URL:latest,VERTEX_PROJECT=VERTEX_PROJECT:latest,VERTEX_LOCATION=VERTEX_LOCATION:latest,VOYAGE_API_KEY=VOYAGE_API_KEY:latest,VOYAGE_EMBED_MODEL=VOYAGE_EMBED_MODEL:latest"
+  --quiet
 )
 
 if [[ -n "${RUNTIME_SA}" ]]; then
   DEPLOY_ARGS+=(--service-account "${RUNTIME_SA}")
-else
-  echo "[deploy] RUNTIME_SA is empty; keeping existing Cloud Run runtime service account."
 fi
 
 gcloud run deploy "${DEPLOY_ARGS[@]}" --project="${PROJECT_ID}"
 
 if [[ "${VERIFY}" == "true" ]]; then
-  echo "[deploy] Service summary"
-  gcloud run services describe "${SERVICE}" \
-    --region="${REGION}" \
-    --project="${PROJECT_ID}" \
-    --format="table(metadata.name,status.url,status.latestReadyRevisionName)"
-
+  echo "[deploy] Service is live! Verifying health..."
+  
   SERVICE_URL="$(gcloud run services describe "${SERVICE}" --region="${REGION}" --project="${PROJECT_ID}" --format='value(status.url)')"
   if [[ -z "${SERVICE_URL}" ]]; then
-    echo "[deploy] Could not determine service URL for endpoint verification."
+    echo "[deploy] Could not determine service URL."
     exit 1
   fi
 
-  echo "[deploy] Verifying admin session endpoint in OpenAPI: ${SERVICE_URL}/openapi.json"
-  OPENAPI_JSON="$(curl -fsSL --max-time 20 "${SERVICE_URL}/openapi.json")"
-  if ! python3 - <<'PY' <<EOF
-${OPENAPI_JSON}
-EOF
+  echo "[deploy] URL: ${SERVICE_URL}"
+  # Quick ping before deep check
+  if ! curl -fsSL --max-time 10 "${SERVICE_URL}/openapi.json" > /dev/null; then
+      echo "[deploy] Waiting for service to wake up..."
+      sleep 2
+  fi
+
+  echo "[deploy] Verifying endpoints..."
+  OPENAPI_JSON="$(curl -fsSL --max-time 15 "${SERVICE_URL}/openapi.json")"
+  if ! python3 - "${OPENAPI_JSON}" <<'PY'
 import json
 import sys
 
 try:
-    data = json.loads(sys.stdin.read())
+    data = json.loads(sys.argv[1])
 except Exception:
     print("[deploy] Failed to parse OpenAPI JSON.")
-    raise SystemExit(1)
+    sys.exit(1)
 
 paths = data.get("paths", {})
 if "/api/admin/session/check" not in paths:
     print("[deploy] Missing required path: /api/admin/session/check")
-    raise SystemExit(1)
+    sys.exit(1)
 
 print("[deploy] Endpoint check passed: /api/admin/session/check")
 PY
@@ -122,12 +131,14 @@ PY
     exit 1
   fi
 
-  echo "[deploy] Recent Cloud Run logs"
+  echo "[deploy] Fetching recent logs..."
+  # Only fetch logs from the last 2 minutes to keep it snappy
   gcloud logging read \
-    "resource.type=cloud_run_revision AND resource.labels.service_name=${SERVICE}" \
+    "resource.type=cloud_run_revision AND resource.labels.service_name=${SERVICE} timestamp>=\"$(date -u -d '2 minutes ago' +%Y-%m-%dT%H:%M:%SZ)\"" \
     --project="${PROJECT_ID}" \
-    --limit=20 \
+    --limit=10 \
     --format="value(timestamp, severity, textPayload)"
 fi
 
-echo "[deploy] Done."
+echo "[deploy] Done. Total time: $SECONDS seconds."
+

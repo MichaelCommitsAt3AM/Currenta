@@ -47,6 +47,9 @@ abstract class NewsRepository {
   /// Completely clears the local articles cache.
   Future<void> clearCache();
 
+  /// Clears the normal feed while preserving user-personalized data (bookmarks/likes).
+  Future<void> clearFeed();
+
   /// Removes articles from the local cache that match the specified category.
   Future<void> deleteArticlesByCategory(String category);
 

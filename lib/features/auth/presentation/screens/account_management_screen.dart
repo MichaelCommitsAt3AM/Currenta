@@ -6,6 +6,7 @@ import '../../application/auth_notifier.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 import 'change_password_screen.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class AccountManagementScreen extends ConsumerWidget {
   const AccountManagementScreen({super.key});
@@ -250,9 +251,7 @@ class AccountManagementScreen extends ConsumerWidget {
                       );
                       if (confirmed == true) {
                         // TODO: Implement actual deletion if backend supports it
-                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Account deletion coming soon')),
-                        );
+                         AppSnackbar.showSuccess(context, 'Account deletion coming soon');
                       }
               },
             ),

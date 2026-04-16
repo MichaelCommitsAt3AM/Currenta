@@ -1,5 +1,6 @@
 // lib/features/news/presentation/screens/personalization_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/providers.dart';
 import '../../domain/entities/news_category.dart';
@@ -8,6 +9,7 @@ import 'country_selection_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../application/news_feed_notifier.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class PersonalizationScreen extends ConsumerStatefulWidget {
   const PersonalizationScreen({super.key});
@@ -21,8 +23,15 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   final Set<NewsCategory> _selectedCategories = {};
   final Set<NewsSubCategory> _selectedSubCategories = {};
   String? _selectedCountry;
+  
+  // Track initial state to detect changes
+  final Set<NewsCategory> _initialCategories = {};
+  final Set<NewsSubCategory> _initialSubCategories = {};
+  String? _initialCountry;
+
   bool _isLoading = true;
   bool _isSaving = false;
+  int _expandedIndex = -1;
 
   @override
   void initState() {
@@ -69,30 +78,60 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
           }
 
           _selectedCountry = preferredCountry;
+          
+          // Capture initial state for change tracking
+          _initialCategories.clear();
+          _initialCategories.addAll(_selectedCategories);
+          _initialSubCategories.clear();
+          _initialSubCategories.addAll(_selectedSubCategories);
+          _initialCountry = _selectedCountry;
+
           _isLoading = false;
+
+          // Expand the first selected category by default (skip Local)
+          if (_selectedCategories.isNotEmpty) {
+            _expandedIndex = NewsCategory.values.indexWhere(
+              (c) => _selectedCategories.contains(c) && c != NewsCategory.local,
+            );
+          }
+          
+          if (_expandedIndex == -1 && NewsCategory.values.isNotEmpty) {
+            // Fallback: expand first non-local category
+            _expandedIndex = NewsCategory.values.indexWhere((c) => c != NewsCategory.local);
+          }
         });
+
+        // Trigger onboarding if needed
+        _checkOnboarding();
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load interests: $e')),
-        );
+        AppSnackbar.showError(context, 'Failed to load interests: $e');
       }
     }
+  }
+
+  void _toggleExpansion(int index) {
+    if (NewsCategory.values[index] == NewsCategory.local) return;
+    setState(() {
+      if (_expandedIndex == index) {
+        _expandedIndex = -1; // Collapse if clicking the same one
+      } else {
+        _expandedIndex = index;
+      }
+    });
   }
 
   void _toggleCategory(NewsCategory category) {
     setState(() {
       if (_selectedCategories.contains(category)) {
         _selectedCategories.remove(category);
-        // Automatically deselect all sub-categories for this category (Smart Defaults)
         for (final sub in category.subCategories) {
           _selectedSubCategories.remove(sub);
         }
       } else {
         _selectedCategories.add(category);
-        // Automatically select all sub-categories for this category (Smart Defaults)
         for (final sub in category.subCategories) {
           _selectedSubCategories.add(sub);
         }
@@ -106,15 +145,26 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         _selectedSubCategories.remove(subCategory);
       } else {
         _selectedSubCategories.add(subCategory);
+        
+        // Auto-select parent category if a sub-category is picked
+        final parent = NewsCategory.values.firstWhere(
+          (c) => c.subCategories.contains(subCategory),
+          orElse: () => NewsCategory.world, // Should not happen based on news_category.dart
+        );
+        _selectedCategories.add(parent);
       }
     });
   }
 
+  bool get _hasChanges {
+    final categorySetsEqual = setEquals(_initialCategories, _selectedCategories);
+    final subCategorySetsEqual = setEquals(_initialSubCategories, _selectedSubCategories);
+    return _initialCountry != _selectedCountry || !categorySetsEqual || !subCategorySetsEqual;
+  }
+
   Future<void> _onSave() async {
     if (_selectedCategories.length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select at least 3 main topics')),
-      );
+      AppSnackbar.showError(context, 'Please select at least 3 main topics');
       return;
     }
 
@@ -175,41 +225,238 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         // Always remove articles from categories that the user explicitly unchecked.
         final removed =
             prevInterests.where((c) => !nextInterests.contains(c)).toList();
-        if (removed.isNotEmpty) {
-          debugPrint(
-              '[Personalization] Removing categories from cache: $removed');
-          for (final catName in removed) {
-            await ref
-                .read(newsRepositoryProvider)
-                .deleteArticlesByCategory(catName);
-          }
-        }
+        // 1. Surgical wipe of the articles cache (preserves bookmarks/likes).
+        await ref.read(newsRepositoryProvider).clearFeed();
 
-        // Reset the current scroll position so the user starts from the top of the new feed.
-        // CRITICAL: We MUST await this so the new notifier doesn't read the old ID.
+        // 2. Reset the current scroll position.
         await ref
             .read(localPersistenceRepositoryProvider)
             .saveCurrentArticleId(null);
+        await ref
+            .read(localPersistenceRepositoryProvider)
+            .saveLastForYouArticleId(null);
 
-        // Wait briefly for any pending database/auth syncs to settle before rebuilding
-        await Future.delayed(const Duration(milliseconds: 300));
-
-        // Trigger a HARD REFRESH of the feed by invalidating the provider.
+        // 3. Mark the feed as needing a 'Fake Shimmer' refresh on return.
+        ref.read(needsFeedRefreshProvider.notifier).state = true;
+        
+        // 4. Force invalidate the notifier so the background sync starts NOW.
         ref.invalidate(newsFeedNotifierProvider);
 
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Interests updated successfully')),
-        );
+        if (mounted) {
+          Navigator.pop(context);
+          AppSnackbar.showSuccess(context, 'Interests updated successfully');
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save interests: $e')),
-        );
+        AppSnackbar.showError(context, 'Failed to save interests: $e');
       }
     }
+  }
+
+  Future<bool> _showExitConfirmation() async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF161822),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 32),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                color: Color(0xFFFF4D4D),
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Unsaved Changes',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'You have made changes to your preferences. Are you sure you want to discard them?',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                      ),
+                    ),
+                    child: const Text(
+                      'Keep Editing',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF4D4D),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text(
+                      'Discard',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _checkOnboarding() async {
+    final persistence = ref.read(localPersistenceRepositoryProvider);
+    if (!persistence.hasSeenPersonalizationOnboarding()) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) {
+        _showOnboarding();
+      }
+    }
+  }
+
+  void _showOnboarding() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF161822),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 32),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.auto_awesome_rounded,
+                color: Color(0xFF6C63FF),
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Personalize Your Feed',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Tap a category to explore its sub-topics, or use the circle icon to quickly follow or unfollow a main topic.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  ref
+                      .read(localPersistenceRepositoryProvider)
+                      .setHasSeenPersonalizationOnboarding(true);
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6C63FF),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Text(
+                  'Got it!',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -253,16 +500,33 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0C14),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon:
-              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+    return PopScope(
+      canPop: !_hasChanges || _isSaving,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _showExitConfirmation();
+        if (shouldPop && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A0C14),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+            onPressed: () async {
+              if (_hasChanges && !_isSaving) {
+                final shouldPop = await _showExitConfirmation();
+                if (shouldPop && mounted) {
+                  Navigator.pop(context);
+                }
+              } else {
+                Navigator.pop(context);
+              }
+            },
+          ),
         title: const Text(
           'Personalization',
           style: TextStyle(
@@ -275,320 +539,354 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: Color(0xFF6C63FF)))
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          : Stack(
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(24, 8, 24, 24),
-                  child: Text(
-                    'Choose your preferred region for local news and select at least 3 topics to personalize your feed.',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 15,
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-
-                // Country Selection
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Local News Region',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      GestureDetector(
-                        onTap: () async {
-                          final result =
-                              await Navigator.push<({String? code})?>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => CountrySelectionScreen(
-                                  initialCountry: _selectedCountry),
-                            ),
-                          );
-                          if (mounted && result != null) {
-                            setState(() => _selectedCountry = result.code);
-                          }
-                        },
-                        // Actually, looking at my screen, I always pop with a value when a list item is tapped.
-                        // If they pop via back button, it returns null by default in Flutter.
-                        // I'll use a slightly safer pattern.
-                        // The original code had an extra closing brace here. Removing it.
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.1)),
-                          ),
-                          child: Row(
-                            children: [
-                              Text(
-                                _selectedCountry != null
-                                    ? NewsCategory.getCountryEmoji(
-                                        _selectedCountry!)
-                                    : '📍',
-                                style: const TextStyle(fontSize: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _selectedCountry != null
-                                          ? NewsCategory.getCountryName(
-                                              _selectedCountry!)
-                                          : 'Detect Automatically',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Source local news based on this region',
-                                      style: TextStyle(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.5),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Icon(
-                                Icons.keyboard_arrow_right_rounded,
-                                color: Colors.white.withValues(alpha: 0.3),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
-                  child: Text(
-                    'Topics',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-
-                Expanded(
-                  child: ListView.builder(
+                Positioned.fill(
+                  child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: NewsCategory.values.length,
-                    itemBuilder: (context, index) {
-                      final cat = NewsCategory.values[index];
-                      final isSelected = _selectedCategories.contains(cat);
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GestureDetector(
-                            onTap: () => _toggleCategory(cat),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOutCubic,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFF6C63FF)
-                                    : Colors.white.withValues(alpha: 0.05),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFF6C63FF)
-                                          .withValues(alpha: 0.8)
-                                      : Colors.white.withValues(alpha: 0.1),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Text(cat.emoji,
-                                      style: const TextStyle(fontSize: 18)),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    cat.displayName,
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: isSelected
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  if (isSelected)
-                                    const Icon(Icons.check_circle,
-                                        color: Colors.white, size: 20)
-                                  else
-                                    Icon(Icons.add_circle_outline,
-                                        color:
-                                            Colors.white.withValues(alpha: 0.3),
-                                        size: 20),
-                                ],
-                              ),
+                    padding: const EdgeInsets.only(bottom: 120), // Space for button
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(24, 8, 24, 24),
+                          child: Text(
+                            'Choose your preferred region for local news and select at least 3 topics to personalize your feed.',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 15,
+                              height: 1.5,
                             ),
                           ),
-                          if (isSelected && cat.subCategories.isNotEmpty)
-                            Padding(
-                              padding:
-                                  const EdgeInsets.only(left: 8, bottom: 20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                        bottom: 12, left: 4),
-                                    child: Text(
-                                      'Fine-tune (Optional)',
-                                      style: TextStyle(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.4),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5,
-                                      ),
+                        ),
+
+                        // Country Selection
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Local News Region',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              GestureDetector(
+                                onTap: () async {
+                                  if (!_selectedCategories.contains(NewsCategory.local)) {
+                                    AppSnackbar.showError(context,
+                                        'Please select Local News category first to set your region');
+                                    return;
+                                  }
+                                  final result = await Navigator.push<({String? code})?>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => CountrySelectionScreen(
+                                          initialCountry: _selectedCountry),
                                     ),
-                                  ),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: cat.subCategories.map((sub) {
-                                      final isSubSelected =
-                                          _selectedSubCategories.contains(sub);
-                                      return GestureDetector(
-                                        onTap: () => _toggleSubCategory(sub),
-                                        child: AnimatedContainer(
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 12, vertical: 7),
-                                          decoration: BoxDecoration(
-                                            color: isSubSelected
-                                                ? const Color(0xFF6C63FF)
-                                                    .withValues(alpha: 0.15)
-                                                : Colors.transparent,
-                                            borderRadius:
-                                                BorderRadius.circular(20),
-                                            border: Border.all(
-                                              color: isSubSelected
-                                                  ? const Color(0xFF6C63FF)
-                                                      .withValues(alpha: 0.5)
-                                                  : Colors.white
-                                                      .withValues(alpha: 0.1),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
+                                  );
+                                  if (mounted && result != null) {
+                                    setState(() => _selectedCountry = result.code);
+                                  }
+                                },
+                                child: Opacity(
+                                  opacity: _selectedCategories.contains(NewsCategory.local)
+                                      ? 1.0
+                                      : 0.4,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                          color: Colors.white.withValues(alpha: 0.1)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          _selectedCountry != null
+                                              ? NewsCategory.getCountryEmoji(_selectedCountry!)
+                                              : '📍',
+                                          style: const TextStyle(fontSize: 22),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              if (isSubSelected)
-                                                const Padding(
-                                                  padding:
-                                                      EdgeInsets.only(right: 6),
-                                                  child: Icon(Icons.check,
-                                                      size: 12,
-                                                      color: Colors.white),
-                                                )
-                                              else
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                          right: 6),
-                                                  child: Icon(
-                                                      Icons
-                                                          .remove_circle_outline,
-                                                      size: 12,
-                                                      color: Colors.white
-                                                          .withValues(
-                                                              alpha: 0.3)),
-                                                ),
                                               Text(
-                                                sub.displayName,
+                                                _selectedCountry != null
+                                                    ? NewsCategory.getCountryName(_selectedCountry!)
+                                                    : 'Detect Automatically',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Source local news based on this region',
                                                 style: TextStyle(
-                                                  color: isSubSelected
-                                                      ? Colors.white
-                                                      : Colors.white54,
+                                                  color: Colors.white.withValues(alpha: 0.5),
                                                   fontSize: 12,
-                                                  fontWeight: isSubSelected
-                                                      ? FontWeight.w600
-                                                      : FontWeight.normal,
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
-                                      );
-                                    }).toList(),
+                                        Icon(
+                                          Icons.keyboard_arrow_right_rounded,
+                                          color: Colors.white.withValues(alpha: 0.3),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
+                          child: Text(
+                            'Topics',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+
+                        // Categories List
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            children: List.generate(NewsCategory.values.length, (index) {
+                              final cat = NewsCategory.values[index];
+                              final isSelected = _selectedCategories.contains(cat);
+                              final isExpanded = _expandedIndex == index;
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _toggleExpansion(index),
+                                    child: AnimatedContainer(
+                                      duration: const Duration(milliseconds: 250),
+                                      curve: Curves.easeInOut,
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 16, vertical: 14),
+                                      decoration: BoxDecoration(
+                                        color: isExpanded
+                                            ? Colors.white.withValues(alpha: 0.08)
+                                            : Colors.white.withValues(alpha: 0.04),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: isExpanded
+                                              ? const Color(0xFF6C63FF).withValues(alpha: 0.3)
+                                              : Colors.white.withValues(alpha: 0.05),
+                                          width: isExpanded ? 1.5 : 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Text(cat.emoji, style: const TextStyle(fontSize: 18)),
+                                          const SizedBox(width: 12),
+                                          Text(
+                                            cat.displayName,
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 15,
+                                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          GestureDetector(
+                                            onTap: () => _toggleCategory(cat),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              child: isSelected
+                                                  ? const Icon(Icons.check_circle_rounded,
+                                                      color: Color(0xFF6C63FF), size: 24)
+                                                  : Icon(Icons.radio_button_unchecked_rounded,
+                                                      color: Colors.white.withValues(alpha: 0.2),
+                                                      size: 24),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          if (cat != NewsCategory.local)
+                                            Icon(
+                                              isExpanded
+                                                  ? Icons.keyboard_arrow_up_rounded
+                                                  : Icons.keyboard_arrow_down_rounded,
+                                              color: Colors.white.withValues(alpha: 0.2),
+                                              size: 20,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  AnimatedSize(
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeInOut,
+                                    alignment: Alignment.topCenter,
+                                    child: isExpanded && cat.subCategories.isNotEmpty
+                                        ? Padding(
+                                            padding: const EdgeInsets.only(
+                                                left: 8, bottom: 24, right: 8),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(bottom: 16, left: 4),
+                                                  child: Text(
+                                                    'Fine-tune your ${cat.displayName} interest',
+                                                    style: TextStyle(
+                                                      color: Colors.white.withValues(alpha: 0.4),
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.w600,
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Wrap(
+                                                  spacing: 10,
+                                                  runSpacing: 10,
+                                                  children: cat.subCategories.map((sub) {
+                                                    final isSubSelected =
+                                                        _selectedSubCategories.contains(sub);
+                                                    return GestureDetector(
+                                                      onTap: () => _toggleSubCategory(sub),
+                                                      child: AnimatedContainer(
+                                                        duration:
+                                                            const Duration(milliseconds: 200),
+                                                        padding: const EdgeInsets.symmetric(
+                                                            horizontal: 14, vertical: 8),
+                                                        decoration: BoxDecoration(
+                                                          color: isSubSelected
+                                                              ? const Color(0xFF6C63FF)
+                                                                  .withValues(alpha: 0.15)
+                                                              : Colors.white
+                                                                  .withValues(alpha: 0.05),
+                                                          borderRadius: BorderRadius.circular(20),
+                                                          border: Border.all(
+                                                            color: isSubSelected
+                                                                ? const Color(0xFF6C63FF)
+                                                                    .withValues(alpha: 0.5)
+                                                                : Colors.transparent,
+                                                          ),
+                                                        ),
+                                                        child: Row(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          children: [
+                                                            if (isSubSelected)
+                                                              const Padding(
+                                                                padding:
+                                                                    EdgeInsets.only(right: 6),
+                                                                child: Icon(Icons.check,
+                                                                    size: 14, color: Colors.white),
+                                                              ),
+                                                            Text(
+                                                              sub.displayName,
+                                                              style: TextStyle(
+                                                                color: isSubSelected
+                                                                    ? Colors.white
+                                                                    : Colors.white
+                                                                        .withValues(alpha: 0.5),
+                                                                fontSize: 13,
+                                                                fontWeight: isSubSelected
+                                                                    ? FontWeight.w600
+                                                                    : FontWeight.normal,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }).toList(),
+                                                ),
+                                              ],
+                                            ),
+                                          )
+                                        : const SizedBox(width: double.infinity, height: 0),
                                   ),
                                 ],
-                              ),
-                            ),
-                        ],
-                      );
-                    },
+                              );
+                            }),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
 
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _onSave,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6C63FF),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      disabledBackgroundColor:
-                          const Color(0xFF6C63FF).withValues(alpha: 0.5),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                // Fixed Bottom Button
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0A0C14),
+                      border: Border(
+                        top: BorderSide(
+                          color: Colors.white10,
+                          width: 1,
+                        ),
                       ),
-                      elevation: 0,
                     ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                    child: SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+                        child: ElevatedButton(
+                          onPressed: (_isSaving || !_hasChanges) ? null : _onSave,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF6C63FF),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: const Color(0xFF1E202C),
+                            disabledForegroundColor: Colors.white.withValues(alpha: 0.2),
+                            minimumSize: const Size(double.infinity, 56),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                          )
-                        : const Text(
-                            'Save Preferences',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            elevation: _hasChanges ? 4 : 0,
                           ),
+                          child: _isSaving
+                              ? const SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : const Text(
+                                  'Save Preferences',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'Outfit',
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
             ),
+        ),
     );
   }
 }
+

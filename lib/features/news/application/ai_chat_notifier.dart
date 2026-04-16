@@ -108,14 +108,14 @@ class AiChatNotifier extends _$AiChatNotifier {
     final repository = ref.read(chatRepositoryProvider);
     if (state.messages.length == 1) {
       await repository.saveChatSession(ChatSession(
-        id: this.articleId,
-        articleId: this.articleId,
-        articleTitle: this.articleTitle,
+        id: articleId,
+        articleId: articleId,
+        articleTitle: articleTitle,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       ));
     }
-    await repository.saveChatMessage(this.articleId, userMessage);
+    await repository.saveChatMessage(articleId, userMessage);
 
     try {
       final session = Supabase.instance.client.auth.currentSession;

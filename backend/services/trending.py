@@ -2,6 +2,7 @@ import logging
 import asyncio
 import httpx
 import re
+import orjson
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
@@ -93,12 +94,15 @@ async def log_trending_event(conn, region: str, query: str, action: str, traffic
     except Exception as e:
         logger.error(f"[Trending-Logger] Failed to write to trending_logs: {e}")
 
-async def update_trending_scores(db_pool):
+async def update_trending_scores(db_pool, redis_client=None):
     """
     Orchestrates the trending score updates across all regions in parallel.
     """
     logger.info("Starting trending score update...")
     all_regions = ["US", "KE"]
+    
+    # Track traffic for normalization stats
+    regional_traffic_stats = {} 
     
     # Recommendation 4: Local set to deduplicate ingestion within a single run
     processed_urls = set()
@@ -111,6 +115,24 @@ async def update_trending_scores(db_pool):
                 
             logger.info(f"[{region}] Processing {len(trends)} trends")
             
+            # Level 1 Normalization: Gather stats for this region
+            traffics = [t['traffic'] for t in trends if t.get('traffic')]
+            if traffics and redis_client:
+                import statistics
+                mean = statistics.mean(traffics)
+                std = statistics.stdev(traffics) if len(traffics) > 1 else 0.0
+                stats_payload = {
+                    "mean": mean,
+                    "std": std,
+                    "max": max(traffics),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+                try:
+                    await redis_client.set(f"stats:v1:{region}:traffic", orjson.dumps(stats_payload), ex=86400)
+                    logger.info(f"[{region}] Updated traffic stats in Redis: mean={mean:.2f}, std={std:.2f}")
+                except Exception as e:
+                    logger.warning(f"[{region}] Failed to save stats to Redis: {e}")
+
             # Recommendation 1: Parallelize embeddings for all trends in this region
             async def get_embedding(trend):
                 # Combine query + all clean headlines for a much richer semantic search context
@@ -191,8 +213,20 @@ async def update_trending_scores(db_pool):
                                                     traffic=trend['traffic'], error_message="No anchor URL available")
 
                     if article_ids_to_boost or cluster_ids_to_boost:
-                        import math
-                        trend_weight = math.log(trend['traffic'] + 1)
+                        # Normalization Level 1 & 2
+                        regional_max = traffics[0] if traffics else (trend['traffic'] or 1.0)
+                        if redis_client:
+                            try:
+                                stats_json = await redis_client.get(f"stats:v1:{region}:traffic")
+                                if stats_json:
+                                    stats = orjson.loads(stats_json)
+                                    regional_max = stats.get('max') or regional_max
+                            except Exception:
+                                pass
+                        
+                        # Use a scale of 0-10 for the trend boost, where 10 is the top trend in the region.
+                        # This balances US (millions) with KE (thousands) perfectly.
+                        trend_weight = 10.0 * (trend['traffic'] / regional_max)
                         
                         await conn.execute("""
                             UPDATE articles 
@@ -202,7 +236,7 @@ async def update_trending_scores(db_pool):
                             WHERE id = ANY($2::uuid[])
                             OR (cluster_id IS NOT NULL AND cluster_id = ANY($3::uuid[]))
                         """, trend_weight, list(article_ids_to_boost), list(cluster_ids_to_boost))
-                        logger.info(f"[{region}] Boosted '{trend['query']}' with weight {trend_weight:.2f} and updated ranking score")
+                        logger.info(f"[{region}] Boosted '{trend['query']}' with normalized weight {trend_weight:.2f}")
 
                 except Exception as e:
                     logger.error(f"[{region}] Error processing trend '{trend.get('query')}': {e}")

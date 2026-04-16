@@ -2,60 +2,62 @@ import os
 import sys
 from backend.api import feed
 
+def test_diversifier_interleaving():
+    # Bucket 1: Tech (Interest)
+    b1 = [
+        {"id": "t1", "categories": ["tech"], "source_name": "TechCrunch", "ranking_score": 0.9},
+        {"id": "t2", "categories": ["tech"], "source_name": "TechCrunch", "ranking_score": 0.8},
+        {"id": "t3", "categories": ["tech"], "source_name": "Verge", "ranking_score": 0.7},
+        {"id": "t4", "categories": ["tech"], "source_name": "Verge", "ranking_score": 0.6},
+    ]
+    # Bucket 2: Politics (Local)
+    b2 = [
+        {"id": "p1", "categories": ["politics"], "source_name": "BBC", "ranking_score": 0.95},
+        {"id": "p2", "categories": ["politics"], "source_name": "BBC", "ranking_score": 0.85},
+        {"id": "p3", "categories": ["politics"], "source_name": "Reuters", "ranking_score": 0.75},
+    ]
+    # Bucket 3: Science (World)
+    b3 = [
+        {"id": "s1", "categories": ["science"], "source_name": "Nature", "ranking_score": 0.88},
+    ]
+
+    diversifier = feed.Diversifier(
+        buckets=[b1, b2, b3],
+        ratios=[0.33, 0.33, 0.33],
+        max_consecutive_cat=2, # Stricter for testing
+        max_consecutive_source=2
+    )
+    
+    result = diversifier.interleave(limit=10)
+    
+    ids = [a["id"] for a in result]
+    # Round-robin expected: b1[0], b2[0], b3[0], b1[1], b2[1], b3[empty]...
+    # p1, t1, s1, p2, t2, p3, t3...
+    print(f"Interleaved IDs: {ids}")
+    
+    assert "t1" in ids
+    assert "p1" in ids
+    assert "s1" in ids
+    
+    # Check source guard (max 2)
+    sources = [a["source_name"] for a in result]
+    for i in range(len(sources)-2):
+        assert not (sources[i] == sources[i+1] == sources[i+2])
+
+    print("Diversifier interleaving tests passed!")
+
 def test_rank_tuple_ordering():
-    # country_boost ASC, category_priority ASC, trending_tier ASC, major_source_tier ASC, ranking_score DESC
+    # Internal bucket ranking is now just ranking_score DESC
+    a1 = {"ranking_score": 0.5}
+    a2 = {"ranking_score": 0.9}
     
-    # User pref: KE, Interests: [tech]
-    pref_country = "KE"
-    interests = ["tech"]
+    t1 = feed._get_rank_tuple(a1, None, [])
+    t2 = feed._get_rank_tuple(a2, None, [])
     
-    # Case 1: Primary match (Country + Category)
-    a1 = {"id": "a1", "country_code": "KE", "categories": ["tech"], "trend_score": 0, "is_major_source": False, "ranking_score": 0.5}
-    # Case 2: Country match only
-    a2 = {"id": "a2", "country_code": "KE", "categories": ["politics"], "trend_score": 0, "is_major_source": False, "ranking_score": 0.9}
-    # Case 3: Category match only
-    a3 = {"id": "a3", "country_code": "US", "categories": ["tech"], "trend_score": 0, "is_major_source": False, "ranking_score": 0.8}
-    # Case 4: Trending mismatch
-    a4 = {"id": "a4", "country_code": "US", "categories": ["politics"], "trend_score": 10, "is_major_source": False, "ranking_score": 0.1}
-    # Case 5: Major source mismatch
-    a5 = {"id": "a5", "country_code": "US", "categories": ["politics"], "trend_score": 0, "is_major_source": True, "ranking_score": 0.1}
-    
-    t1 = feed._get_rank_tuple(a1, pref_country, interests)
-    t2 = feed._get_rank_tuple(a2, pref_country, interests)
-    t3 = feed._get_rank_tuple(a3, pref_country, interests)
-    t4 = feed._get_rank_tuple(a4, pref_country, interests)
-    t5 = feed._get_rank_tuple(a5, pref_country, interests)
-    
-    # Expected order: a1 (0,0), a2 (0,1), a3 (1,0), a4 (1,1,0), a5 (1,1,1,0)
-    # Tuple comparison: (0,0,1,1,-0.5) < (0,1,1,1,-0.9) < (1,0,1,1,-0.8) < (1,1,0,1,-0.1) < (1,1,1,0,-0.1)
-    
-    assert t1 < t2
-    assert t2 < t3
-    assert t3 < t4
-    assert t4 < t5
-    
+    # t1=(-0.5,), t2=(-0.9,)
+    assert t2 < t1 # Correct DESC sort
     print("Ranking tuple tests passed!")
 
-def test_global_sort_determinism():
-    pref_country = "KE"
-    interests = ["tech"]
-    
-    articles = [
-        {"id": "low", "ranking_score": 0.1},
-        {"id": "high", "ranking_score": 0.9},
-        {"id": "major", "is_major_source": True, "ranking_score": 0.5},
-    ]
-    
-    articles.sort(key=lambda x: feed._get_rank_tuple(x, pref_country, interests))
-    
-    # Expected: major (1,1,1,0,-0.5) < high (1,1,1,1,-0.9) < low (1,1,1,1,-0.1)
-    # Wait, (1,1,1,0,-0.5) [major] vs (1,1,1,1,-0.9) [high]
-    # Yes, 0 < 1, so major is first.
-    # Between high and low: -0.9 < -0.1, so high is first.
-    
-    assert [a["id"] for a in articles] == ["major", "high", "low"]
-    print("Global sort tests passed!")
-
 if __name__ == "__main__":
+    test_diversifier_interleaving()
     test_rank_tuple_ordering()
-    test_global_sort_determinism()

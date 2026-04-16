@@ -162,6 +162,15 @@ class NewsRepositoryImpl implements NewsRepository {
   }
 
   @override
+  Future<void> clearFeed() async {
+    try {
+      await _dao.deleteNonPersonalizedArticles();
+    } catch (e) {
+      throw CacheException();
+    }
+  }
+
+  @override
   Future<void> deleteArticlesByCategory(String category) async {
     try {
       await _dao.deleteArticlesByCategory(category);

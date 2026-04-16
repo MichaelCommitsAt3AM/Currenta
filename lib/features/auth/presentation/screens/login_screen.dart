@@ -10,6 +10,7 @@ import 'otp_verification_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({
@@ -58,13 +59,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       debugPrint(
           '[Login] Auth state changed: auth=${next.isAuthenticated}, loading=${next.isLoading}, error=${next.error != null}');
       if (next.error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(next.error!),
-            backgroundColor: const Color(0xFFFF6B6B),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        AppSnackbar.showError(context, next.error!);
       }
       if (next.isAuthenticated && !next.isLoading) {
         if (next.needsConflictResolution && next.conflictData != null) {
