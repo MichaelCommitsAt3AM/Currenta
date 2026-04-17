@@ -212,15 +212,15 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Use a production-ready SMTP server
-# [auth.email.smtp]
-# enabled = true
-# host = "smtp.sendgrid.net"
-# port = 587
-# user = "apikey"
-# pass = "env(SENDGRID_API_KEY)"
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+# Use a production-ready SMTP server (Mailtrap Sandbox for Local Dev)
+[auth.email.smtp]
+enabled = true
+host = "sandbox.smtp.mailtrap.io"
+port = 2525
+user = "85a2d08ffa7a91"
+pass = "env(MAILTRAP_SANDBOX_PASS)"
+admin_email = "no-reply@mail.currenta.tech"
+sender_name = "Currenta (Local Dev)"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

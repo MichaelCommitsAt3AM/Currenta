@@ -29,7 +29,7 @@ from .version import VERSION
 setup_logging()
 
 from .core.security import limiter
-from .api import feed, ingest, chat, trending, admin
+from .api import feed, ingest, chat, trending, admin, auth
 from .version import VERSION
 from .services.scheduler import start_scheduler, stop_scheduler
 
@@ -92,6 +92,7 @@ app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(trending.router, prefix="/api/trending", tags=["trending"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 
 
 @app.get("/")

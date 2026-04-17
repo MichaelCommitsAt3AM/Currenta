@@ -173,7 +173,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       final repository = ref.read(authRepositoryProvider);
       final authBeforeSave = ref.read(authNotifierProvider);
       final prevCountry = authBeforeSave.preferredCountry;
-      final prevInterests = List<String>.from(authBeforeSave.selectedInterests);
 
       // Save Main Categories
       await repository.clearUserInterests();
@@ -209,7 +208,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         await ref.read(authNotifierProvider.notifier).refreshInterests();
 
         final nextCountry = _selectedCountry;
-        final nextInterests = _selectedCategories.map((e) => e.name).toList();
 
         // Selective Cache Management:
         // When the country changes, we only wipe the "local" category articles
@@ -222,9 +220,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
               .deleteArticlesByCategory('local');
         }
 
-        // Always remove articles from categories that the user explicitly unchecked.
-        final removed =
-            prevInterests.where((c) => !nextInterests.contains(c)).toList();
         // 1. Surgical wipe of the articles cache (preserves bookmarks/likes).
         await ref.read(newsRepositoryProvider).clearFeed();
 
@@ -505,7 +500,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         final shouldPop = await _showExitConfirmation();
-        if (shouldPop && mounted) {
+        if (shouldPop && context.mounted) {
           Navigator.of(context).pop();
         }
       },
@@ -519,7 +514,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
             onPressed: () async {
               if (_hasChanges && !_isSaving) {
                 final shouldPop = await _showExitConfirmation();
-                if (shouldPop && mounted) {
+                if (shouldPop && context.mounted) {
                   Navigator.pop(context);
                 }
               } else {
