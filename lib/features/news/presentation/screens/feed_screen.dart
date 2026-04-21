@@ -555,6 +555,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                       if (feed.articles.isEmpty && feedAsync.isLoading) {
                         return const ShimmerFeed();
                       }
+
+                      // Restoration Guard: If the controller hasn't jumped to the restored index yet,
+                      // keep shimmering to avoid showing the wrong article (index 0) briefly.
+                      if (feed.currentIndex != _currentIndex && feed.currentIndex != 0) {
+                        return const ShimmerFeed();
+                      }
+
                       return _buildFeedContent(feed);
                     },
                   ),

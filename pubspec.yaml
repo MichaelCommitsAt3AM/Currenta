@@ -20,8 +20,6 @@ dependencies:
 
   # ── Local Database (Offline-First) ──────────────────────────────
   drift: ^2.23.1
-  drift_flutter: ^0.2.4
-  sqlite3_flutter_libs: ^0.5.29
 
   # ── Networking ──────────────────────────────────────────────────
   dio: ^5.8.0+1
@@ -55,6 +53,9 @@ dependencies:
   auto_size_text: ^3.0.0
   flutter_markdown: ^0.7.7+1
   package_info_plus: ^9.0.0
+  flutter_secure_storage: ^10.0.0
+  sqlcipher_flutter_libs: ^0.6.8
+  sqlite3: ^2.9.4
 
 dev_dependencies:
   flutter_test:

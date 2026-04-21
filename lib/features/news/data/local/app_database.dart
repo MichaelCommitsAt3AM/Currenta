@@ -1,11 +1,23 @@
 // lib/features/news/data/local/app_database.dart
 
 import 'dart:convert';
+import 'dart:io';
 import 'package:drift/drift.dart';
-import 'package:drift_flutter/drift_flutter.dart';
+import 'package:drift/native.dart';
+import 'package:sqlite3/open.dart';
+import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../../domain/entities/news_category.dart';
+import '../../../../core/storage/secure_storage_service.dart';
 
 part 'app_database.g.dart';
+
+void _configureSqlCipherForAndroid() {
+  if (!Platform.isAndroid) return;
+  open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+}
 
 // ── TypeConverter: List<NewsCategory> ↔ JSON string ──────────────────────────
 
@@ -32,7 +44,8 @@ class CategoryListConverter extends TypeConverter<List<NewsCategory>, String> {
       jsonEncode(value.map((c) => c.name).toList());
 }
 
-class SubCategoryListConverter extends TypeConverter<List<NewsSubCategory>, String> {
+class SubCategoryListConverter
+    extends TypeConverter<List<NewsSubCategory>, String> {
   const SubCategoryListConverter();
 
   @override
@@ -42,7 +55,7 @@ class SubCategoryListConverter extends TypeConverter<List<NewsSubCategory>, Stri
       return list
           .map((e) => NewsSubCategory.values.firstWhere(
                 (c) => c.name == e.toString(),
-                // If it fails to find, we just skip it or return a default? 
+                // If it fails to find, we just skip it or return a default?
                 // Since this is for personalization, skipping unknown might be best.
               ))
           .toList();
@@ -149,8 +162,12 @@ class ChatMessagesTable extends Table {
 
 // ── Database ──────────────────────────────────────────────────────
 
-@DriftDatabase(
-    tables: [NewsArticlesTable, ViewedArticlesTable, ChatSessionsTable, ChatMessagesTable])
+@DriftDatabase(tables: [
+  NewsArticlesTable,
+  ViewedArticlesTable,
+  ChatSessionsTable,
+  ChatMessagesTable
+])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
@@ -181,15 +198,19 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(chatMessagesTable);
           }
           if (from < 8) {
-            await m.addColumn(newsArticlesTable, newsArticlesTable.subCategories);
+            await m.addColumn(
+                newsArticlesTable, newsArticlesTable.subCategories);
           }
           if (from < 9) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.trendScore);
-            await m.addColumn(newsArticlesTable, newsArticlesTable.lastTrendUpdate);
+            await m.addColumn(
+                newsArticlesTable, newsArticlesTable.lastTrendUpdate);
           }
           if (from < 10) {
-            await m.addColumn(newsArticlesTable, newsArticlesTable.rankingScore);
-            await m.addColumn(newsArticlesTable, newsArticlesTable.isMajorSource);
+            await m.addColumn(
+                newsArticlesTable, newsArticlesTable.rankingScore);
+            await m.addColumn(
+                newsArticlesTable, newsArticlesTable.isMajorSource);
           }
           if (from < 11) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.countryCode);
@@ -198,6 +219,40 @@ class AppDatabase extends _$AppDatabase {
       );
 
   static QueryExecutor _openConnection() {
-    return driftDatabase(name: 'currenta_db');
+    return LazyDatabase(() async {
+      final dbFolder = await getApplicationDocumentsDirectory();
+      final file = File(p.join(dbFolder.path, 'currenta_db.sqlite'));
+
+      // Configure SQLCipher in the current isolate before opening sqlite.
+      _configureSqlCipherForAndroid();
+
+      // Get the persistent encryption key
+      final key = await SecureStorageService.instance.getOrCreateDatabaseKey();
+
+      // HEURISTIC: If we are enabling encryption for the first time on an existing DB,
+      // SQLCipher will fail to read the unencrypted header. We reset the cache.
+      final encryptionFlag =
+          await SecureStorageService.instance.read('db_encrypted_v1');
+      if (encryptionFlag == null && await file.exists()) {
+        try {
+          await file.delete();
+        } catch (e) {
+          debugPrint('[Database] Reset failed: $e');
+        }
+      }
+      await SecureStorageService.instance.write('db_encrypted_v1', 'true');
+
+      return NativeDatabase.createInBackground(
+        file,
+        isolateSetup: _configureSqlCipherForAndroid,
+        setup: (db) {
+          try {
+            db.execute("PRAGMA key = '$key';");
+          } catch (e) {
+            debugPrint('[Database] PRAGMA key execution failed: $e');
+          }
+        },
+      );
+    });
   }
 }

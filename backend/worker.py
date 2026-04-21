@@ -47,15 +47,6 @@ async def main():
         replace_existing=True
     )
     
-    # 2. Standalone Trending Update (Every hour, to pick up view-based ranking changes)
-    scheduler.add_job(
-        update_trending_scores,
-        'interval',
-        minutes=60,
-        args=[active_pool, db.redis_client],
-        id='periodic_trends',
-        replace_existing=True
-    )
     
     # Run once immediately on startup
     scheduler.add_job(run_ingestion_and_trending, id='worker_startup_sync')

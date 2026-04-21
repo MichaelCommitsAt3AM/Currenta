@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
+import 'onboarding_screen.dart';
 import 'otp_verification_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
@@ -89,16 +90,24 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         }
 
         if (widget.redirectToFeedOnSuccess) {
-          // Mark onboarding as complete
-          ref.read(onboardingRepositoryProvider).completeOnboarding();
-          
-          // Clear news cache
-          ref.read(newsRepositoryProvider).clearCache();
+          if (next.selectedInterests.isEmpty) {
+            debugPrint('[Register] New user detected (no interests)! Redirecting to Onboarding...');
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+              (route) => false,
+            );
+          } else {
+            // Mark onboarding as complete
+            ref.read(onboardingRepositoryProvider).completeOnboarding();
+            
+            // Clear news cache
+            ref.read(newsRepositoryProvider).clearCache();
 
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const FeedScreen()),
-            (route) => false,
-          );
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const FeedScreen()),
+              (route) => false,
+            );
+          }
         } else {
           // Pop back to login then hopefully back to feed
           Navigator.of(context).popUntil((route) => route.isFirst);

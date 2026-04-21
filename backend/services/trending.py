@@ -249,17 +249,4 @@ async def update_trending_scores(db_pool, redis_client=None):
     # Process all regions in parallel
     await asyncio.gather(*[process_region(r) for r in all_regions])
     
-    # Finally, refresh ranking scores for all recent articles to account for time decay
-    # even if they weren't boosted this run.
-    async with db_pool.acquire() as conn:
-        try:
-            logger.info("Refreshing ranking scores for all articles from last 72 hours...")
-            await conn.execute("""
-                UPDATE articles 
-                SET ranking_score = ((1.0 + trend_score) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
-                WHERE published_at > NOW() - INTERVAL '72 hours'
-            """)
-        except Exception as e:
-            logger.error(f"Failed to refresh ranking scores: {e}")
-
-    logger.info("Trending score update complete.")
+    logger.info("Trending score update complete (DB-side decay scheduled separately).")

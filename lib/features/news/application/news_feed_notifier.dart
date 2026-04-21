@@ -132,7 +132,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final isProfileLoaded =
         ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
     if (!isProfileLoaded) {
-      debugPrint('[Feed] Waiting for auth profile to load...');
       await _waitForProfileLoad();
     }
 
@@ -153,19 +152,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       });
     });
 
-    // 3. Initialization: Always default to 'For You' (null category) on cold boot
+    // 3. Initialization: Always start fresh on cold boot with unseen articles
     const NewsCategory? savedCategoryId = null;
-    final savedArticleId = _persistence.getLastForYouArticleId();
-    final bool includeViewed = savedArticleId != null;
 
     // 4. Local Fetch (Cache-First)
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
       countryCode: auth.preferredCountry,
-      limit: savedArticleId != null ? 30 : _kPageSize,
+      limit: _kPageSize,
       offset: 0,
-      includeViewed: includeViewed,
+      includeViewed: false, // Only show fresh content on startup
     );
 
     String? sessionId;
@@ -180,7 +177,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (topArticle != null) {
         final age = DateTime.now().difference(topArticle.publishedAt);
         if (age.inHours >= AppConfig.hardTtlHours) {
-          debugPrint('[Feed] Hard TTL reached (${AppConfig.hardTtlHours}h). Forcing fresh refresh.');
           needsRefresh = true;
           articles = []; // Discard stale articles on hard TTL
           // Also clear the saved position to start fresh at the top
@@ -192,7 +188,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
 
     if (needsRefresh) {
-      debugPrint('[Feed] Initializing fresh session...');
       try {
         final response = await _repo.syncMoreFromRemote(
           category: savedCategoryId,
@@ -208,12 +203,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
     }
 
-    // 6. Position restoration
-    int initialIndex = 0;
-    if (savedArticleId != null && articles.isNotEmpty) {
-      final index = articles.indexWhere((a) => a.id == savedArticleId);
-      if (index != -1) initialIndex = index;
-    }
+    // 6. Position restoration (Always start at top for fresh feed)
+    const int initialIndex = 0;
 
     final finalState = FeedState(
       articles: articles,
@@ -233,7 +224,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     //    Without this, every pagination call sends sessionId=null which the backend
     //    treats as a fresh session restart — returning page 1 again.
     if (sessionId == null && articles.isNotEmpty) {
-      debugPrint('[Feed] Cache-hit boot: establishing background session for pagination...');
       Future.microtask(() => _establishSessionInBackground(savedCategoryId));
     }
 
@@ -291,14 +281,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // 2. Session Validity Check (Client-side TTL fallback)
       if (startState.expiresAt != null &&
           DateTime.now().isAfter(startState.expiresAt!)) {
-        debugPrint('[FeedPaging] Session expired. Resetting category ${category?.name ?? 'all'}.');
         await filterByCategory(category);
         return;
       }
 
       // 3a. If background session hasn't arrived yet, wait up to 3 s for it.
       if (startState.sessionId == null) {
-        debugPrint('[FeedPaging] Waiting for background session...');
         for (var i = 0; i < 30; i++) {
           await Future.delayed(const Duration(milliseconds: 100));
           final interim = state.valueOrNull;
@@ -312,15 +300,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (resolvedState == null || resolvedState.selectedCategory != category) return;
 
       // 3b. Remote Sync (Fetch next page from backend)
-      debugPrint('[FeedPaging] Fetching next page (sessionId=${resolvedState.sessionId}, cursor=${resolvedState.nextCursor})');
       final response = await _repo.syncMoreFromRemote(
         category: category,
         sessionId: resolvedState.sessionId,
         cursor: resolvedState.nextCursor,
         limit: _kPageSize,
       );
-
-      debugPrint('[FeedPaging] Received response: ${response.articles.length} articles, session=${response.sessionId}, nextCursor=${response.nextCursor}, hasMore=${response.hasMore}');
 
       final current = state.valueOrNull;
       if (current == null || current.selectedCategory != category) return;
@@ -331,7 +316,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (current.sessionId != null &&
           response.sessionId != null &&
           response.sessionId != current.sessionId) {
-        debugPrint('[FeedPaging] Session ID mismatch! Performing hard reset.');
         final resetState = current.copyWith(
           articles: response.articles,
           sessionId: response.sessionId,
@@ -350,7 +334,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         if (response.hasMore && response.nextCursor != null) {
           // Server skipped ahead (e.g. some DB-missing IDs were bypassed) but there are
           // still articles further in the session. Trust the server's cursor and keep going.
-          debugPrint('[FeedPaging] Empty page but server says has_more=true — advancing cursor.');
           final advancedState = current.copyWith(
             isLoadingMore: false,
             hasMore: response.hasMore,
@@ -361,7 +344,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           _feedCache[category] = advancedState;
         } else {
           // Genuinely no more articles
-          debugPrint('[FeedPaging] Received empty articles page with has_more=false. Stopping pagination.');
           final endState = current.copyWith(
             hasMore: false,
             isLoadingMore: false,
@@ -376,15 +358,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final existingIds = current.articles.map((a) => a.id).toSet();
       final uniqueNewArticles = response.articles.where((a) => !existingIds.contains(a.id)).toList();
 
-      if (uniqueNewArticles.length < response.articles.length) {
-        debugPrint('[FeedPaging] Filtered out ${response.articles.length - uniqueNewArticles.length} duplicate articles.');
-      }
-
       var nextArticles = [...current.articles, ...uniqueNewArticles];
       
       // Memory Guard: Prune the list if it exceeds 500 articles to prevent OOM
       if (nextArticles.length > 500) {
-        debugPrint('[FeedPaging] Memory Guard: Pruning list from ${nextArticles.length} to 500 articles.');
         nextArticles = nextArticles.sublist(0, 500);
       }
 
@@ -398,7 +375,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       state = AsyncData(nextState);
       _feedCache[category] = nextState;
-      debugPrint('[FeedPaging] Success. New total articles: ${nextArticles.length}');
       
     } catch (e, st) {
       FirebaseCrashlytics.instance.recordError(e, st, reason: 'Paging failure in loadNextPage');
@@ -412,29 +388,58 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
-  /// Switches the feed to a different category, implementing Lazy Session creation.
   Future<void> filterByCategory(NewsCategory? category) async {
     // 1. Save current state to cache before switching away.
     final oldState = state.valueOrNull;
     if (oldState != null) {
-      _feedCache[oldState.selectedCategory] = oldState.copyWith(isLoadingMore: false);
+      _feedCache[oldState.selectedCategory] =
+          oldState.copyWith(isLoadingMore: false);
     }
 
-    // 2. Check if we have a valid, unexpired session in cache
+    // 2. Fast Path: If category is in cache and valid, switch immediately
     final cached = _feedCache[category];
-    if (cached != null && 
-        (cached.expiresAt == null || DateTime.now().isBefore(cached.expiresAt!))) {
-      debugPrint('[Feed] Reusing valid session for category ${category?.name ?? 'all'}.');
+    if (cached != null &&
+        (cached.expiresAt == null ||
+            DateTime.now().isBefore(cached.expiresAt!))) {
       state = AsyncData(cached);
       _persistence.saveCurrentArticleId(cached.articles.firstOrNull?.id);
       return;
     }
 
-    // 3. Start a fresh session
-    debugPrint('[Feed] Creating a lazy session for category ${category?.name ?? 'all'}...');
+    // 3. Start a fresh session (Cache-First)
+    // Yield immediately so UI can render the category highlight & shimmer
     state = const AsyncLoading<FeedState>();
+    await Future.microtask(() {});
 
     try {
+      // 4. Local Fetch (Cache-First) - For category switches, we show unseen first
+      List<NewsArticle> localArticles = await _repo.fetchPage(
+        category: category,
+        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+        countryCode: ref.read(authNotifierProvider).preferredCountry,
+        limit: _kPageSize,
+        offset: 0,
+        includeViewed: false,
+      );
+
+      const int initialIndex = 0;
+
+      if (localArticles.isNotEmpty) {
+        final newState = FeedState(
+          articles: localArticles,
+          selectedCategory: category,
+          currentIndex: initialIndex,
+          hasMore: true,
+        );
+        state = AsyncData(newState);
+        _feedCache[category] = newState;
+
+        // Establish remote session in background
+        Future.microtask(() => _establishSessionInBackground(category));
+        return;
+      }
+
+      // 5. Remote Sync (Fallback)
       final response = await _repo.syncMoreFromRemote(
         category: category,
         limit: _kPageSize,
@@ -471,7 +476,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     _feedCache.clear();
     
     try {
-      debugPrint('[Feed] Performing full refresh (Resetting all sessions)...');
       final response = await _repo.syncMoreFromRemote(
         category: currentCategory,
         limit: _kPageSize,
@@ -510,7 +514,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (current == null) return;
 
     if (current.expiresAt != null && DateTime.now().isAfter(current.expiresAt!)) {
-      debugPrint('[Feed] Session stale on resume. Refreshing...');
       await refresh();
     }
   }
@@ -607,7 +610,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Only updates session metadata in the state — does NOT replace articles.
   Future<void> _establishSessionInBackground(NewsCategory? category) async {
     if (_isDisposed) return;
-    debugPrint('[Feed] Establishing background session for ${category?.name ?? 'all'}...');
     try {
       final response = await _repo.syncMoreFromRemote(
         category: category,
@@ -627,7 +629,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
       state = AsyncData(patched);
       _feedCache[category] = patched;
-      debugPrint('[Feed] Background session established: ${response.sessionId}, cursor: ${response.nextCursor}');
     } catch (e) {
       // Non-fatal: pagination will still work on a session that is established
       // lazily at the next loadNextPage call.
@@ -638,7 +639,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Triggered by AuthNotifier when interests or country changes.
   Future<void> _backgroundRefresh({NewsCategory? forcedCategory}) async {
     if (_isDisposed) return;
-    debugPrint('[Feed] Auth state changed. Invalidating sessions for diversity rebalancing...');
     
     // 1. Wipe all existing sessions (they are now based on old interests/country)
     _feedCache.clear();

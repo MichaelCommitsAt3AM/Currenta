@@ -98,10 +98,8 @@ class NewsRepositoryImpl implements NewsRepository {
     int limit = 30,
   }) async {
     final catName = category?.name ?? 'all';
-    FirebaseCrashlytics.instance.log('[Repo] syncMoreFromRemote starting for $catName (sessionId: $sessionId, cursor: $cursor)');
-    
+
     try {
-      debugPrint('[RepoSync] Fetching remote: category=$catName, sessionId=$sessionId, cursor=$cursor');
       final country = await _auth.getPreferredCountry();
       final feedResponse = await _remote.fetchArticles(
         category: category,
@@ -110,22 +108,14 @@ class NewsRepositoryImpl implements NewsRepository {
         sessionId: sessionId,
         cursor: cursor,
       );
-      
-      debugPrint('[RepoSync] Received ${feedResponse.articles.length} articles. Session: ${feedResponse.sessionId}, NextCursor: ${feedResponse.nextCursor}');
-      if (feedResponse.articles.isNotEmpty) {
-        final ids = feedResponse.articles.take(3).map((a) => a.id.toString().substring(0, 8)).join(', ');
-        debugPrint('[RepoSync] Sample IDs: [$ids...]');
-      }
 
       if (feedResponse.articles.isEmpty) {
-        debugPrint('[RepoSync] Server returned 0 articles for $catName (hasMore: ${feedResponse.hasMore})');
         return feedResponse;
       }
 
       final companions = feedResponse.articles.map((a) => a.toCompanion()).toList();
       await _dao.upsertArticles(companions);
-      
-      FirebaseCrashlytics.instance.log('[Repo] Successfully upserted ${companions.length} articles to local DB');
+
       return feedResponse;
     } on AppException catch (e, st) {
       FirebaseCrashlytics.instance.recordError(e, st, reason: 'AppException in syncMoreFromRemote ($catName)');
@@ -144,9 +134,7 @@ class NewsRepositoryImpl implements NewsRepository {
       Duration(hours: AppConfig.cacheMaxAgeHours),
     );
     try {
-      final deleted = await _dao.deleteArticlesOlderThan(threshold);
-      debugPrint(
-          '[Cache] Deleted $deleted stale articles (older than ${AppConfig.cacheMaxAgeHours}h).');
+      await _dao.deleteArticlesOlderThan(threshold);
     } catch (e) {
       throw CacheException();
     }
@@ -157,6 +145,7 @@ class NewsRepositoryImpl implements NewsRepository {
     try {
       await _dao.deleteAllArticles();
     } catch (e) {
+      debugPrint('[Cache] clearCache error: $e');
       throw CacheException();
     }
   }
@@ -166,6 +155,7 @@ class NewsRepositoryImpl implements NewsRepository {
     try {
       await _dao.deleteNonPersonalizedArticles();
     } catch (e) {
+      debugPrint('[Cache] clearFeed error: $e');
       throw CacheException();
     }
   }

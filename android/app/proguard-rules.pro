@@ -22,3 +22,13 @@
 
 # Flutter Custom Tabs
 -keep class com.pichillilorenzo.flutter_inappwebview.** { *; }
+
+# Google Play Core (referenced by Flutter embedding for deferred components)
+-dontwarn com.google.android.play.core.**
+-dontwarn com.google.android.gms.internal.play_billing.**
+
+# Google Play Services & Auth
+-keep class com.google.android.gms.auth.api.signin.** { *; }
+-keep class com.google.android.gms.common.api.ApiException { *; }
+-keep class com.google.android.gms.tasks.** { *; }
+-dontwarn com.google.android.gms.**

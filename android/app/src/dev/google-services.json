@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "703509294568",
+    "project_id": "currenta-3d240",
+    "storage_bucket": "currenta-3d240.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:703509294568:android:3d9c51155a1c2c9597c85d",
+        "android_client_info": {
+          "package_name": "com.currenta.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBHi6r0rPYFwNxCblPbSaTyKft6uHx3zi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

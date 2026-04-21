@@ -6,6 +6,7 @@ import '../../application/auth_notifier.dart';
 import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
+import 'onboarding_screen.dart';
 import 'otp_verification_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
@@ -76,18 +77,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
 
         if (widget.redirectToFeedOnSuccess) {
-          debugPrint('[Login] Authenticated! Redirecting to Feed...');
-          
-          // Mark onboarding as complete so we don't return here
-          ref.read(onboardingRepositoryProvider).completeOnboarding();
-          
-          // Clear news cache so the feed is refreshed for the newly logged-in user
-          ref.read(newsRepositoryProvider).clearCache();
+          if (next.selectedInterests.isEmpty) {
+            debugPrint('[Login] New user detected (no interests)! Redirecting to Onboarding...');
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+              (route) => false,
+            );
+          } else {
+            debugPrint('[Login] Authenticated! Redirecting to Feed...');
+            
+            // Mark onboarding as complete so we don't return here
+            ref.read(onboardingRepositoryProvider).completeOnboarding();
+            
+            // Clear news cache so the feed is refreshed for the newly logged-in user
+            ref.read(newsRepositoryProvider).clearCache();
 
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const FeedScreen()),
-            (route) => false,
-          );
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const FeedScreen()),
+              (route) => false,
+            );
+          }
         } else {
           debugPrint('[Login] Authenticated! Attempting to pop...');
           // Assuming we came to this screen by pushing it, we can pop back.

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/providers.dart';
 import '../../../news/domain/entities/news_category.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
+import '../../application/auth_notifier.dart';
 import '../../../../core/utils/snackbar_utils.dart';
 
 class AuthBridgeScreen extends ConsumerStatefulWidget {
@@ -19,6 +20,19 @@ class AuthBridgeScreen extends ConsumerStatefulWidget {
 class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
   bool _isLoading = false;
   String _loadingMessage = 'Personalizing your experience...';
+
+  @override
+  void initState() {
+    super.initState();
+    // If the user is already signed in (e.g. they came from LoginScreen -> Onboarding -> here),
+    // we should immediately finalize the flow instead of asking them to sign in again.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (ref.read(authNotifierProvider).isAuthenticated) {
+        debugPrint('[AuthBridge] User already authenticated. Auto-finalizing...');
+        _completeOnboardingFlow();
+      }
+    });
+  }
 
   Future<void> _completeOnboardingFlow() async {
     final authRepo = ref.read(authRepositoryProvider);

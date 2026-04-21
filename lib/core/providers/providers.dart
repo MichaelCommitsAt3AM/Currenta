@@ -15,6 +15,7 @@ import '../../features/news/data/repositories/chat_repository_impl.dart';
 import '../../features/news/domain/repositories/chat_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/dio_client.dart';
+import '../storage/secure_storage_service.dart';
 import '../../features/news/data/repositories/local_persistence_repository.dart';
 
 // ── Supabase ──────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
     supabaseClient: ref.watch(supabaseClientProvider),
     dio: ref.watch(dioClientProvider),
     prefs: ref.watch(sharedPreferencesProvider),
+    secureStorage: ref.watch(secureStorageServiceProvider),
   );
 });
 
@@ -73,6 +75,10 @@ final chatRepositoryProvider = Provider<ChatRepository>((ref) {
 
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('sharedPreferencesProvider must be overridden in ProviderScope');
+});
+
+final secureStorageServiceProvider = Provider<SecureStorageService>((ref) {
+  return SecureStorageService.instance;
 });
 
 final localPersistenceRepositoryProvider = Provider<LocalPersistenceRepository>((ref) {

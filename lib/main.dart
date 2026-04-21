@@ -5,13 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'firebase_options.dart';
+import 'firebase_options_dev.dart' as dev;
+import 'firebase_options_prod.dart' as prod;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/config/app_config.dart';
 import 'core/providers/providers.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'core/storage/secure_auth_storage.dart';
 
 import 'theme/theme.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
@@ -69,10 +71,17 @@ Future<void> main() async {
   // ── Parallel Initialization ────────────────────────────────────────────────
   // Grouping core heavy-hitters to initialize concurrently.
   final initResults = await Future.wait([
-    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+    Firebase.initializeApp(
+      options: AppConfig.isProd
+          ? prod.DefaultFirebaseOptions.currentPlatform
+          : dev.DefaultFirebaseOptions.currentPlatform,
+    ),
     Supabase.initialize(
       url: AppConfig.supabaseUrl,
       anonKey: AppConfig.supabaseAnonKey,
+      authOptions: FlutterAuthClientOptions(
+        localStorage: SecureAuthStorage(),
+      ),
     ),
     SharedPreferences.getInstance(),
   ]);

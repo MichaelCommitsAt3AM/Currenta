@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/storage/secure_storage_service.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
 import '../../domain/repositories/auth_repository.dart';
@@ -12,13 +13,16 @@ class AuthRepositoryImpl implements AuthRepository {
     required SupabaseClient supabaseClient,
     required Dio dio,
     required SharedPreferences prefs,
+    SecureStorageService? secureStorage,
   })  : _supabase = supabaseClient,
         _dio = dio,
-        _prefs = prefs;
+        _prefs = prefs,
+        _secureStorage = secureStorage ?? SecureStorageService.instance;
 
   final SupabaseClient _supabase;
   final Dio _dio;
   final SharedPreferences _prefs;
+  final SecureStorageService _secureStorage;
 
   // Session-level cache for country detection
   String? _cachedCountry;
@@ -109,13 +113,10 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> signInWithGoogle() async {
     try {
-      debugPrint('[Auth] --- Native Google Sign-In Start ---');
-      
       final googleSignIn = GoogleSignIn.instance;
 
       // 1. Initialize once
       if (!_isGoogleSignInInitialized) {
-        debugPrint('[Auth] Initializing GoogleSignIn (once) with Web Client ID: ${AppConfig.googleWebClientId}');
         await googleSignIn.initialize(
           serverClientId: AppConfig.googleWebClientId,
         );
@@ -123,19 +124,13 @@ class AuthRepositoryImpl implements AuthRepository {
       }
 
       // 2. Trigger native picker
-      debugPrint('[Auth] Calling googleSignIn.authenticate()...');
-      // If it hangs here, it's a platform/signature issue.
       final googleUser = await googleSignIn.authenticate();
-      debugPrint('[Auth] Account selected: ${googleUser.email}');
 
       // 3. Get tokens
       final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
-      
-      debugPrint('[Auth] ID Token obtained: ${idToken != null ? "YES" : "NO"}');
 
       if (idToken == null) {
-        debugPrint('[Auth] Error: No ID Token found for user ${googleUser.email}');
         throw const ServerException('No ID Token found. Please try again.');
       }
 
@@ -145,26 +140,20 @@ class AuthRepositoryImpl implements AuthRepository {
       final isAnonymous = currentSession?.user.isAnonymous ?? false;
 
       if (isAnonymous) {
-        debugPrint('[Auth] Clearing existing anonymous session...');
         await _supabase.auth.signOut(scope: SignOutScope.local);
       }
 
       // 5. Sign in to Supabase
-      debugPrint('[Auth] Calling Supabase signInWithIdToken...');
-      final response = await _supabase.auth.signInWithIdToken(
+      await _supabase.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
       );
       
       // 6. Migration is now handled selectively by the caller via checkPersonalizationConflict
       // and selectiveMigrateUserData. Auto-migration removed.
-      
-      debugPrint('[Auth] Supabase response received. User: ${response.user?.email}');
-      debugPrint('[Auth] --- Native Google Sign-In Success ---');
     } on GoogleSignInException catch (e) {
       debugPrint('[Auth] GoogleSignInException: ${e.code}, $e');
       if (e.code == GoogleSignInExceptionCode.canceled) {
-        debugPrint('[Auth] User cancelled the picker.');
         return; 
       }
       throw ServerException('Google Sign-In failed (${e.code}): ${e.toString()}');
@@ -371,8 +360,8 @@ class AuthRepositoryImpl implements AuthRepository {
       });
       // Update caches (in-memory and disk)
       _cachedCountry = countryCode;
-      await _prefs.setString('primary_country_code', countryCode);
-      await _prefs.setInt('last_location_check_at', DateTime.now().millisecondsSinceEpoch);
+      await _secureStorage.write('primary_country_code', countryCode);
+      await _secureStorage.write('last_location_check_at', DateTime.now().millisecondsSinceEpoch.toString());
     } catch (e) {
       debugPrint('[Auth] Error saving preferred country: $e');
       throw ServerException('Failed to save country preference: $e');
@@ -385,7 +374,7 @@ class AuthRepositoryImpl implements AuthRepository {
     if (_cachedCountry != null) return _cachedCountry;
 
     // 2. Local persistence fallback (immediate availability on app start)
-    final saved = _prefs.getString('primary_country_code');
+    final saved = await _secureStorage.read('primary_country_code');
     if (saved != null) {
       _cachedCountry = saved;
       return saved;
@@ -405,7 +394,7 @@ class AuthRepositoryImpl implements AuthRepository {
       final remoteCountry = response?['preferred_country'] as String?;
       if (remoteCountry != null) {
         _cachedCountry = remoteCountry;
-        await _prefs.setString('primary_country_code', remoteCountry);
+        await _secureStorage.write('primary_country_code', remoteCountry);
       }
       return remoteCountry;
     } catch (e) {
@@ -475,7 +464,8 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<String?> detectAndSaveCountry() async {
     // 1. Check Cache TTL to avoid redundant network overhead
-    final lastCheck = _prefs.getInt('last_location_check_at') ?? 0;
+    final lastCheckStr = await _secureStorage.read('last_location_check_at');
+    final lastCheck = int.tryParse(lastCheckStr ?? '0') ?? 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     final elapsedHours = (now - lastCheck) / (1000 * 60 * 60);
 
@@ -499,8 +489,8 @@ class AuthRepositoryImpl implements AuthRepository {
       
       if (country != null) {
         _cachedCountry = country;
-        await _prefs.setString('primary_country_code', country);
-        await _prefs.setInt('last_location_check_at', DateTime.now().millisecondsSinceEpoch);
+        await _secureStorage.write('primary_country_code', country);
+        await _secureStorage.write('last_location_check_at', DateTime.now().millisecondsSinceEpoch.toString());
       }
 
       debugPrint('[Auth] Background location detection result: $country');
