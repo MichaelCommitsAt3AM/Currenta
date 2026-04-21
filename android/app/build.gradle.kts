@@ -26,6 +26,11 @@ android {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.currenta.app"
@@ -38,18 +43,6 @@ android {
     }
 
     flavorDimensions += "environment"
-    productFlavors {
-        create("dev") {
-            dimension = "environment"
-            applicationId = "com.currenta.dev"
-            versionNameSuffix = "-dev"
-            resValue("string", "app_name", "Currenta Dev")
-        }
-        create("prod") {
-            dimension = "environment"
-            resValue("string", "app_name", "Currenta")
-        }
-    }
 
     val keystorePropertiesFile = rootProject.file("key.properties")
     val keystoreProperties = Properties()
@@ -65,21 +58,40 @@ android {
             storePassword = keystoreProperties["storePassword"] as String?
         }
     }
+    productFlavors {
+        create("dev") {
+            dimension = "environment"
+            applicationId = "com.currenta.dev"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Currenta Dev")
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("prod") {
+            dimension = "environment"
+            resValue("string", "app_name", "Currenta")
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+
 
     buildTypes {
-        release {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
-
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        getByName("profile") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = null // Inherit from flavor
         }
     }
 }

@@ -132,17 +132,13 @@ class AboutScreen extends StatelessWidget {
                 _AboutTile(
                   title: 'Send Feedback',
                   icon: Icons.feedback_outlined,
-                  onTap: () {
-                    // TODO: Open feedback email/form
-                  },
+                  onTap: () => launchUrl(Uri.parse('mailto:feedback@currenta.app?subject=App Feedback')),
                 ),
                 const SizedBox(height: 16),
                 _AboutTile(
                   title: 'Follow us on X',
                   icon: Icons.alternate_email_rounded,
-                  onTap: () {
-                    // TODO: Open Social Link
-                  },
+                  onTap: () => launchUrl(Uri.parse('https://x.com/currenta_app')),
                 ),
               ],
             ),

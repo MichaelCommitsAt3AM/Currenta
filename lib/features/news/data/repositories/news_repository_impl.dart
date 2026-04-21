@@ -50,6 +50,12 @@ class NewsRepositoryImpl implements NewsRepository {
   // ── Paginated fetch with two-tier category sort ────────────────
 
   @override
+  Future<List<NewsArticle>> fetchPage({
+    NewsCategory? category,
+    List<String>? preferredCategories,
+    String? countryCode,
+    int limit = 10,
+    int offset = 0,
     DateTime? before,
     String? afterId,
     bool includeViewed = false,
@@ -261,6 +267,15 @@ class NewsRepositoryImpl implements NewsRepository {
       rethrow;
     } catch (e) {
       throw ServerException('Failed to fetch trending: $e');
+    }
+  }
+
+  @override
+  Future<void> wipeLocalData() async {
+    try {
+      await _dao.wipeAllData();
+    } catch (e) {
+       debugPrint('[Cache] wipeLocalData error: $e');
     }
   }
 }

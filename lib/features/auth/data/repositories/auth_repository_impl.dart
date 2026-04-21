@@ -550,4 +550,42 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> setShouldAskLocationUpdate(bool shouldAsk) async {
     await _prefs.setBool('should_ask_location_update', shouldAsk);
   }
+
+  @override
+  Future<void> deleteAccount() async {
+    final session = _supabase.auth.currentSession;
+    final user = session?.user;
+    
+    if (user == null) return;
+
+    // 1. If non-anonymous, call backend to delete remote account
+    if (!user.isAnonymous && session != null) {
+      try {
+        final url = '${AppConfig.apiBaseUrl}/api/auth/account';
+        final options = Options(
+          headers: {
+            'Authorization': 'Bearer ${session.accessToken}',
+          },
+        );
+        
+        final response = await _dio.delete(url, options: options);
+        if (response.statusCode != 200) {
+          throw ServerException('Failed to delete account: ${response.data['detail'] ?? 'Unknown error'}');
+        }
+      } on DioException catch (e) {
+        final message = e.response?.data?['detail'] ?? e.message;
+        throw ServerException('Cloud deletion failed: $message');
+      } catch (e) {
+        throw ServerException('An unexpected error occurred during account deletion: $e');
+      }
+    }
+
+    // 2. Perform local cleanup (sign out)
+    await signOut();
+  }
+
+  @override
+  Future<void> clearOnboardingStatus() async {
+    await _prefs.setBool('has_completed_onboarding', false);
+  }
 }

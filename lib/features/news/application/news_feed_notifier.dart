@@ -84,6 +84,7 @@ class FeedState {
     String? sessionId,
     String? Function()? nextCursor,
     DateTime? expiresAt,
+    bool? isServerExhausted,
   }) =>
       FeedState(
         articles: articles ?? this.articles,

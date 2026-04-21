@@ -162,7 +162,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
           ElevatedButton(
             onPressed: () async {
               await ref.read(chatRepositoryProvider).clearAllHistory();
-              if (mounted) {
+              if (context.mounted) {
                 Navigator.pop(context);
                 setState(() {});
               }

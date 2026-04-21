@@ -416,6 +416,17 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   Future<void> deleteViewedArticles() async {
     await delete(viewedArticlesTable).go();
   }
+
+  Future<void> wipeAllData() async {
+    await transaction(() async {
+      await delete(newsArticlesTable).go();
+      await delete(viewedArticlesTable).go();
+      await delete(chatSessionsTable).go();
+      // chatMessagesTable is not explicitly in tables list of @DriftAccessor 
+      // but it is in the database.
+      await db.delete(db.chatMessagesTable).go();
+    });
+  }
 }
 
 // ── Domain Mapper Extension ───────────────────────────────────────

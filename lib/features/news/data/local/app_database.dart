@@ -255,4 +255,12 @@ class AppDatabase extends _$AppDatabase {
       );
     });
   }
+  
+  Future<void> wipeDatabase() async {
+    await transaction(() async {
+      for (final table in allTables) {
+        await delete(table).go();
+      }
+    });
+  }
 }

@@ -25,6 +25,12 @@ abstract class AuthRepository {
     required String password,
   });
 
+  /// Permanently deletes the user account.
+  Future<void> deleteAccount();
+
+  /// Resets the onboarding status so the user is treated as brand new.
+  Future<void> clearOnboardingStatus();
+
   /// Signs up a new user with an email and password.
   Future<void> signUpWithEmail({
     required String email,

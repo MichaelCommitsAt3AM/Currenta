@@ -6,6 +6,7 @@ import '../../application/auth_notifier.dart';
 import 'login_screen.dart';
 import 'register_screen.dart';
 import 'change_password_screen.dart';
+import 'welcome_screen.dart';
 import '../../../../core/utils/snackbar_utils.dart';
 
 class AccountManagementScreen extends ConsumerWidget {
@@ -20,6 +21,9 @@ class AccountManagementScreen extends ConsumerWidget {
     final email = user?.email;
     final name = user?.userMetadata?['full_name'] as String?;
     final avatarUrl = user?.userMetadata?['avatar_url'] as String?;
+    
+    final isGoogleOnly = user?.appMetadata['provider'] == 'google' && 
+        !(user?.identities?.any((id) => id.provider == 'email') ?? false);
 
     if (authState.isLoading) {
       return const Scaffold(
@@ -149,29 +153,30 @@ class AccountManagementScreen extends ConsumerWidget {
               ),
             ),
           ] else ...[
-            _SectionHeader(title: 'Security'),
-            _InfoCard(
-              child: Column(
-                children: [
-                   _ActionTile(
-                    title: 'Change Password',
-                    icon: Icons.lock_outline_rounded,
-                    onTap: () {
-                      final isGoogleUser = (user?.appMetadata['provider'] == 'google' || 
-                         (user?.identities?.any((id) => id.provider == 'google') ?? false));
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChangePasswordScreen(isGoogleUser: isGoogleUser),
-                        ),
-                      );
-                    },
-                  ),
-                ],
+            if (!isGoogleOnly) ...[
+              _SectionHeader(title: 'Security'),
+              _InfoCard(
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      title: 'Change Password',
+                      icon: Icons.lock_outline_rounded,
+                      onTap: () {
+                        final isGoogleUser = (user?.appMetadata['provider'] == 'google' || 
+                           (user?.identities?.any((id) => id.provider == 'google') ?? false));
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChangePasswordScreen(isGoogleUser: isGoogleUser),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-
-            const SizedBox(height: 32),
+              const SizedBox(height: 32),
+            ],
             _SectionHeader(title: 'Linked Accounts'),
             _InfoCard(
               child: Column(
@@ -249,9 +254,23 @@ class AccountManagementScreen extends ConsumerWidget {
                         confirmLabel: 'Delete',
                         isDangerous: true,
                       );
-                      if (confirmed == true) {
-                        // TODO: Implement actual deletion if backend supports it
-                         AppSnackbar.showSuccess(context, 'Account deletion coming soon');
+                      if (confirmed == true && context.mounted) {
+                        try {
+                          await ref.read(authNotifierProvider.notifier).deleteAccount();
+                          if (context.mounted) {
+                            AppSnackbar.showSuccess(context, 'Account and data deleted successfully');
+                            
+                            // Navigate to Welcome screen and clear history (brand new user experience)
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                              (route) => false,
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            AppSnackbar.showError(context, 'Failed to delete account: $e');
+                          }
+                        }
                       }
               },
             ),

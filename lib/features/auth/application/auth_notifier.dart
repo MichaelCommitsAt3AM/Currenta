@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/providers/providers.dart';
 import '../domain/repositories/auth_repository.dart';
+import '../../news/domain/repositories/news_repository.dart';
 
 class AuthState {
   const AuthState({
@@ -85,8 +86,11 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
-  AuthNotifier({required AuthRepository repository})
-      : _repository = repository,
+  AuthNotifier({
+    required AuthRepository repository,
+    required NewsRepository newsRepository,
+  })  : _repository = repository,
+        _newsRepository = newsRepository,
         super(AuthState(
           isAuthenticated: repository.currentUserId != null,
           isAnonymous: repository.isAnonymous,
@@ -124,6 +128,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   final AuthRepository _repository;
+  final NewsRepository _newsRepository;
 
   /// Exposes the current user ID if logged in
   String? get currentUserId => _repository.currentUserId;
@@ -179,6 +184,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(isLoading: false, error: e.message);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+    }
+  }
+
+  Future<void> deleteAccount() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      // 1. Wipe remote account (if not guest)
+      await _repository.deleteAccount();
+      
+      // 2. Wipe local database and cache
+      await _newsRepository.wipeLocalData();
+      
+      // 3. Reset onboarding status for brand new user experience
+      await _repository.clearOnboardingStatus();
+      
+      state = state.copyWith(isLoading: false);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.message);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Deletion failed: $e');
     }
   }
 
@@ -377,5 +402,6 @@ final authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(
     repository: ref.watch(authRepositoryProvider),
+    newsRepository: ref.watch(newsRepositoryProvider),
   );
 });

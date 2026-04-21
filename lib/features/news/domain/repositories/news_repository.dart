@@ -84,4 +84,7 @@ abstract class NewsRepository {
 
   /// Returns a single article by its identifier.
   Future<NewsArticle?> getArticleById(String id);
+
+  /// Wipes all locally-cached news data.
+  Future<void> wipeLocalData();
 }
