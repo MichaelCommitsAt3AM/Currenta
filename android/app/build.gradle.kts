@@ -41,7 +41,7 @@ android {
     productFlavors {
         create("dev") {
             dimension = "environment"
-            applicationIdSuffix = ".dev"
+            applicationId = "com.currenta.dev"
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "Currenta Dev")
         }

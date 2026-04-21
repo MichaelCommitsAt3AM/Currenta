@@ -35,6 +35,7 @@ class FeedState {
     this.sessionId,
     this.nextCursor,
     this.expiresAt,
+    this.isServerExhausted = false,
   });
 
   final List<NewsArticle> articles;
@@ -65,6 +66,10 @@ class FeedState {
   final String? sessionId;
   final String? nextCursor;
   final DateTime? expiresAt;
+  
+  /// True if the remote server has returned hasMore=false for this category session.
+  /// When true, we fallback to showing local secondary-category articles.
+  final bool isServerExhausted;
 
   FeedState copyWith({
     List<NewsArticle>? articles,
@@ -98,6 +103,7 @@ class FeedState {
         sessionId: sessionId ?? this.sessionId,
         nextCursor: nextCursor != null ? nextCursor() : this.nextCursor,
         expiresAt: expiresAt ?? this.expiresAt,
+        isServerExhausted: isServerExhausted ?? this.isServerExhausted,
       );
 }
 
@@ -215,6 +221,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       nextCursor: nextCursor,
       expiresAt: expiresAt,
       includeViewedInPaging: false,
+      isServerExhausted: !hasMore,
     );
 
     _feedCache[savedCategoryId] = finalState;
@@ -267,9 +274,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Appends the next batch of articles to the current list using session cursors.
   Future<void> loadNextPage() async {
     final startState = state.valueOrNull;
-    if (startState == null || !startState.hasMore) return;
-
+    if (startState == null) return;
+    
     final category = startState.selectedCategory;
+    
+    // If server is exhausted, fetch secondary articles from local cache
+    if (startState.isServerExhausted) {
+      await _loadNextPageFromLocalSecondary(startState);
+      return;
+    }
+
+    if (!startState.hasMore) return;
 
     // 1. Concurrency Guard
     if (_fetchingStates.contains(category)) return;
@@ -343,13 +358,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           state = AsyncData(advancedState);
           _feedCache[category] = advancedState;
         } else {
-          // Genuinely no more articles
+          // Genuinely no more articles from server
           final endState = current.copyWith(
             hasMore: false,
             isLoadingMore: false,
+            isServerExhausted: true,
           );
           state = AsyncData(endState);
           _feedCache[category] = endState;
+          
+          // Immediately try to load local secondary articles if we didn't get enough from server
+          if (current.articles.length < 5) {
+             await _loadNextPageFromLocalSecondary(endState);
+          }
         }
         return;
       }
@@ -420,6 +441,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
         offset: 0,
         includeViewed: false,
+        primaryOnly: true, // User request: First look for primary-only
       );
 
       const int initialIndex = 0;
@@ -430,6 +452,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           selectedCategory: category,
           currentIndex: initialIndex,
           hasMore: true,
+          isServerExhausted: false,
         );
         state = AsyncData(newState);
         _feedCache[category] = newState;
@@ -452,6 +475,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         nextCursor: response.nextCursor,
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
+        isServerExhausted: !response.hasMore,
       );
 
       state = AsyncData(newState);
@@ -490,6 +514,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         nextCursor: response.nextCursor,
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
+        isServerExhausted: !response.hasMore,
       );
 
       state = AsyncData(newState);
@@ -626,6 +651,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         nextCursor: () => response.nextCursor,
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
+        isServerExhausted: !response.hasMore,
       );
       state = AsyncData(patched);
       _feedCache[category] = patched;
@@ -633,6 +659,48 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // Non-fatal: pagination will still work on a session that is established
       // lazily at the next loadNextPage call.
       debugPrint('[Feed] Background session establishment failed: $e');
+    }
+  }
+  
+  /// Loads secondary articles from local cache (where category is NOT primary).
+  /// This is used as a fallback when the server is exhausted.
+  Future<void> _loadNextPageFromLocalSecondary(FeedState current) async {
+    final category = current.selectedCategory;
+    if (category == null) return; // For You feed handles this via its own logic
+    
+    _fetchingStates.add(category);
+    state = AsyncData(current.copyWith(isLoadingMore: true));
+
+    try {
+      final lastArticle = current.articles.lastOrNull;
+      
+      final secondaryArticles = await _repo.fetchPage(
+        category: category,
+        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
+        countryCode: ref.read(authNotifierProvider).preferredCountry,
+        limit: _kPageSize,
+        afterId: lastArticle?.id,
+        before: lastArticle?.publishedAt,
+        includeViewed: false,
+        primaryOnly: false, // Allow secondary
+      );
+      
+      final existingIds = current.articles.map((a) => a.id).toSet();
+      final uniqueNew = secondaryArticles.where((a) => !existingIds.contains(a.id)).toList();
+      
+      final nextState = current.copyWith(
+        articles: [...current.articles, ...uniqueNew],
+        isLoadingMore: false,
+        hasMore: uniqueNew.length >= _kPageSize, // If we got less than requested, we're done
+      );
+      
+      state = AsyncData(nextState);
+      _feedCache[category] = nextState;
+    } catch (e) {
+      debugPrint('[Feed] Local secondary fetch failed: $e');
+      state = AsyncData(current.copyWith(isLoadingMore: false));
+    } finally {
+      _fetchingStates.remove(category);
     }
   }
 

@@ -19,6 +19,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     String? category,
     List<String>? preferredCategories,
     String? countryCode,
+    bool primaryOnly = false,
   }) {
     final categoryFirstPrefix = category != null ? '["$category"%' : '';
     final categoryContains = category != null ? '%"$category"%' : '';
@@ -66,7 +67,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           ])
           ..where((t) {
             final catFilter = category != null
-                ? t.categories.like(categoryContains)
+                ? (primaryOnly
+                    ? t.categories.like(categoryFirstPrefix)
+                    : t.categories.like(categoryContains))
                 : const Constant(true);
             final viewedIds = selectOnly(viewedArticlesTable)
               ..addColumns([viewedArticlesTable.id]);
@@ -100,6 +103,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     DateTime? before,
     String? afterId,
     bool includeViewed = false,
+    bool primaryOnly = false,
   }) async {
     final categoryFirstPrefix = category != null ? '["$category"%' : '';
     final categoryContains = category != null ? '%"$category"%' : '';
@@ -192,7 +196,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       ])
       ..where(() {
         final catFilter = category != null
-            ? newsArticlesTable.categories.like(categoryContains)
+            ? (primaryOnly
+                ? newsArticlesTable.categories.like(categoryFirstPrefix)
+                : newsArticlesTable.categories.like(categoryContains))
             : (preferredCategories != null && preferredCategories.isNotEmpty)
                 ? CustomExpression<bool>(
                     "(${preferredCategories.map((c) => "categories LIKE '%\"$c\"%'").join(' OR ')})",
@@ -258,11 +264,13 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   }
 
   /// Returns the total number of locally-cached articles (optionally filtered by category).
-  Future<int> countArticles({String? category}) async {
+  Future<int> countArticles({String? category, bool primaryOnly = false}) async {
     final query = selectOnly(newsArticlesTable)
       ..addColumns([newsArticlesTable.id.count()])
       ..where(category != null
-          ? newsArticlesTable.categories.like('%"$category"%')
+          ? (primaryOnly
+              ? newsArticlesTable.categories.like('["$category"%')
+              : newsArticlesTable.categories.like('%"$category"%'))
           : const Constant(true));
     final result = await query.getSingle();
     return result.read(newsArticlesTable.id.count()) ?? 0;

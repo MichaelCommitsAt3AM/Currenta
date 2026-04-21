@@ -4,6 +4,7 @@ from typing import List, Optional
 import logging
 from datetime import datetime, timezone
 import uuid
+import re
 from urllib.parse import urlparse
 
 from ..core.security import verify_is_admin, User
@@ -52,6 +53,39 @@ class PublishRequest(BaseModel):
     image_url: Optional[str] = None
     country_code: Optional[str] = None
     is_paywalled: bool = False
+
+class SqlQueryRequest(BaseModel):
+    query: str
+
+def is_sql_safe(query: str) -> bool:
+    """
+    Very basic check to ensure only SELECT-like queries are run.
+    This is NOT a substitute for proper DB-level permissions.
+    """
+    q = query.strip().lower()
+    
+    # Must start with safe commands
+    if not re.match(r'^\s*(select|explain|show)\b', q):
+        return False
+    
+    # Blacklist of hazardous keywords
+    forbidden = [
+        "delete", "drop", "update", "insert", "truncate", "alter", 
+        "grant", "revoke", "create", "replace", "vacuum", "merge",
+        "upsert", "call", "execute", "do"
+    ]
+    
+    for word in forbidden:
+        if re.search(r'\b' + re.escape(word) + r'\b', q):
+            return False
+            
+    # Block multiple statements
+    if ";" in q:
+        # Only allow semicolon if it's at the very end
+        if re.search(r';\s*\S', q):
+            return False
+            
+    return True
 
 @router.post("/news/draft", response_model=NewsDraft)
 async def create_news_draft(
@@ -296,3 +330,56 @@ async def publish_manual_news(
         except Exception as log_err:
             logger.warning("Failed to log admin publish error: %s", log_err)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/query")
+async def run_admin_query(
+    request: Request,
+    query_req: SqlQueryRequest,
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Executes a read-only SQL query for administrative purposes.
+    Enforces safety checks and a 100-row limit.
+    """
+    raw_query = query_req.query.strip()
+    
+    if not is_sql_safe(raw_query):
+        logger.warning("[admin_query] Blocked hazardous query from admin %s: %s", user.id, raw_query)
+        raise HTTPException(
+            status_code=403, 
+            detail="Forbidden: Only non-hazardous commands (SELECT, EXPLAIN, SHOW) are allowed."
+        )
+
+    logger.info("[admin_query] Admin %s running query: %s", user.id, raw_query)
+    pool = request.app.state.db_pool
+    
+    try:
+        async with pool.acquire() as conn:
+            # PostgreSQL hack: use a read-only transaction for extra safety
+            async with conn.transaction(readonly=True):
+                # Wrap the query to enforce the 100-row limit if it's a SELECT
+                # If it already has a LIMIT, we might still want to wrap it or replace it.
+                # Simplest way: wrap in a subquery
+                if raw_query.lower().startswith("select"):
+                    # Remove trailing semicolon for wrapping
+                    inner_query = raw_query.rstrip('; ')
+                    final_query = f"SELECT * FROM ({inner_query}) AS user_query LIMIT 100"
+                else:
+                    final_query = raw_query
+
+                records = await conn.fetch(final_query)
+                
+                # Convert asyncpg.Record to list of dicts for JSON serialization
+                results = [dict(r) for r in records]
+                
+                return {
+                    "status": "success",
+                    "row_count": len(results),
+                    "columns": list(results[0].keys()) if results else [],
+                    "data": results
+                }
+                
+    except Exception as e:
+        logger.error(f"Error running admin query: {e}")
+        raise HTTPException(status_code=400, detail=f"SQL Error: {str(e)}")

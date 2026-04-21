@@ -35,12 +35,14 @@ class NewsRepositoryImpl implements NewsRepository {
     NewsCategory? category,
     List<String>? preferredCategories,
     String? countryCode,
+    bool primaryOnly = false,
   }) {
     return _dao
         .watchArticles(
           category: category?.name,
           preferredCategories: preferredCategories,
           countryCode: countryCode,
+          primaryOnly: primaryOnly,
         )
         .map((rows) => rows.map((r) => r.toDomain()).toList());
   }
@@ -48,15 +50,10 @@ class NewsRepositoryImpl implements NewsRepository {
   // ── Paginated fetch with two-tier category sort ────────────────
 
   @override
-  Future<List<NewsArticle>> fetchPage({
-    NewsCategory? category,
-    List<String>? preferredCategories,
-    String? countryCode,
-    int limit = 10,
-    int offset = 0,
     DateTime? before,
     String? afterId,
     bool includeViewed = false,
+    bool primaryOnly = false,
   }) async {
     return _dao.getArticlesPage(
       category: category?.name,
@@ -67,6 +64,7 @@ class NewsRepositoryImpl implements NewsRepository {
       before: before,
       afterId: afterId,
       includeViewed: includeViewed,
+      primaryOnly: primaryOnly,
     );
   }
 
@@ -196,8 +194,11 @@ class NewsRepositoryImpl implements NewsRepository {
 
   @override
   Future<void> toggleLike(String articleId) async {
-    // For now, toggle locally. Backend integration can be added later.
+    // 1. Toggle locally
     await _dao.toggleLike(articleId);
+
+    // 2. Sync with backend
+    await _remote.toggleArticleLike(articleId);
   }
 
   @override

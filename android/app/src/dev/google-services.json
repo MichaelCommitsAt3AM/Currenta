@@ -7,12 +7,25 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:703509294568:android:3d9c51155a1c2c9597c85d",
+        "mobilesdk_app_id": "1:703509294568:android:683b3e7bcfd2ef8697c85d",
         "android_client_info": {
-          "package_name": "com.currenta.app"
+          "package_name": "com.currenta.dev"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "703509294568-8fbhibr4gb3ucbh1622s6581fuk7o7br.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.currenta.dev",
+            "certificate_hash": "827ef2cb02f569891a841d5df35b88f82733f7e5"
+          }
+        },
+        {
+          "client_id": "703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBHi6r0rPYFwNxCblPbSaTyKft6uHx3zi8"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

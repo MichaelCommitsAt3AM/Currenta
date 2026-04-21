@@ -2,7 +2,7 @@
 
 const CONFIG = {
     // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
-    API_BASE_URL: 'https://perinephric-dora-motionlessly.ngrok-free.dev', // DEBUG: Point to local ngrok backend
+    API_BASE_URL: 'https://currenta-backend-etzmdxn4fa-ey.a.run.app', // PRODUCTION
     
     SUPABASE_URL: 'https://trfqhobnkgtfccrdsexa.supabase.co',
     SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk',
@@ -96,6 +96,12 @@ async function enforceAdminSession() {
         }
 
         errorEl.textContent = '';
+        if (response.ok) {
+            const data = await response.json();
+            if (data.email) {
+                document.getElementById('user-email-display').textContent = data.email;
+            }
+        }
         return true;
     } catch (err) {
         errorEl.textContent = err.message || 'Unable to verify admin privileges right now.';
@@ -342,6 +348,225 @@ function setupEventListeners() {
     // Session Warning
     document.getElementById('extend-session-btn').addEventListener('click', extendSession);
     document.getElementById('expire-logout-btn').addEventListener('click', () => supabaseClient.auth.signOut());
+
+    // SQL Query Explorer
+    document.getElementById('run-query-btn').addEventListener('click', handleSqlQuery);
+    document.getElementById('clear-results-btn').addEventListener('click', clearQueryResults);
+    document.getElementById('download-csv-btn').addEventListener('click', downloadResultsAsCSV);
+
+    // Sidebar Navigation
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const tabId = item.getAttribute('data-tab');
+            switchTab(tabId);
+        });
+    });
+
+    // Sidebar Toggle
+    document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+
+    // Close Detail Panel
+    document.getElementById('close-detail-panel').addEventListener('click', hideRecordDetails);
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('collapsed');
+}
+
+function switchTab(tabId) {
+    // Update Sidebar
+    document.querySelectorAll('.nav-item').forEach(item => {
+        if (item.getAttribute('data-tab') === tabId) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+
+    // Update Content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        if (content.id === tabId) {
+            content.classList.remove('hidden');
+        } else {
+            content.classList.add('hidden');
+        }
+    });
+}
+
+let lastQueryResults = null;
+
+async function handleSqlQuery() {
+    const queryInput = document.getElementById('sql-query');
+    const btn = document.getElementById('run-query-btn');
+    const errorEl = document.getElementById('query-error');
+    const resultsContainer = document.getElementById('query-results-container');
+    const loader = btn.querySelector('.loader');
+    const btnText = btn.querySelector('.btn-text');
+    
+    if (!queryInput.value.trim()) return;
+
+    // UI State
+    btn.disabled = true;
+    loader.classList.remove('hidden');
+    btnText.classList.add('hidden');
+    errorEl.classList.add('hidden');
+    resultsContainer.classList.add('hidden');
+
+    try {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/api/admin/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ query: queryInput.value.trim() })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.detail || 'Query failed');
+        }
+
+        lastQueryResults = data;
+        renderQueryResults(data);
+        resultsContainer.classList.remove('hidden');
+        
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        loader.classList.add('hidden');
+        btnText.classList.remove('hidden');
+    }
+}
+
+function renderQueryResults(data) {
+    const head = document.getElementById('table-head');
+    const body = document.getElementById('table-body');
+    const badge = document.getElementById('row-count-badge');
+    
+    head.innerHTML = '';
+    body.innerHTML = '';
+    badge.textContent = `${data.row_count} rows`;
+
+    if (data.row_count === 0) {
+        body.innerHTML = '<tr><td colspan="100%" style="text-align: center; padding: 2rem;">No results found.</td></tr>';
+        return;
+    }
+
+    // Render Headers
+    const headerRow = document.createElement('tr');
+    data.columns.forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        headerRow.appendChild(th);
+    });
+    head.appendChild(headerRow);
+
+    // Render Rows
+    data.data.forEach((row, index) => {
+        const tr = document.createElement('tr');
+        tr.onclick = () => showRecordDetails(row, tr);
+        
+        data.columns.forEach(col => {
+            const td = document.createElement('td');
+            const val = row[col];
+            
+            if (val === null) {
+                td.innerHTML = '<i style="color: hsla(0,0%,100%,0.2)">null</i>';
+            } else if (typeof val === 'object') {
+                td.textContent = JSON.stringify(val);
+                td.title = td.textContent;
+            } else {
+                td.textContent = val;
+                td.title = val;
+            }
+            tr.appendChild(td);
+        });
+        body.appendChild(tr);
+    });
+}
+
+function showRecordDetails(record, element) {
+    const panel = document.getElementById('record-detail-panel');
+    const content = document.getElementById('detail-content');
+    
+    // Highlight selected row
+    document.querySelectorAll('#results-table tr').forEach(tr => tr.classList.remove('selected'));
+    if (element) element.classList.add('selected');
+
+    content.innerHTML = '';
+    
+    for (const [key, value] of Object.entries(record)) {
+        const item = document.createElement('div');
+        item.className = 'detail-item';
+        
+        let displayValue = value;
+        if (value === null) {
+            displayValue = '<i>null</i>';
+        } else if (Array.isArray(value) && value.length > 20) {
+            // Special handling for long arrays (like embeddings)
+            const preview = value.slice(0, 5).map(v => typeof v === 'number' ? v.toFixed(4) : v);
+            displayValue = `<div class="truncated-array">[${preview.join(', ')}, ... <span class="badge small">${value.length} items total</span>]</div>`;
+        } else if (typeof value === 'object') {
+            displayValue = `<pre>${JSON.stringify(value, null, 2)}</pre>`;
+        } else if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) {
+            displayValue = `<a href="${value}" target="_blank" class="accent-link">${value}</a>`;
+        } else if (typeof value === 'string' && value.length > 500) {
+            // Truncate very long strings
+            displayValue = `<div class="truncated-text" title="Click to expand" onclick="this.classList.toggle('expanded')">${value}</div>`;
+        }
+
+        item.innerHTML = `
+            <div class="detail-label">${key}</div>
+            <div class="detail-value">${displayValue}</div>
+        `;
+        content.appendChild(item);
+    }
+
+    panel.classList.remove('hidden');
+}
+
+function hideRecordDetails() {
+    document.getElementById('record-detail-panel').classList.add('hidden');
+    document.querySelectorAll('#results-table tr').forEach(tr => tr.classList.remove('selected'));
+}
+
+function clearQueryResults() {
+    document.getElementById('sql-query').value = '';
+    document.getElementById('query-results-container').classList.add('hidden');
+    document.getElementById('query-error').classList.add('hidden');
+    lastQueryResults = null;
+}
+
+function downloadResultsAsCSV() {
+    if (!lastQueryResults || lastQueryResults.data.length === 0) return;
+
+    const cols = lastQueryResults.columns;
+    const rows = lastQueryResults.data;
+
+    const csvContent = [
+        cols.join(','),
+        ...rows.map(row => cols.map(c => {
+            const val = row[c];
+            if (val === null) return '';
+            const str = String(val).replace(/"/g, '""');
+            return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+        }).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `query_results_${Date.now()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 function renderCategories() {

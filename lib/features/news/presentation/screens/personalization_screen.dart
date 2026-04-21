@@ -88,21 +88,9 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
 
           _isLoading = false;
 
-          // Expand the first selected category by default (skip Local)
-          if (_selectedCategories.isNotEmpty) {
-            _expandedIndex = NewsCategory.values.indexWhere(
-              (c) => _selectedCategories.contains(c) && c != NewsCategory.local,
-            );
-          }
-          
-          if (_expandedIndex == -1 && NewsCategory.values.isNotEmpty) {
-            // Fallback: expand first non-local category
-            _expandedIndex = NewsCategory.values.indexWhere((c) => c != NewsCategory.local);
-          }
+          // Per user request: categories remain collapsed by default.
+          _expandedIndex = -1;
         });
-
-        // Trigger onboarding if needed
-        _checkOnboarding();
       }
     } catch (e) {
       if (mounted) {
@@ -357,102 +345,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
     return result ?? false;
   }
 
-  Future<void> _checkOnboarding() async {
-    final persistence = ref.read(localPersistenceRepositoryProvider);
-    if (!persistence.hasSeenPersonalizationOnboarding()) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) {
-        _showOnboarding();
-      }
-    }
-  }
-
-  void _showOnboarding() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF161822),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
-        ),
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 32),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.auto_awesome_rounded,
-                color: Color(0xFF6C63FF),
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'Personalize Your Feed',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Tap a category to explore its sub-topics, or use the circle icon to quickly follow or unfollow a main topic.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  ref
-                      .read(localPersistenceRepositoryProvider)
-                      .setHasSeenPersonalizationOnboarding(true);
-                  Navigator.pop(context);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6C63FF),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: const Text(
-                  'Got it!',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

@@ -13,6 +13,7 @@ abstract class NewsRepository {
     NewsCategory? category,
     List<String>? preferredCategories,
     String? countryCode,
+    bool primaryOnly = false,
   });
 
   /// Returns a single page of locally-cached articles, newest-first.
@@ -27,6 +28,7 @@ abstract class NewsRepository {
     DateTime? before,
     String? afterId,
     bool includeViewed = false,
+    bool primaryOnly = false,
   });
 
   /// Fetches fresh articles from the remote source and upserts into local cache.

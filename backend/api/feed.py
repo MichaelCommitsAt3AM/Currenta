@@ -149,6 +149,7 @@ class Diversifier:
         
         self.last_categories: List[str] = []
         self.last_sources: List[str] = []
+        self.current_counts = [0] * len(self.buckets)
         
     def _is_diverse(self, article: dict) -> bool:
         # Category Guard - bypassed if ignore_cat_limit is True (e.g. for specific category pages)
@@ -177,25 +178,37 @@ class Diversifier:
         if len(self.last_sources) > 5: self.last_sources.pop(0)
 
     def interleave(self, limit: int) -> List[dict]:
+        """
+        Interleaves articles from buckets using a weighted scheduler to maintain
+        the requested ratios (e.g., 60/30/10) while enforcing diversity.
+        """
         result = []
-        # Normalization of ratios not needed if they sum to ~1, but we use a round-robin approach
-        # we try to fulfill the ratio over the course of the feed.
         
-        bucket_indices = [0] * len(self.buckets)
-        
-        # We'll do a simple round-robin for the 33/33/33 case
-        # For more complex ratios, a weighted scheduler would be better.
         while len(result) < limit:
-            added_in_round = False
+            # Find the bucket that is most "behind" its target ratio.
+            # We use (current_count / ratio) as a score; lowest score wins.
+            best_bucket_idx = -1
+            min_score = float('inf')
+            
+            # We sort indices by score so we can try the best one first, 
+            # and if diversity fails, try the next best one.
+            candidates = []
             for i in range(len(self.buckets)):
+                if not self.buckets[i]:
+                    continue
+                score = self.current_counts[i] / self.ratios[i]
+                candidates.append((score, i))
+            
+            candidates.sort() # Sort by score ascending
+            
+            added_in_this_step = False
+            for _, i in candidates:
                 bucket = self.buckets[i]
-                start_idx = bucket_indices[i]
                 
-                # Search for the first diverse article in this bucket
+                # Look for the first article in this bucket that satisfies diversity
                 found_idx = -1
-                for j in range(start_idx, len(bucket)):
-                    candidate = bucket[j]
-                    if self._is_diverse(candidate):
+                for j in range(len(bucket)):
+                    if self._is_diverse(bucket[j]):
                         found_idx = j
                         break
                 
@@ -203,19 +216,23 @@ class Diversifier:
                     article = bucket.pop(found_idx)
                     result.append(article)
                     self._update_state(article)
-                    added_in_round = True
-                    if len(result) >= limit: break
-                else:
-                    # If we can't find a diverse article in this bucket, 
-                    # we might have to relax the rules or just move on.
-                    # For now, if a bucket is exhausted of diverse options, we just skip it.
-                    pass
+                    self.current_counts[i] += 1
+                    added_in_this_step = True
+                    break
             
-            if not added_in_round:
-                # All buckets are either empty or have no diverse options left. 
-                # Relax guards or break.
-                break
-        
+            if not added_in_this_step:
+                # If no bucket can provide a diverse article, but buckets aren't empty,
+                # we have to "relax" the rules. We take the best-ratio bucket's first item.
+                if not candidates:
+                    break # Truly empty
+                
+                # Forced pick from the most-needed bucket to avoid getting stuck
+                _, i = candidates[0]
+                article = self.buckets[i].pop(0)
+                result.append(article)
+                self._update_state(article)
+                self.current_counts[i] += 1
+
         return result
 
 
@@ -244,7 +261,7 @@ def get_db(request: Request) -> asyncpg.Pool:
 
 
 async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> dict:
-    """Fetch user country preference + interests, with Redis caching (Recommendation 2.1)."""
+    """Fetch user country preference + interests, with Redis caching."""
     cache_key = f"user_state:{user_id}"
     if redis_client:
         try:
@@ -256,15 +273,21 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
 
     # Cache miss — hit DB with parallel queries
     async with db_pool.acquire() as conn:
-        pref = await conn.fetchval(
-            "SELECT preferred_country FROM user_profiles WHERE user_id = $1", user_id
+        profile = await conn.fetchrow(
+            "SELECT preferred_country, interest_embedding::text as interest_embedding FROM user_profiles WHERE user_id = $1", user_id
         )
         interest_records = await conn.fetch(
             "SELECT category FROM user_interests WHERE user_id = $1", user_id
         )
 
+    # Parse interest_embedding string (e.g. "[0.1, 0.2]") to list
+    profile_data = dict(profile) if profile else {}
+    emb_text = profile_data.get("interest_embedding")
+    interest_embedding = orjson.loads(emb_text) if emb_text else None
+
     state = {
-        "preferred_country": pref,
+        "preferred_country": profile_data.get("preferred_country"),
+        "interest_embedding": interest_embedding,
         "interests": sorted([r["category"] for r in interest_records]),
     }
 
@@ -432,8 +455,10 @@ async def get_feed(
             category_boost = None
 
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
-        async def fetch_bucket(conn, where_clause, params, label, category_boost: Optional[str] = None):
-            order_by = "ranking_score DESC, published_at DESC"
+        async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None):
+            if not order_by:
+                order_by = "ranking_score DESC, published_at DESC"
+            
             if category_boost:
                 # Prioritize articles where the requested category is the PRIMARY category (index 1)
                 order_by = f"(categories[1] = '{category_boost}') DESC, {order_by}"
@@ -470,38 +495,93 @@ async def get_feed(
         else:
             viewed_params = []
 
-        async with db_pool.acquire() as conn:
-            # Bucket 1: Local (Only if user has "local" interest or anon)
-            # Must match user's current country AND fall within their selected interests.
-            local_bucket = await fetch_bucket(
-                conn, 
-                f"{common_where} AND country_code = ${len(viewed_params)+1} AND categories && ${len(viewed_params)+2}::text[]", 
-                viewed_params + [country, interests], 
-                "Local",
-                category_boost=category_boost
-            ) if (country and has_local_interest and interests) else []
-            
-            # Bucket 2: Interests (Topic-based, Global Perspective)
-            # Pulls from topics the user is interested in, but only where the news is truly international (NULL country).
-            interest_bucket = await fetch_bucket(
-                conn, 
-                f"{common_where} AND categories && ${len(viewed_params)+1}::text[] AND country_code IS NULL", 
-                viewed_params + [topic_interests], 
-                "Interests",
-                category_boost=category_boost
-            ) if topic_interests else []
-            
-            # Bucket 3: World (Strictly International Headlines)
-            # Pulls global news (NULL country), but ONLY if it matches the user's interest profile.
-            world_bucket = await fetch_bucket(
-                conn, 
-                f"{common_where} AND country_code IS NULL AND categories && ${len(viewed_params)+1}::text[]", 
-                viewed_params + [interests], 
-                "World",
-                category_boost=category_boost
-            ) if interests else []
+        # Geographic Filter: Only show global news or news from the user's country
+        geo_filter = " AND (country_code IS NULL"
+        geo_params = []
+        if country:
+            # We'll calculate the index for country dynamically later to avoid confusion
+            pass
+        else:
+            geo_filter += ")"
 
-        # Deduplicate across buckets (prefer Interests > Local > World)
+        async with db_pool.acquire() as conn:
+            # Bucket 1: Personalized (60%)
+            if user_state and user_state.get("interest_embedding"):
+                # Index calculation: viewed_params($1..$N), interests($N+1), embedding($N+2), country($N+3)
+                p_where = f"{common_where} AND categories && ${len(viewed_params)+1}::text[]"
+                p_params = viewed_params + [interests, orjson.dumps(user_state["interest_embedding"]).decode()]
+                
+                if country:
+                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1})"
+                    p_params.append(country)
+                else:
+                    p_where += " AND country_code IS NULL"
+
+                personalized_bucket = await fetch_bucket(
+                    conn,
+                    p_where,
+                    p_params,
+                    "Personalized",
+                    order_by=f"embedding <=> ${len(viewed_params)+2}::vector",
+                    category_boost=category_boost
+                )
+            else:
+                # Cold start: rely on category matches
+                p_where = f"{common_where} AND categories && ${len(viewed_params)+1}::text[]"
+                p_params = viewed_params + [interests]
+                
+                if country:
+                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1})"
+                    p_params.append(country)
+                else:
+                    p_where += " AND country_code IS NULL"
+
+                personalized_bucket = await fetch_bucket(
+                    conn,
+                    p_where,
+                    p_params,
+                    "Personalized (Cold)",
+                    category_boost=category_boost
+                )
+
+            # Bucket 2: Trending (30%)
+            # Must respect user interests while being high-ranking
+            t_where = f"{common_where} AND ranking_score > 0.1 AND categories && ${len(viewed_params)+1}::text[]"
+            t_params = viewed_params + [interests]
+            
+            if country:
+                t_where += f" AND (country_code IS NULL OR country_code = ${len(t_params)+1})"
+                t_params.append(country)
+            else:
+                t_where += " AND country_code IS NULL"
+
+            trending_bucket = await fetch_bucket(
+                conn,
+                t_where,
+                t_params,
+                "Trending"
+            )
+
+            # Bucket 3: Discovery (10%)
+            # High-quality articles within interests but from sources the user might not follow.
+            d_where = f"{common_where} AND is_major_source = TRUE AND categories && ${len(viewed_params)+1}::text[]"
+            d_params = viewed_params + [interests]
+            
+            if country:
+                d_where += f" AND (country_code IS NULL OR country_code = ${len(d_params)+1})"
+                d_params.append(country)
+            else:
+                d_where += " AND country_code IS NULL"
+
+            discovery_bucket = await fetch_bucket(
+                conn,
+                d_where,
+                d_params,
+                "Discovery",
+                order_by="RANDOM()"
+            )
+
+        # Deduplicate across buckets (prefer Personalized > Trending > Discovery)
         all_ids = set()
         def dedupe(bucket):
             unique = []
@@ -511,38 +591,39 @@ async def get_feed(
                     all_ids.add(a['id'])
             return unique
         
-        final_interest = dedupe(interest_bucket)
-        final_local = dedupe(local_bucket)
-        final_world = dedupe(world_bucket)
+        final_personalized = dedupe(personalized_bucket)
+        final_trending = dedupe(trending_bucket)
+        final_discovery = dedupe(discovery_bucket)
 
-        # 5. Dynamic Interleave Ratio Calculation
-        # We determine which buckets are active to rebalance the 100% weight.
+        # 5. Diversifier with Weighted Interleaving
+        # Using the requested 60/30/10 ratio
         active_buckets = []
         active_ratios = []
         
-        if final_interest:
-            active_buckets.append(final_interest)
-        if final_local:
-            active_buckets.append(final_local)
-        if final_world:
-            active_buckets.append(final_world)
+        if final_personalized:
+            active_buckets.append(final_personalized)
+            active_ratios.append(0.6)
+        if final_trending:
+            active_buckets.append(final_trending)
+            active_ratios.append(0.3)
+        if final_discovery:
+            active_buckets.append(final_discovery)
+            active_ratios.append(0.1)
             
-        num_active = len(active_buckets)
-        if num_active > 0:
-            # Rebalance evenly: if 3 buckets -> 0.33 each, if 2 -> 0.50 each, if 1 -> 1.0
-            active_ratios = [1.0 / num_active] * num_active
+        # Re-normalize ratios if some buckets are empty
+        if active_ratios:
+            total_ratio = sum(active_ratios)
+            active_ratios = [r / total_ratio for r in active_ratios]
         else:
-            # Fallback (should not happen due to World bucket)
             active_buckets = [[]]
             active_ratios = [1.0]
 
-        # 6. Interleave using Diversifier
         diversifier = Diversifier(
             buckets=active_buckets,
             ratios=active_ratios,
             max_consecutive_cat=3,
             max_consecutive_source=2,
-            ignore_cat_limit=is_category_page # Relax category guards on specific category pages
+            ignore_cat_limit=is_category_page
         )
         
         session_articles = diversifier.interleave(limit=300)
@@ -666,37 +747,60 @@ async def toggle_favorite(
 ):
     """
     Toggles the favorite status of an article for the user.
-    If it exists, delete it; if not, insert it.
     """
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            async with db_pool.acquire() as conn:
-                # We use a single query with a check and swap.
-                exists = await conn.fetchval(
-                    "SELECT 1 FROM article_favorites WHERE user_id = $1 AND article_id = $2",
-                    user.id, str(article_id)
-                )
-                
-                if exists:
-                    await conn.execute(
-                        "DELETE FROM article_favorites WHERE user_id = $1 AND article_id = $2",
-                        user.id, str(article_id)
-                    )
-                    return {"status": "unfavorited"}
-                else:
-                    await conn.execute(
-                        "INSERT INTO article_favorites (user_id, article_id) VALUES ($1, $2)",
-                        user.id, str(article_id)
-                    )
-                    return {"status": "favorited"}
-        except (asyncpg.PostgresError, OSError) as e:
-            if attempt < max_retries - 1:
-                logger.warning(f"Database operation failed in toggle_favorite (attempt {attempt+1}/{max_retries}): {e}. Retrying...")
-                await asyncio.sleep(0.2 * (2 ** attempt))
-                continue
-            logger.error("Error toggling favorite: %s", e)
-            raise HTTPException(status_code=500, detail="Failed to toggle favorite")
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+            user.id, str(article_id)
+        )
+        
+        if exists:
+            await conn.execute(
+                "DELETE FROM article_favorites WHERE user_id = $1 AND article_id = $2",
+                user.id, str(article_id)
+            )
+            return {"status": "unfavorited"}
+        else:
+            await conn.execute(
+                "INSERT INTO article_favorites (user_id, article_id) VALUES ($1, $2)",
+                user.id, str(article_id)
+            )
+            return {"status": "favorited"}
+
+
+@router.post("/like")
+@limiter.limit("60/minute")
+async def toggle_like(
+    request: Request,
+    article_id: UUID,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Toggles the like status of an article for the user.
+    Syncs with Supabase 'article_likes' table which triggers vector recalculation.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM article_likes WHERE user_id = $1 AND article_id = $2",
+            user.id, str(article_id)
+        )
+        
+        if exists:
+            await conn.execute(
+                "DELETE FROM article_likes WHERE user_id = $1 AND article_id = $2",
+                user.id, str(article_id)
+            )
+            return {"status": "unliked"}
+        else:
+            await conn.execute(
+                "INSERT INTO article_likes (user_id, article_id) VALUES ($1, $2)",
+                user.id, str(article_id)
+            )
+            return {"status": "liked"}

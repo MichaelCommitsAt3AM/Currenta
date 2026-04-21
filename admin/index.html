@@ -46,8 +46,31 @@
             <button id="logout-btn" class="btn outline small">Logout</button>
         </header>
 
-        <main>
-            <section class="ingest-section">
+        <div class="dashboard-layout">
+            <nav id="sidebar" class="sidebar">
+                <button id="sidebar-toggle" class="sidebar-toggle-btn">
+                    <span class="toggle-icon">◀</span>
+                </button>
+                <ul class="nav-links">
+                    <li class="nav-item active" data-tab="ingest-tab">
+                        <span class="nav-icon">📥</span>
+                        <span class="nav-text">Manual Ingestion</span>
+                    </li>
+                    <li class="nav-item" data-tab="query-tab">
+                        <span class="nav-icon">🔍</span>
+                        <span class="nav-text">Database Explorer</span>
+                    </li>
+                </ul>
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div id="user-email-display" class="email">admin@currenta.app</div>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="main-content">
+                <section id="ingest-tab" class="tab-content active">
+                    <section class="ingest-section">
                 <div class="section-header">
                     <h2>Manual Ingestion</h2>
                     <p>Provide a URL to start the magic draft process.</p>
@@ -149,7 +172,62 @@
                     </div>
                 </div>
             </section>
-        </main>
+            
+                </section>
+                
+                <section id="query-tab" class="tab-content hidden">
+                    <section class="query-section">
+                        <div class="section-header">
+                            <h2>Database Explorer</h2>
+                            <p>Run read-only SQL queries to inspect the system state. (Capped to 100 rows)</p>
+                        </div>
+
+                        <div class="glass-card query-card">
+                            <div class="query-editor-wrapper">
+                                <textarea id="sql-query" placeholder="SELECT * FROM articles WHERE published_at > NOW() - INTERVAL '24 hours' ORDER BY ranking_score DESC;"></textarea>
+                                <div class="query-actions">
+                                    <button id="run-query-btn" class="btn primary">
+                                        <span class="btn-text">Execute SQL</span>
+                                        <div class="loader hidden"></div>
+                                    </button>
+                                    <button id="clear-results-btn" class="btn outline small">Clear</button>
+                                </div>
+                            </div>
+                            
+                            <div id="query-error" class="error hidden"></div>
+                            
+                            <div id="query-results-container" class="results-container hidden">
+                                <div class="results-header">
+                                    <span id="row-count-badge" class="badge">0 rows</span>
+                                    <div class="results-actions">
+                                        <button id="download-csv-btn" class="btn outline small">Download CSV</button>
+                                    </div>
+                                </div>
+                                
+                                <div class="query-content-layout">
+                                    <div class="table-wrapper">
+                                        <table id="results-table">
+                                            <thead id="table-head"></thead>
+                                            <tbody id="table-body"></tbody>
+                                        </table>
+                                    </div>
+
+                                    <div id="record-detail-panel" class="detail-panel hidden">
+                                        <div class="detail-panel-header">
+                                            <h3>Record Details</h3>
+                                            <button id="close-detail-panel" class="btn outline small">✕</button>
+                                        </div>
+                                        <div id="detail-content" class="detail-content">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+            </main>
+        </div>
     </div>
 
     <!-- Success Toast -->

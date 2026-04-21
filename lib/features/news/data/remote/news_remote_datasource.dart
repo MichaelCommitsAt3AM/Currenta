@@ -125,6 +125,26 @@ class NewsRemoteDataSource {
     }
   }
 
+  /// Records that the user has liked this article.
+  Future<void> toggleArticleLike(String articleId) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/like';
+      final session = Supabase.instance.client.auth.currentSession;
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      await _dio.post(url,
+          queryParameters: {'article_id': articleId}, options: options);
+    } catch (e) {
+      debugPrint('[Remote] Failed to toggle like for $articleId: $e');
+      rethrow;
+    }
+  }
+
   /// Fetches global trending articles.
   Future<List<NewsArticle>> fetchTrendingArticles({
     int limit = 20,

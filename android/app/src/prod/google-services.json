@@ -37,6 +37,13 @@
             {
               "client_id": "1061629660004-r8tu5ej7mle8m7emgqh1d47ut6voqhku.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "1061629660004-hdk9lsdp52e1lk7523rkrk17vahd384i.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.currenta.app"
+              }
             }
           ]
         }
