@@ -177,10 +177,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       ref.read(needsFeedRefreshProvider.notifier).state = false;
 
       // Reset local scroll index to the top for the fresh session.
+      // Ensure we are back at the start of the feed
       if (_pageController.hasClients) {
         _pageController.jumpToPage(0);
-      }
-      if (mounted) {
         setState(() => _currentIndex = 0);
       }
 
@@ -454,17 +453,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       // 2. Handle AI Chat sheet
       if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
-        final article = nextFeed.articles.firstWhere((a) => a.id == articleId);
+        final article = nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
 
         // Clear immediately so it doesn't re-open on next rebuild
         ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
 
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (context) => AiQuickChatSheet(article: article),
-        );
+        if (article != null) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => AiQuickChatSheet(article: article),
+          );
+        }
       }
 
       // 3. Trigger onboarding when feed is first loaded
@@ -536,8 +537,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
             _isManualShimmering
                 ? const ShimmerFeed()
                 : feedAsync.when(
-                    // DO NOT skip loading on reload, we want to see the shimmer for hard refreshes
-                    skipLoadingOnReload: false,
+                    // Skip loading on reload so we can see stale data while fetching fresh content
+                    skipLoadingOnReload: true,
                     loading: () => const ShimmerFeed(),
                     error: (e, _) => ErrorStateScreen(
                       error: e,
@@ -583,22 +584,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
               },
-              onRefresh: () =>
-                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
               onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
             ),
 
-            // ── New Stories Badge ─────────────────────────────────────
-            if (feed != null && feed.newArticlesCount > 0)
-              _NewStoriesBadge(
-                count: feed.newArticlesCount,
-                onTap: () {
-                  // Notifier handles list reconstruction and index shift (Current @ 0, New @ 1)
-                  ref
-                      .read(newsFeedNotifierProvider.notifier)
-                      .applyPendingArticles();
-                },
-              ),
+            // ── Refresh Badge (Twitter Style) ──────────────────────────
+            _RefreshBadge(
+              isVisible: feed?.isStale ?? false,
+              onTap: () =>
+                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
+            ),
 
             if (_showOnboarding)
               FeedOnboardingOverlay(
@@ -656,51 +650,64 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
 // ── New Stories Badge ─────────────────────────────────────────────────────────
 
-class _NewStoriesBadge extends StatelessWidget {
-  const _NewStoriesBadge({required this.count, required this.onTap});
+// ── Refresh Badge (Twitter Style) ────────────────────────────────────────────
 
-  final int count;
+class _RefreshBadge extends StatelessWidget {
+  const _RefreshBadge({required this.isVisible, required this.onTap});
+
+  final bool isVisible;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final topPadding = MediaQuery.paddingOf(context).top + 60;
+    final topPadding = MediaQuery.paddingOf(context).top + 64;
 
-    return Positioned(
-      top: topPadding,
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeOutBack,
+      top: isVisible ? topPadding : topPadding - 80,
       left: 0,
       right: 0,
-      child: Center(
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF6C63FF),
-              borderRadius: BorderRadius.circular(100),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 400),
+        opacity: isVisible ? 1.0 : 0.0,
+        child: Center(
+          child: GestureDetector(
+            onTap: isVisible ? onTap : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF6C63FF), Color(0xFF8A84FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.refresh_rounded,
-                    color: Colors.white, size: 16),
-                const SizedBox(width: 8),
-                const Text(
-                  'Refresh',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                borderRadius: BorderRadius.circular(100),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                  SizedBox(width: 10),
+                  Text(
+                    'Refresh',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      fontFamily: 'Outfit',
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -749,13 +756,11 @@ class _CategoryBar extends ConsumerStatefulWidget {
   const _CategoryBar({
     required this.selectedCategory,
     required this.onCategoryChanged,
-    required this.onRefresh,
     required this.onOpenDrawer,
   });
 
   final NewsCategory? selectedCategory;
   final ValueChanged<NewsCategory?> onCategoryChanged;
-  final VoidCallback onRefresh;
   final VoidCallback onOpenDrawer;
 
   @override
@@ -880,22 +885,6 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
                                 onTap: () => widget.onCategoryChanged(cat),
                               ),
                             )),
-                    // Refresh button at the very end of chip row
-                    GestureDetector(
-                      onTap: widget.onRefresh,
-                      child: Container(
-                        height: 32,
-                        width: 36,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.20)),
-                        ),
-                        child: const Icon(Icons.refresh_rounded,
-                            color: Colors.white, size: 18),
-                      ),
-                    ),
                   ],
                 ),
               ),

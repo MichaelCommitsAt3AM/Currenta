@@ -10,6 +10,7 @@ class LocalPersistenceRepository {
   static const _kHasSeenFeedOnboarding = 'has_seen_feed_onboarding';
   static const _kHasSeenPersonalizationOnboarding = 'has_seen_personalization_onboarding';
   static const _kNeedsFeedRefresh = 'needs_feed_refresh';
+  static const _kLastRefreshAt = 'last_refresh_at';
 
   Future<void> saveCurrentArticleId(String? articleId) async {
     if (articleId == null) {
@@ -21,6 +22,20 @@ class LocalPersistenceRepository {
 
   String? getCurrentArticleId() {
     return _prefs.getString(_kCurrentArticleId);
+  }
+
+  Future<void> saveLastRefreshTime(DateTime? time) async {
+    if (time == null) {
+      await _prefs.remove(_kLastRefreshAt);
+    } else {
+      await _prefs.setString(_kLastRefreshAt, time.toIso8601String());
+    }
+  }
+
+  DateTime? getLastRefreshTime() {
+    final iso = _prefs.getString(_kLastRefreshAt);
+    if (iso == null) return null;
+    return DateTime.tryParse(iso);
   }
 
   Future<void> saveLastForYouArticleId(String? articleId) async {

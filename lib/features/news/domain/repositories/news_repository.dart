@@ -87,4 +87,7 @@ abstract class NewsRepository {
 
   /// Wipes all locally-cached news data.
   Future<void> wipeLocalData();
+
+  /// Invalidates the remote user state (interests/country) in the backend cache.
+  Future<void> clearRemoteUserState();
 }

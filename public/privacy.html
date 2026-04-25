@@ -27,85 +27,154 @@
         <div class="legal-content">
             <header class="legal-header">
                 <h1>Privacy Policy</h1>
-                <p class="last-updated">Last Updated: April 10, 2026</p>
+                <p class="last-updated">Last Updated: April 25, 2026</p>
             </header>
 
             <div class="legal-section">
-                <h2>1. Introduction</h2>
-                <p>Welcome to Currenta. We respect your privacy and are committed to protecting your personal data. This Privacy Policy explains how we collect, use, and safeguard your information when you use our mobile application and website.</p>
-                <p>By using Currenta, you agree to the collection and use of information in accordance with this policy.</p>
+                <h2>1. Scope and Controller</h2>
+                <p>This Privacy Policy explains how Currenta collects, uses, stores, and shares personal data when you use the Currenta mobile app, website, and related services (collectively, the "Service").</p>
+                <p>For privacy questions or requests, contact us at <a href="mailto:support@currenta.tech" style="color: var(--primary);">support@currenta.tech</a>.</p>
             </div>
 
             <div class="legal-section">
                 <h2>2. Information We Collect</h2>
-                <h3>2.1 Personal Data</h3>
-                <p>While using our Service, we may ask you to provide us with certain personally identifiable information that can be used to contact or identify you, including:</p>
+                <h3>2.1 Account and Identity Data</h3>
                 <ul>
-                    <li>Email address (via authentication providers like Supabase)</li>
-                    <li>User profile information (name, avatar)</li>
-                    <li>User-selected interests and preferences</li>
+                    <li>Email address and login credentials (when you register/sign in).</li>
+                    <li>Profile data provided by your identity provider (for example, name and avatar for social login).</li>
+                    <li>Authentication identifiers and session tokens.</li>
                 </ul>
 
-                <h3>2.2 Usage Data & History</h3>
-                <p>To improve your experience, we collect information on how the Service is accessed and used. This includes:</p>
+                <h3>2.2 Preference and Personalization Data</h3>
                 <ul>
-                    <li>Article viewing history (stored to prevent redundant content delivery)</li>
-                    <li>Articles saved to "Favorites"</li>
-                    <li>Interaction data (clicks, time spent on categories)</li>
+                    <li>Preferred country/region for localized news.</li>
+                    <li>Selected interests and sub-interests.</li>
+                    <li>Favorites, likes/dislikes, and article view history.</li>
                 </ul>
 
-                <h3>2.3 Location Data</h3>
-                <p>We use your IP address to detect your general location (Country and City). This allows us to provide localized news stories relevant to your region. We do not track your precise GPS coordinates without your explicit consent.</p>
-            </div>
-
-            <div class="legal-section">
-                <h2>3. How We Use Your Data</h2>
-                <p>Currenta uses the collected data for various purposes:</p>
+                <h3>2.3 Location and Network Data</h3>
                 <ul>
-                    <li>To provide and maintain our Service</li>
-                    <li>To personalize your news feed based on interests and reading history</li>
-                    <li>To generate AI-powered summaries of news articles</li>
-                    <li>To detect and prevent technical issues</li>
-                    <li>To provide you with localized content based on your region</li>
+                    <li>IP address and related proxy headers processed to infer your approximate country.</li>
+                    <li>We use coarse location (country-level) for local content personalization.</li>
+                    <li>We do not collect precise GPS coordinates through the Currenta app.</li>
+                </ul>
+
+                <h3>2.4 AI and Support Interaction Data</h3>
+                <ul>
+                    <li>Article chat prompts and responses when you use AI chat features.</li>
+                    <li>System context needed to generate responses (for example, article title/summary/source).</li>
+                </ul>
+
+                <h3>2.5 Device, Diagnostic, and Security Data</h3>
+                <ul>
+                    <li>Crash and diagnostic data to identify and fix application failures.</li>
+                    <li>Security and abuse-prevention logs (for example, OTP and API rate-limiting events).</li>
+                    <li>Operational logs for ingestion and platform reliability.</li>
+                </ul>
+
+                <h3>2.6 Data Stored Locally on Your Device</h3>
+                <ul>
+                    <li>Cached articles and reading state.</li>
+                    <li>Local chat history and chat sessions.</li>
+                    <li>Local preferences and onboarding flags.</li>
+                    <li>Session and auth persistence data, including secure storage where supported.</li>
                 </ul>
             </div>
 
             <div class="legal-section">
-                <h2>4. Data Processing & Third Parties</h2>
-                <p>We work with several third-party service providers to power our platform. These include:</p>
+                <h2>3. How We Use Personal Data</h2>
                 <ul>
-                    <li><strong>Supabase:</strong> For user authentication and primary database storage.</li>
-                    <li><strong>Google Cloud (Gemini / Vertex AI):</strong> For news summarization and classification.</li>
-                    <li><strong>Firebase:</strong> For hosting our web components.</li>
-                    <li><strong>Upstash:</strong> For high-performance caching and temporary usage buffering.</li>
+                    <li>Provide, operate, and secure the Service.</li>
+                    <li>Authenticate users (including anonymous guest sessions) and manage accounts.</li>
+                    <li>Personalize feed ranking and local news content using your preferences and interactions.</li>
+                    <li>Generate and deliver AI features (such as article summaries and chat assistance).</li>
+                    <li>Send verification messages (for example, one-time passcodes).</li>
+                    <li>Monitor reliability, investigate incidents, and prevent abuse/fraud.</li>
+                    <li>Comply with legal obligations and enforce our Terms.</li>
                 </ul>
-                <p>These third parties have access to your Personal Data only to perform these tasks on our behalf and are obligated not to disclose or use it for any other purpose.</p>
             </div>
 
             <div class="legal-section">
-                <h2>5. AI & Data Anonymization</h2>
-                <p>When our AI processing systems summarize or categorize news, they do not have access to your personally identifiable information. We process news content at scale, and only use your preference tokens to decide which summaries to show you.</p>
-            </div>
-
-            <div class="legal-section">
-                <h2>6. Your Data Rights</h2>
-                <p>Depending on your location, you may have the following rights regarding your personal data:</p>
+                <h2>4. Legal Bases for Processing</h2>
+                <p>Depending on your location, we process data on one or more of the following bases:</p>
                 <ul>
-                    <li>The right to access the data we hold about you</li>
-                    <li>The right to request deletion of your account and associated data</li>
-                    <li>The right to withdraw consent for location detection</li>
-                    <li>The right to export your reading history and favorites</li>
+                    <li>Performance of a contract: to provide requested app features.</li>
+                    <li>Legitimate interests: service improvement, security, and abuse prevention.</li>
+                    <li>Consent: where required by applicable law.</li>
+                    <li>Legal obligations: where processing is required by law.</li>
                 </ul>
-                <p>To exercise these rights, please contact us at <a href="mailto:support@currenta.tech" style="color: var(--primary);">support@currenta.tech</a>.</p>
             </div>
 
             <div class="legal-section">
-                <h2>7. Security of Data</h2>
-                <p>The security of your data is important to us, but remember that no method of transmission over the Internet is 100% secure. We use commercially acceptable means to protect your Personal Data, including encryption at rest and in transit via our partners at Supabase.</p>
+                <h2>5. Third-Party Services and Data Sharing</h2>
+                <p>We share personal data with service providers only as needed to operate Currenta:</p>
+                <ul>
+                    <li><strong>Supabase</strong>: authentication, database, and storage infrastructure.</li>
+                    <li><strong>Google Firebase</strong>: core app services and crash reporting.</li>
+                    <li><strong>Google AI Services (Gemini and/or Vertex AI)</strong>: AI-assisted features such as chat and summarization.</li>
+                    <li><strong>Google Sign-In</strong>: social authentication (if you choose it).</li>
+                    <li><strong>Mailtrap</strong>: transactional email delivery (for example, OTP/verification emails).</li>
+                    <li><strong>Cloud/hosting providers</strong>: infrastructure, network, and security operations.</li>
+                </ul>
+                <p>We may also disclose data if required by law, to protect rights/safety, or in connection with a merger, acquisition, financing, or asset sale.</p>
             </div>
 
             <div class="legal-section">
-                <h2>8. Contact Us</h2>
+                <h2>6. AI Processing Notice</h2>
+                <p>When you use AI features, your prompts and relevant article context are processed by our AI providers to generate responses. We implement controls to limit unnecessary personal data in prompts, but you should avoid submitting sensitive personal information in chat inputs unless necessary.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>7. Cookies and Similar Technologies</h2>
+                <p>Currenta web properties may use browser storage technologies (including localStorage/sessionStorage) that are necessary for core site and admin session functionality. We do not currently use ad-tech trackers for behavioral advertising on the public site.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>8. Data Retention</h2>
+                <ul>
+                    <li>Account-related records are retained while your account is active and as needed for legal, security, and operational purposes.</li>
+                    <li>Personalization and interaction data (for example, views/favorites/likes) are retained to provide your feed and history features unless deleted.</li>
+                    <li>Operational and security logs are retained for a limited period according to business and security needs.</li>
+                    <li>Device-local data persists until you clear app data, sign out/delete data, or uninstall the app.</li>
+                </ul>
+            </div>
+
+            <div class="legal-section">
+                <h2>9. Security</h2>
+                <p>We use administrative, technical, and organizational safeguards designed to protect personal data, including access controls, encrypted transport, and secure storage mechanisms where available. No method of transmission or storage is completely secure, and we cannot guarantee absolute security.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>10. International Data Transfers</h2>
+                <p>Your data may be processed in countries other than your own, including locations where our service providers operate. Where required, we use appropriate safeguards for cross-border transfers.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>11. Your Privacy Rights</h2>
+                <p>Depending on applicable law, you may have rights to:</p>
+                <ul>
+                    <li>Access personal data we hold about you.</li>
+                    <li>Request correction of inaccurate data.</li>
+                    <li>Request deletion of your account and associated data.</li>
+                    <li>Object to or restrict certain processing.</li>
+                    <li>Request data portability where applicable.</li>
+                    <li>Withdraw consent where processing is based on consent.</li>
+                </ul>
+                <p>You can request account deletion from within the app experience where available, or by contacting us at <a href="mailto:support@currenta.tech" style="color: var(--primary);">support@currenta.tech</a>.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>12. Children</h2>
+                <p>Currenta is not directed to children under 13 (or the minimum digital-consent age in your jurisdiction). If you believe a child provided personal data, contact us so we can take appropriate action.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>13. Changes to This Policy</h2>
+                <p>We may update this Privacy Policy from time to time. We will post the updated version here and revise the "Last Updated" date. Material changes may also be communicated through the Service or other appropriate channels.</p>
+            </div>
+
+            <div class="legal-section">
+                <h2>14. Contact Us</h2>
                 <p>If you have any questions about this Privacy Policy, please contact us:</p>
                 <ul>
                     <li>By email: support@currenta.tech</li>

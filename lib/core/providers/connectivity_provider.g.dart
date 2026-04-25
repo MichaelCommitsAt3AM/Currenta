@@ -1,26 +1,27 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'news_feed_notifier.dart';
+part of 'connectivity_provider.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$newsFeedNotifierHash() => r'c8803400c701d0405b12a6d5328bf3f4db3e5435';
+String _$connectivityNotifierHash() =>
+    r'8ed0f6a662e4a16f07fa7d30755f619c0d26ef85';
 
-/// See also [NewsFeedNotifier].
-@ProviderFor(NewsFeedNotifier)
-final newsFeedNotifierProvider =
-    AutoDisposeAsyncNotifierProvider<NewsFeedNotifier, FeedState>.internal(
-  NewsFeedNotifier.new,
-  name: r'newsFeedNotifierProvider',
+/// See also [ConnectivityNotifier].
+@ProviderFor(ConnectivityNotifier)
+final connectivityNotifierProvider = AutoDisposeNotifierProvider<
+    ConnectivityNotifier, ConnectivityStatus>.internal(
+  ConnectivityNotifier.new,
+  name: r'connectivityNotifierProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
       ? null
-      : _$newsFeedNotifierHash,
+      : _$connectivityNotifierHash,
   dependencies: null,
   allTransitiveDependencies: null,
 );
 
-typedef _$NewsFeedNotifier = AutoDisposeAsyncNotifier<FeedState>;
+typedef _$ConnectivityNotifier = AutoDisposeNotifier<ConnectivityStatus>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

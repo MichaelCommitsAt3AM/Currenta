@@ -278,4 +278,9 @@ class NewsRepositoryImpl implements NewsRepository {
        debugPrint('[Cache] wipeLocalData error: $e');
     }
   }
+
+  @override
+  Future<void> clearRemoteUserState() async {
+    await _remote.clearUserState();
+  }
 }

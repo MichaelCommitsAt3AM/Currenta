@@ -86,9 +86,13 @@ def get_client_ip(request: Request) -> str:
     trusted_proxy_ips_raw = os.getenv("TRUSTED_PROXY_IPS", "")
     trusted_proxy_ips = {ip.strip() for ip in trusted_proxy_ips_raw.split(",") if ip.strip()}
 
-    # If a trusted proxy allowlist exists, only honor X-Forwarded-For when the
-    # immediate caller is a trusted proxy.
-    if trusted_proxy_ips and "*" not in trusted_proxy_ips and peer_ip not in trusted_proxy_ips:
+    # If trust_proxy_headers is true, we MUST have a trusted proxy allowlist or explicitly allow all with '*'.
+    # If no allowlist is configured, we default to safe behavior (don't trust anyone).
+    if not trusted_proxy_ips:
+        logger.warning("TRUST_PROXY_HEADERS is true but TRUSTED_PROXY_IPS is empty. Defaulting to peer IP for safety.")
+        return peer_ip
+
+    if "*" not in trusted_proxy_ips and peer_ip not in trusted_proxy_ips:
         return peer_ip
 
     candidates: list[str] = []
@@ -121,6 +125,14 @@ def get_user_or_ip(request: Request):
     return get_client_ip(request) or get_remote_address(request)
 
 limiter = Limiter(key_func=get_user_or_ip)
+
+
+def get_feed_rate_limit() -> str:
+    """
+    Rate limit for the news feed. 
+    Note: slowapi 0.1.9 calls the limit provider with no arguments.
+    """
+    return "60/minute"
 
 
 # --- Admin API Key Setup ---
@@ -156,6 +168,65 @@ if SUPABASE_URL:
         headers={"apikey": SUPABASE_KEY} if SUPABASE_KEY else {},
         lifespan=86400,
     )
+
+# --- Firebase App Check JWKS Setup ---
+APP_CHECK_JWKS_URL = "https://firebaseappcheck.googleapis.com/v1/jwks"
+FIREBASE_PROJECT_NUMBER = os.getenv("FIREBASE_PROJECT_NUMBER")
+
+app_check_jwks_client = jwt.PyJWKClient(
+    APP_CHECK_JWKS_URL,
+    lifespan=86400,
+)
+
+async def verify_app_check(request: Request):
+    """
+    Verifies the Firebase App Check token to ensure the request comes from the genuine app.
+    """
+    token = request.headers.get("X-Firebase-AppCheck")
+    
+    # Allow bypass in local dev via flag or Admin API key
+    if not token:
+        api_key = request.headers.get("X-API-Key")
+        if api_key and api_key == ADMIN_API_KEY:
+            return True
+            
+        if os.getenv("DISABLE_APP_CHECK", "false").lower() == "true":
+            return True
+
+        logger.warning("App Check token missing from request")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="App Check token missing"
+        )
+
+    if not FIREBASE_PROJECT_NUMBER:
+        logger.error("FIREBASE_PROJECT_NUMBER not configured — cannot validate App Check token audience.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="App Check configuration error"
+        )
+
+    try:
+        signing_key = app_check_jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=FIREBASE_PROJECT_NUMBER,
+            issuer=f"https://firebaseappcheck.googleapis.com/{FIREBASE_PROJECT_NUMBER}",
+            options={"verify_exp": True}
+        )
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="App Check token expired")
+    except jwt.InvalidAudienceError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid App Check token audience")
+    except Exception as e:
+        logger.warning("App Check verification failed: %s - %s", type(e).__name__, e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate App Check token",
+        )
 
 class User(BaseModel):
     id: str

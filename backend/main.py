@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -28,7 +28,7 @@ from .version import VERSION
 # ---------------------------------------------------------------------------
 setup_logging()
 
-from .core.security import limiter
+from .core.security import limiter, get_client_ip
 from .api import feed, ingest, chat, trending, admin, auth
 from .version import VERSION
 from .services.scheduler import start_scheduler, stop_scheduler
@@ -82,7 +82,15 @@ app.add_middleware(
 app.add_middleware(BrotliMiddleware, minimum_size=1000)
 
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+async def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    ip = get_client_ip(request)
+    auth = request.headers.get("Authorization")
+    user_type = "authenticated" if (auth and auth.startswith("Bearer ")) else "guest"
+    logger.warning(f"Rate limit exceeded (429) for {user_type} IP: {ip} at {request.url.path}")
+    return _rate_limit_exceeded_handler(request, exc)
+
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
 
 ENABLE_INTERNAL_SCHEDULER = os.environ.get("ENABLE_INTERNAL_SCHEDULER", "true").lower() == "true"
 

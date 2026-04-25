@@ -99,6 +99,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         )) {
     // Listen to Supabase auth state changes
     _repository.authStateChanges.listen((isAuthenticated) async {
+      debugPrint('[Auth] authStateChanges emitted: isAuthenticated=$isAuthenticated');
       String? country;
       String? name;
       String? avatar;
@@ -109,6 +110,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         name = _repository.displayName;
         avatar = _repository.avatarUrl;
       }
+      debugPrint('[Auth] Profile loaded: country=$country, interestsCount=${interests.length}');
       state = state.copyWith(
         isAuthenticated: isAuthenticated,
         isAnonymous: _repository.isAnonymous,
@@ -129,6 +131,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final AuthRepository _repository;
   final NewsRepository _newsRepository;
+
+  bool _isDetectingLocation = false;
 
   /// Exposes the current user ID if logged in
   String? get currentUserId => _repository.currentUserId;
@@ -255,10 +259,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> detectLocation() async {
-    if (state.hasCheckedLocation) return;
+    if (state.hasCheckedLocation || _isDetectingLocation) return;
+    _isDetectingLocation = true;
+    debugPrint('[Auth] detectLocation started...');
     
     try {
       final country = await _repository.detectAndSaveCountry();
+      debugPrint('[Auth] detectLocation finished: $country');
       if (country == null) {
         state = state.copyWith(hasCheckedLocation: true);
         return;
@@ -286,6 +293,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     } catch (e) {
       debugPrint('[Auth] detectLocation error in Notifier: $e');
       state = state.copyWith(hasCheckedLocation: true);
+    } finally {
+      _isDetectingLocation = false;
     }
   }
 
@@ -357,6 +366,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             guestUid: oldGuestUid,
             useGuestSettings: true,
           );
+          await _newsRepository.clearRemoteUserState();
           await refreshInterests();
           await refreshPreferredCountry();
         } else {
@@ -365,6 +375,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             guestUid: oldGuestUid,
             useGuestSettings: false,
           );
+          await _newsRepository.clearRemoteUserState();
         }
       }
     } catch (e) {
@@ -382,6 +393,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         guestUid: oldGuestUid,
         useGuestSettings: useGuestSettings,
       );
+      await _newsRepository.clearRemoteUserState();
       state = state.copyWith(
         isLoading: false,
         needsConflictResolution: false,

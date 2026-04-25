@@ -1,6 +1,6 @@
 import random
 import logging
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from ..services.email import email_service

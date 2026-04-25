@@ -31,7 +31,7 @@ class AuthRepositoryImpl implements AuthRepository {
   Stream<bool> get authStateChanges => _supabase.auth.onAuthStateChange.map(
         (event) =>
             event.session != null && event.session?.user.isAnonymous == false,
-      );
+      ).distinct();
 
   @override
   String? get currentUserId {

@@ -91,7 +91,6 @@ android {
             initWith(getByName("release"))
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = null // Inherit from flavor
         }
     }
 }

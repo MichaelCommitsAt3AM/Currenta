@@ -1,6 +1,7 @@
 // lib/core/utils/dio_client.dart
 // Singleton Dio client with structured logging + error interceptors.
 
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:dio_http2_adapter/dio_http2_adapter.dart';
 import 'package:flutter/foundation.dart';
@@ -17,7 +18,6 @@ class DioClient {
     _dio.httpClientAdapter = Http2Adapter(
       ConnectionManager(
         idleTimeout: const Duration(seconds: 15),
-        onClientCreate: (_, config) => config.onBadCertificate = (_) => true, // Only for debugging if needed
       ),
     );
 
@@ -29,6 +29,9 @@ class DioClient {
 
   static final DioClient _instance = DioClient._();
   static DioClient get instance => _instance;
+
+  /// Global stream to notify when a network-level error occurs (timeout, connection failure).
+  static final StreamController<void> networkErrorStream = StreamController<void>.broadcast();
 
   late final Dio _dio;
   Dio get dio => _dio;
@@ -78,6 +81,10 @@ class _ErrorInterceptor extends Interceptor {
         const ServerException('Request was cancelled.'),
       _ => NetworkException(err.message ?? 'Unknown network error.'),
     };
+
+    if (appException is NetworkException) {
+      DioClient.networkErrorStream.add(null);
+    }
 
     handler.reject(
       DioException(

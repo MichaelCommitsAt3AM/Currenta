@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options_dev.dart' as dev;
 import 'firebase_options_prod.dart' as prod;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -18,6 +19,8 @@ import 'core/storage/secure_auth_storage.dart';
 import 'theme/theme.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
 import 'features/auth/presentation/screens/welcome_screen.dart';
+import 'core/utils/snackbar_utils.dart';
+import 'core/widgets/connectivity_listener.dart';
 
 // ── Crash Reporting Shim ─────────────────────────────────────────────────────
 void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
@@ -70,34 +73,84 @@ Future<void> main() async {
 
   // ── Parallel Initialization ────────────────────────────────────────────────
   // Grouping core heavy-hitters to initialize concurrently.
-  final initResults = await Future.wait([
-    Firebase.initializeApp(
-      options: AppConfig.isProd
-          ? prod.DefaultFirebaseOptions.currentPlatform
-          : dev.DefaultFirebaseOptions.currentPlatform,
-    ),
-    Supabase.initialize(
-      url: AppConfig.supabaseUrl,
-      anonKey: AppConfig.supabaseAnonKey,
-      authOptions: FlutterAuthClientOptions(
-        localStorage: SecureAuthStorage(),
+  SharedPreferences? prefs;
+  bool hasCompletedOnboarding = false;
+  bool initFailed = false;
+  String errorMessage = '';
+
+  try {
+    final initResults = await Future.wait([
+      Firebase.initializeApp(
+        options: AppConfig.isProd
+            ? prod.DefaultFirebaseOptions.currentPlatform
+            : dev.DefaultFirebaseOptions.currentPlatform,
       ),
-    ),
-    SharedPreferences.getInstance(),
-  ]);
+      Supabase.initialize(
+        url: AppConfig.supabaseUrl,
+        anonKey: AppConfig.supabaseAnonKey,
+        authOptions: FlutterAuthClientOptions(
+          localStorage: SecureAuthStorage(),
+        ),
+      ),
+      SharedPreferences.getInstance(),
+    ]);
 
-  final prefs = initResults[2] as SharedPreferences;
-  final hasCompletedOnboarding =
-      prefs.getBool('has_completed_onboarding') ?? false;
+    prefs = initResults[2] as SharedPreferences;
+    hasCompletedOnboarding =
+        prefs.getBool('has_completed_onboarding') ?? false;
 
-  // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
-  // These tasks don't need to block the first frame.
-  unawaited(_initializeDeferredTasks());
+    // ── Firebase App Check ─────────────────────────────────────────────────────
+    if (kReleaseMode) {
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: AndroidProvider.playIntegrity,
+        appleProvider: AppleProvider.deviceCheck,
+      );
+    }
+
+    // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
+    // These tasks don't need to block the first frame.
+    unawaited(_initializeDeferredTasks());
+  } catch (e, st) {
+    initFailed = true;
+    errorMessage = e.toString();
+    _reportError(e, st, fatal: true);
+  } finally {
+    // ── Remove Splash ─────────────────────────────────────────────────────────
+    // Now that the first frame is ready (or we failed), we remove the splash screen.
+    FlutterNativeSplash.remove();
+  }
+
+  if (initFailed) {
+    runApp(
+      MaterialApp(
+        theme: AppTheme.dark,
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                  const SizedBox(height: 16),
+                  const Text('Startup Failed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(errorMessage, textAlign: TextAlign.center, style: const TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
 
   runApp(
     ProviderScope(
       overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
+        sharedPreferencesProvider.overrideWithValue(prefs!),
       ],
       child: CurrentaApp(
         initialScreen:
@@ -105,10 +158,6 @@ Future<void> main() async {
       ),
     ),
   );
-
-  // ── Remove Splash ─────────────────────────────────────────────────────────
-  // Now that the first frame is ready, we remove the splash screen.
-  FlutterNativeSplash.remove();
 }
 
 /// Tasks that can run after the app has started or in the background
@@ -139,7 +188,8 @@ class CurrentaApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       navigatorObservers: [appRouteObserver],
-      home: initialScreen,
+      scaffoldMessengerKey: AppSnackbar.messengerKey,
+      home: ConnectivityListener(child: initialScreen),
     );
   }
 }

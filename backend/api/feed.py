@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import asyncpg
 from typing import Optional, List, Dict, Set
 import orjson
-from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip
+from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip, verify_app_check, get_feed_rate_limit
 from ..core.geo import get_country_from_ip
 from ..services.ingestion import fetch_local_news_on_demand
 
@@ -301,7 +301,7 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
 
 
 @router.get("")
-@limiter.limit("60/minute")
+@limiter.limit(get_feed_rate_limit)
 async def get_feed(
     request: Request,
     category: Optional[str] = Query(None, description="Filter articles by category"),
@@ -311,7 +311,8 @@ async def get_feed(
     cursor: Optional[str] = Query(None, description="Next page cursor (offset)"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db_pool: asyncpg.Pool = Depends(get_db),
-    user: Optional[User] = Depends(verify_supabase_jwt)
+    user: Optional[User] = Depends(verify_supabase_jwt),
+    _app_check: dict = Depends(verify_app_check)
 ):
     """
     Returns the newest articles, skipping ones the user has already viewed.
@@ -689,6 +690,30 @@ async def track_view(
     # Fallback: if Redis is unavailable, we don't block the user but we might lose the view
     # or we could do a direct write. To strictly follow the audit, we prioritize the buffer.
     return {"status": "accepted"}
+
+
+
+@router.delete("/user-state")
+async def clear_user_state(
+    request: Request,
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Invalidates the cached user state (interests, country) in Redis.
+    Should be called when preferences change or upon login.
+    """
+    redis_client = getattr(request.app.state, "redis_client", None)
+    if redis_client:
+        try:
+            cache_key = f"user_state:{user.id}"
+            await redis_client.delete(cache_key)
+            logger.info(f"Invalidated Redis cache for user_state:{user.id}")
+            return {"status": "success", "message": "User state cache invalidated"}
+        except Exception as e:
+            logger.error(f"Failed to invalidate Redis cache: {e}")
+            # Don't fail the request, just log it
+    
+    return {"status": "ignored", "message": "Redis not available or cache already empty"}
 
 
 @router.get("/detect-location")

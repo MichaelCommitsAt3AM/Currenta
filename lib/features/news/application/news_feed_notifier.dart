@@ -36,6 +36,7 @@ class FeedState {
     this.nextCursor,
     this.expiresAt,
     this.isServerExhausted = false,
+    this.isStale = false,
   });
 
   final List<NewsArticle> articles;
@@ -71,6 +72,9 @@ class FeedState {
   /// When true, we fallback to showing local secondary-category articles.
   final bool isServerExhausted;
 
+  /// True if the feed has exceeded its soft TTL and a refresh is recommended.
+  final bool isStale;
+
   FeedState copyWith({
     List<NewsArticle>? articles,
     bool? isLoadingMore,
@@ -85,6 +89,7 @@ class FeedState {
     String? Function()? nextCursor,
     DateTime? expiresAt,
     bool? isServerExhausted,
+    bool? isStale,
   }) =>
       FeedState(
         articles: articles ?? this.articles,
@@ -105,6 +110,7 @@ class FeedState {
         nextCursor: nextCursor != null ? nextCursor() : this.nextCursor,
         expiresAt: expiresAt ?? this.expiresAt,
         isServerExhausted: isServerExhausted ?? this.isServerExhausted,
+        isStale: isStale ?? this.isStale,
       );
 }
 
@@ -135,29 +141,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // 0. Trigger cache cleaning on startup.
     await _repo.clearOldCache();
 
-    // 1. Wait for profile (interests/country) to ensure ranking is relevant.
-    final isProfileLoaded =
-        ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
-    if (!isProfileLoaded) {
+    // 1. Watch profile (interests/country) to ensure ranking is always relevant.
+    // By watching these, the build() method will automatically re-run whenever
+    // personalization settings are updated, ensuring the feed is always fresh.
+    final authState = ref.watch(authNotifierProvider);
+    
+    if (!authState.isProfileLoaded) {
       await _waitForProfileLoad();
     }
 
-    final auth = ref.read(authNotifierProvider);
-    final interests = auth.selectedInterests;
-
-    // 2. Listen for auth transitions (login/profile update) to refresh.
-    ref.listen(authNotifierProvider, (previous, next) {
-      Future.microtask(() {
-        if (_isDisposed) return;
-        if (next.isAuthenticated && !(previous?.isAuthenticated ?? false)) {
-          _backgroundRefresh();
-        } else if (next.isAuthenticated &&
-            (next.selectedInterests != previous?.selectedInterests ||
-                next.preferredCountry != previous?.preferredCountry)) {
-          _backgroundRefresh();
-        }
-      });
-    });
+    final interests = authState.selectedInterests;
+    final country = authState.preferredCountry;
 
     // 3. Initialization: Always start fresh on cold boot with unseen articles
     const NewsCategory? savedCategoryId = null;
@@ -166,7 +160,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
-      countryCode: auth.preferredCountry,
+      countryCode: country,
       limit: _kPageSize,
       offset: 0,
       includeViewed: false, // Only show fresh content on startup
@@ -179,34 +173,58 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // 5. Check cache validity or sync remote if empty
     bool needsRefresh = articles.isEmpty;
-    if (articles.isNotEmpty) {
+    bool isStale = false;
+    
+    final lastRefresh = _persistence.getLastRefreshTime();
+    final now = DateTime.now();
+    
+    if (lastRefresh != null) {
+      final age = now.difference(lastRefresh);
+      debugPrint('[Feed] Checking staleness: lastRefresh=$lastRefresh, now=$now, ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}');
+      
+      if (age.inHours >= AppConfig.hardTtlHours) {
+        debugPrint('[Feed] Hard TTL exceeded (${age.inHours}h >= ${AppConfig.hardTtlHours}h)');
+        needsRefresh = true;
+        _persistence.saveLastForYouArticleId(null);
+      } else if (age.inHours >= AppConfig.softTtlHours) {
+        debugPrint('[Feed] Soft TTL exceeded (${age.inHours}h >= ${AppConfig.softTtlHours}h). Setting isStale=true');
+        isStale = true;
+      }
+    } else if (articles.isNotEmpty) {
+      // Fallback for first-time migration: if no lastRefresh is stored but we have articles,
+      // use the top article's age as a one-time proxy.
       final topArticle = articles.firstOrNull;
       if (topArticle != null) {
-        final age = DateTime.now().difference(topArticle.publishedAt);
+        final age = now.difference(topArticle.publishedAt);
         if (age.inHours >= AppConfig.hardTtlHours) {
           needsRefresh = true;
-          articles = []; // Discard stale articles on hard TTL
-          // Also clear the saved position to start fresh at the top
-          _persistence.saveLastForYouArticleId(null);
         } else if (age.inHours >= AppConfig.softTtlHours) {
-          Future.microtask(_backgroundRefresh);
+          isStale = true;
         }
       }
     }
 
     if (needsRefresh) {
-      try {
-        final response = await _repo.syncMoreFromRemote(
-          category: savedCategoryId,
-          limit: _kPageSize,
-        );
-        articles = response.articles;
-        sessionId = response.sessionId;
-        nextCursor = response.nextCursor;
-        hasMore = response.hasMore;
-        expiresAt = response.expiresAt;
-      } catch (e) {
-        debugPrint('[Feed] Initial sync failed: $e');
+      if (articles.isEmpty) {
+        // Blocking sync only if we have absolutely no data to show
+        try {
+          final response = await _repo.syncMoreFromRemote(
+            category: savedCategoryId,
+            limit: _kPageSize,
+          );
+          _persistence.saveLastRefreshTime(DateTime.now());
+          articles = _filterArticles(response.articles, interests, savedCategoryId);
+          debugPrint('[Feed] Initial remote articles: ${response.articles.length} -> ${articles.length} (Interests: $interests)');
+          sessionId = response.sessionId;
+          nextCursor = response.nextCursor;
+          hasMore = response.hasMore;
+          expiresAt = response.expiresAt;
+        } catch (e) {
+          debugPrint('[Feed] Initial sync failed: $e');
+        }
+      } else {
+        // If we have stale data, return it immediately and refresh in background
+        Future.microtask(_backgroundRefresh);
       }
     }
 
@@ -223,6 +241,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       expiresAt: expiresAt,
       includeViewedInPaging: false,
       isServerExhausted: !hasMore,
+      isStale: isStale,
     );
 
     _feedCache[savedCategoryId] = finalState;
@@ -378,7 +397,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // 6. Success: Deduplicate and Append
       final existingIds = current.articles.map((a) => a.id).toSet();
-      final uniqueNewArticles = response.articles.where((a) => !existingIds.contains(a.id)).toList();
+      
+      final authState = ref.read(authNotifierProvider);
+      final interests = authState.selectedInterests;
+      final filteredNewArticles = _filterArticles(response.articles, interests, category);
+      
+      debugPrint('[Feed] Filtered remote articles: ${response.articles.length} -> ${filteredNewArticles.length} (Interests: $interests)');
+
+      final uniqueNewArticles = filteredNewArticles.where((a) => !existingIds.contains(a.id)).toList();
 
       var nextArticles = [...current.articles, ...uniqueNewArticles];
       
@@ -423,8 +449,20 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (cached != null &&
         (cached.expiresAt == null ||
             DateTime.now().isBefore(cached.expiresAt!))) {
-      state = AsyncData(cached);
-      _persistence.saveCurrentArticleId(cached.articles.firstOrNull?.id);
+      
+      // Re-sync staleness flag with the global refresh timer
+      bool isStale = false;
+      final lastRefresh = _persistence.getLastRefreshTime();
+      if (lastRefresh != null) {
+        final age = DateTime.now().difference(lastRefresh);
+        if (age.inHours >= AppConfig.softTtlHours) {
+          isStale = true;
+        }
+      }
+
+      final newState = cached.copyWith(isStale: isStale);
+      state = AsyncData(newState);
+      _persistence.saveCurrentArticleId(newState.articles.firstOrNull?.id);
       return;
     }
 
@@ -477,8 +515,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
         isServerExhausted: !response.hasMore,
+        isStale: false,
       );
 
+      _persistence.saveLastRefreshTime(DateTime.now());
       state = AsyncData(newState);
       _feedCache[category] = newState;
 
@@ -496,6 +536,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
 
     final currentCategory = startState?.selectedCategory;
+    
+    // 1. Hide the refresh badge immediately for better UX
+    if (startState != null && startState.isStale) {
+      state = AsyncData(startState.copyWith(isStale: false));
+    }
+
+    state = const AsyncLoading<FeedState>().copyWithPrevious(state);
     
     // Clear all cached sessions to ensure diversity fixes apply to every category
     _feedCache.clear();
@@ -516,8 +563,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
         isServerExhausted: !response.hasMore,
+        isStale: false,
       );
 
+      _persistence.saveLastRefreshTime(DateTime.now());
       state = AsyncData(newState);
       _feedCache[currentCategory] = newState;
 
@@ -541,6 +590,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     if (current.expiresAt != null && DateTime.now().isAfter(current.expiresAt!)) {
       await refresh();
+      return;
+    }
+
+    // Check for soft/hard TTL staleness
+    final lastRefresh = _persistence.getLastRefreshTime();
+    if (lastRefresh != null) {
+      final now = DateTime.now();
+      final age = now.difference(lastRefresh);
+      debugPrint('[Feed] refreshIfStale check: ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}, hardTtl=${AppConfig.hardTtlHours}, isStale=${current.isStale}');
+      
+      if (age.inHours >= AppConfig.hardTtlHours) {
+        debugPrint('[Feed] refreshIfStale: Hard TTL exceeded. Triggering full refresh.');
+        await refresh();
+      } else if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
+        debugPrint('[Feed] refreshIfStale: Soft TTL exceeded. Setting isStale=true');
+        state = AsyncData(current.copyWith(isStale: true));
+      }
     }
   }
 
@@ -718,5 +784,20 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   
   Future<void> applyPendingArticles() async {
     // No longer applicable in pure session-based mode without 'Pending' articles.
+  }
+
+  List<NewsArticle> _filterArticles(
+    List<NewsArticle> articles,
+    List<String> interests,
+    NewsCategory? category,
+  ) {
+    if (category != null) return articles; // Category feeds are already filtered by the backend parameter
+    if (interests.isEmpty) return articles; // No interests selected yet, show everything
+
+    return articles.where((article) {
+      // Defensive filter: Ensure at least one category matches the user's current interests.
+      // This prevents "stale" articles from a previous session/account from leaking in.
+      return article.categories.any((cat) => interests.contains(cat.name));
+    }).toList();
   }
 }

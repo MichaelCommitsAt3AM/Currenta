@@ -37,8 +37,8 @@ DECLARE
 BEGIN
     -- Calculate the weighted average
     SELECT 
-        (SUM(a.embedding * exp(-0.069 * EXTRACT(EPOCH FROM (now() - al.created_at)) / 86400.0)) / 
-         SUM(exp(-0.069 * EXTRACT(EPOCH FROM (now() - al.created_at)) / 86400.0)))::vector(768)
+        (SUM(a.embedding * (exp(-0.069 * EXTRACT(EPOCH FROM (now() - al.created_at)) / 86400.0))::float8) / 
+         (SUM(exp(-0.069 * EXTRACT(EPOCH FROM (now() - al.created_at)) / 86400.0)))::float8)::vector(768)
     INTO new_vector
     FROM article_likes al
     JOIN articles a ON al.article_id = a.id

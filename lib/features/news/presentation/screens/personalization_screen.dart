@@ -209,7 +209,11 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
         }
 
         // 1. Surgical wipe of the articles cache (preserves bookmarks/likes).
-        await ref.read(newsRepositoryProvider).clearFeed();
+        // We use clearCache here instead of clearFeed if there are major changes
+        // to ensure the user gets a completely fresh start.
+        final newsRepo = ref.read(newsRepositoryProvider);
+        await newsRepo.clearRemoteUserState();
+        await newsRepo.clearCache();
 
         // 2. Reset the current scroll position.
         await ref

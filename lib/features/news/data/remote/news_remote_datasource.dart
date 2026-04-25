@@ -6,8 +6,10 @@ import '../../domain/entities/feed_response.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 class NewsRemoteDataSource {
   NewsRemoteDataSource({
@@ -46,9 +48,16 @@ class NewsRemoteDataSource {
 
       // Pass the Supabase JWT to authenticate the feed request asymmetrically
       final session = Supabase.instance.client.auth.currentSession;
+      
+      String? appCheckToken;
+      if (kReleaseMode) {
+        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      }
+      
       final options = Options(
         headers: {
           if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+          if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
         },
       );
 
@@ -171,6 +180,26 @@ class NewsRemoteDataSource {
           .toList();
     } on DioException catch (e) {
       throw ServerException('Failed to fetch trending: ${e.message}');
+    }
+  }
+
+  /// Invalidates the user's state (interests, country) on the backend Redis cache.
+  Future<void> clearUserState() async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/user-state';
+      final session = Supabase.instance.client.auth.currentSession;
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      debugPrint('[DIO →] DELETE $url');
+      await _dio.delete(url, options: options);
+    } catch (e) {
+      // Slurp error — cache invalidation is a best-effort optimization
+      debugPrint('[Remote] Failed to clear remote user state: $e');
     }
   }
 }
