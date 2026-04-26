@@ -53,11 +53,17 @@ class SubCategoryListConverter
     try {
       final list = (jsonDecode(fromDb) as List<dynamic>);
       return list
-          .map((e) => NewsSubCategory.values.firstWhere(
-                (c) => c.name == e.toString(),
-                // If it fails to find, we just skip it or return a default?
-                // Since this is for personalization, skipping unknown might be best.
-              ))
+          .map((e) {
+            final name = e.toString();
+            try {
+              return NewsSubCategory.values.firstWhere(
+                (c) => c.name == name,
+              );
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<NewsSubCategory>()
           .toList();
     } catch (_) {
       return [];

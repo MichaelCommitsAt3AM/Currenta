@@ -21,10 +21,21 @@ class _LikedArticlesScreenState extends ConsumerState<LikedArticlesScreen> {
   void initState() {
     super.initState();
     _pageController = PageController();
+    _pageController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (_pageController.hasClients) {
+      final position = _pageController.position;
+      if (position.pixels >= position.maxScrollExtent - 200) {
+        ref.read(likesNotifierProvider.notifier).loadMore();
+      }
+    }
   }
 
   @override
   void dispose() {
+    _pageController.removeListener(_onScroll);
     _pageController.dispose();
     super.dispose();
   }
@@ -106,7 +117,8 @@ class _LikedArticlesScreenState extends ConsumerState<LikedArticlesScreen> {
             style: const TextStyle(color: Colors.white70),
           ),
         ),
-        data: (articles) {
+        data: (likesState) {
+          final articles = likesState.articles;
           if (articles.isEmpty) {
             return EmptyStateScreen(
               title: 'No Liked Articles',
@@ -121,8 +133,20 @@ class _LikedArticlesScreenState extends ConsumerState<LikedArticlesScreen> {
             controller: _pageController,
             scrollDirection: Axis.vertical,
             physics: const BouncingScrollPhysics(),
-            itemCount: articles.length,
+            itemCount: articles.length + (likesState.hasMore ? 1 : 0),
             itemBuilder: (context, i) {
+              if (i == articles.length) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 32.0),
+                    child: CircularProgressIndicator(
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
+                    ),
+                  ),
+                );
+              }
+
               final article = articles[i];
               return RepaintBoundary(
                 child: NewsCard(

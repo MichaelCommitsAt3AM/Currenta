@@ -1,8 +1,8 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:shimmer/shimmer.dart';
 import '../../../../core/providers/providers.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/chat_message.dart';
@@ -526,7 +526,6 @@ class _ReservedResponseArea extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 24),
-      constraints: const BoxConstraints(minHeight: 132),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -545,22 +544,19 @@ class _ReservedResponseArea extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Shimmer.fromColors(
-                baseColor: const Color(0xFF6C63FF),
-                highlightColor: Colors.white,
-                period: const Duration(milliseconds: 2000),
-                child: const Text(
-                  'Assistant is thinking...',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+              const Text(
+                'Assistant',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          const SizedBox(height: 88),
+          const _TypingIndicator(),
         ],
       ),
     );
@@ -865,83 +861,46 @@ class _TypingIndicatorState extends State<_TypingIndicator>
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(4),
+          topRight: Radius.circular(16),
+          bottomLeft: Radius.circular(16),
+          bottomRight: Radius.circular(16),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(3, (index) {
+          return AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              final double begin = index * 0.15;
+              final double end = (begin + 0.4).clamp(0.0, 1.0);
+              final double value = _controller.value;
+
+              double shift = 0.0;
+              if (value >= begin && value <= end) {
+                final double relative = (value - begin) / (end - begin);
+                shift = math.sin(math.pi * relative);
+              }
+
+              return Container(
+                margin: EdgeInsets.only(right: index < 2 ? 4 : 0),
+                width: 5,
+                height: 5,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  color: const Color(0xFF6C63FF)
+                      .withValues(alpha: 0.4 + (shift * 0.6)),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  size: 14,
-                  color: Color(0xFF6C63FF),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Shimmer.fromColors(
-                baseColor: const Color(0xFF6C63FF),
-                highlightColor: Colors.white,
-                period: const Duration(milliseconds: 2000),
-                child: const Text(
-                  'Assistant is thinking...',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: List.generate(3, (index) {
-              return AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  final double begin = index * 0.2;
-                  final double end = (begin + 0.6).clamp(0.0, 1.0);
-                  final double value = _controller.value;
-
-                  double shift = 0.0;
-                  if (value >= begin && value <= end) {
-                    final double relative = (value - begin) / (end - begin);
-                    shift =
-                        (relative < 0.5 ? relative * 2 : (1.0 - relative) * 2);
-                  }
-
-                  return Container(
-                    margin: const EdgeInsets.only(right: 6),
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6C63FF)
-                          .withValues(alpha: 0.3 + (shift * 0.7)),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        if (shift > 0.1)
-                          BoxShadow(
-                            color: const Color(0xFF6C63FF)
-                                .withValues(alpha: 0.4 * shift),
-                            blurRadius: 4,
-                            spreadRadius: 1 * shift,
-                          ),
-                      ],
-                    ),
-                    transform: Matrix4.translationValues(0, -shift * 4, 0),
-                  );
-                },
+                transform: Matrix4.translationValues(0, -shift * 4, 0),
               );
-            }),
-          ),
-        ],
+            },
+          );
+        }),
       ),
     );
   }

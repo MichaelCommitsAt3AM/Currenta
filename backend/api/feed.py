@@ -829,3 +829,46 @@ async def toggle_like(
                 user.id, str(article_id)
             )
             return {"status": "liked"}
+
+
+@router.get("/liked")
+@limiter.limit("30/minute")
+async def get_liked_articles(
+    request: Request,
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Returns the articles liked by the user, newest first.
+    Joined with full article metadata.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    async with db_pool.acquire() as conn:
+        query = f"""
+            SELECT {ARTICLE_COLUMNS}
+            FROM articles a
+            JOIN article_likes l ON a.id = l.article_id
+            WHERE l.user_id = $1
+            ORDER BY l.created_at DESC
+            LIMIT $2 OFFSET $3
+        """
+        records = await conn.fetch(query, user.id, limit, offset)
+        
+        articles = []
+        for r in records:
+            dict_r = dict(r)
+            dict_r['published_at'] = dict_r['published_at'].isoformat() if dict_r.get('published_at') else None
+            dict_r['created_at'] = dict_r['created_at'].isoformat() if dict_r.get('created_at') else None
+            dict_r['id'] = str(dict_r['id'])
+            dict_r['cluster_id'] = str(dict_r['cluster_id']) if dict_r.get('cluster_id') else None
+            articles.append(dict_r)
+            
+        return {
+            "articles": articles,
+            "has_more": len(articles) == limit,
+            "next_offset": offset + limit if len(articles) == limit else None
+        }

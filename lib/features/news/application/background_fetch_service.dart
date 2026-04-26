@@ -1,6 +1,7 @@
 // lib/features/news/application/background_fetch_service.dart
 // Uses WorkManager to pre-download the top N articles on a schedule.
 
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 import '../../../core/config/app_config.dart';
@@ -51,7 +52,13 @@ void _backgroundCallbackDispatcher() {
         await repo.clearOldCache();
       }
       return Future.value(true);
-    } catch (e) {
+    } catch (e, st) {
+      await FirebaseCrashlytics.instance.recordError(
+        e,
+        st,
+        reason: 'WorkManager task failed: $taskName',
+        printDetails: true,
+      );
       return Future.value(false);
     } finally {
       container.dispose();

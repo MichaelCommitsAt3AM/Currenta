@@ -212,7 +212,7 @@ async def verify_app_check(request: Request):
             token,
             signing_key.key,
             algorithms=["RS256"],
-            audience=FIREBASE_PROJECT_NUMBER,
+            audience=f"projects/{FIREBASE_PROJECT_NUMBER}",
             issuer=f"https://firebaseappcheck.googleapis.com/{FIREBASE_PROJECT_NUMBER}",
             options={"verify_exp": True}
         )

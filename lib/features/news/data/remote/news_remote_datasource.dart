@@ -5,7 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/entities/feed_response.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/news_category.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter/foundation.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/errors/app_exception.dart';
@@ -48,12 +47,17 @@ class NewsRemoteDataSource {
 
       // Pass the Supabase JWT to authenticate the feed request asymmetrically
       final session = Supabase.instance.client.auth.currentSession;
-      
+
       String? appCheckToken;
-      if (kReleaseMode) {
-        appCheckToken = await FirebaseAppCheck.instance.getToken();
+      if (AppConfig.isProd || !kDebugMode) {
+        try {
+          appCheckToken = await FirebaseAppCheck.instance.getToken();
+          debugPrint('[Remote] App Check token retrieved successfully');
+        } catch (e) {
+          debugPrint('[Remote] App Check token retrieval failed: $e');
+        }
       }
-      
+
       final options = Options(
         headers: {
           if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
@@ -66,7 +70,8 @@ class NewsRemoteDataSource {
           await _dio.get(url, queryParameters: queryParams, options: options);
 
       final responseData = response.data as Map<String, dynamic>;
-      debugPrint('[DIO ←] 200 Received articles: ${(responseData['articles'] as List?)?.length}, session_id: ${responseData['session_id']}, has_more: ${responseData['has_more']}');
+      debugPrint(
+          '[DIO ←] 200 Received articles: ${(responseData['articles'] as List?)?.length}, session_id: ${responseData['session_id']}, has_more: ${responseData['has_more']}');
       final feedResponse = FeedResponse.fromJson(responseData);
 
       // Backend local feed is country-filtered; ensure local-tab cache queries can
@@ -89,7 +94,8 @@ class NewsRemoteDataSource {
     } on DioException catch (e) {
       final errorType = e.type.toString().split('.').last;
       final statusCode = e.response?.statusCode ?? 'NoStatus';
-      final message = 'API Failure ($errorType, $statusCode): ${e.message ?? e.error ?? 'Unknown error'}';
+      final message =
+          'API Failure ($errorType, $statusCode): ${e.message ?? e.error ?? 'Unknown error'}';
       debugPrint('[Remote] $message');
       throw ServerException(message);
     }
@@ -114,6 +120,7 @@ class NewsRemoteDataSource {
       debugPrint('[Remote] Failed to track view for $articleId: $e');
     }
   }
+
   /// Records that the user has favorited this article.
   Future<void> toggleArticleFavorite(String articleId) async {
     try {
@@ -134,7 +141,6 @@ class NewsRemoteDataSource {
     }
   }
 
-  /// Records that the user has liked this article.
   Future<void> toggleArticleLike(String articleId) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/like';
@@ -151,6 +157,33 @@ class NewsRemoteDataSource {
     } catch (e) {
       debugPrint('[Remote] Failed to toggle like for $articleId: $e');
       rethrow;
+    }
+  }
+
+  /// Fetches liked articles from the backend with pagination.
+  Future<Map<String, dynamic>> fetchLikedArticles({
+    int limit = 30,
+    int offset = 0,
+  }) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/liked';
+      final session = Supabase.instance.client.auth.currentSession;
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      final response = await _dio.get(
+        url,
+        queryParameters: {'limit': limit, 'offset': offset},
+        options: options,
+      );
+
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      throw ServerException('Failed to fetch liked articles: ${e.message}');
     }
   }
 
@@ -173,7 +206,8 @@ class NewsRemoteDataSource {
         },
       );
 
-      final response = await _dio.get(url, queryParameters: queryParams, options: options);
+      final response =
+          await _dio.get(url, queryParameters: queryParams, options: options);
       final data = response.data as List<dynamic>;
       return data
           .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))

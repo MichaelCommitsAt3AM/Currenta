@@ -231,6 +231,33 @@ class NewsRepositoryImpl implements NewsRepository {
   }
 
   @override
+  Future<bool> syncLikedArticles({int limit = 30, int offset = 0}) async {
+    try {
+      final response = await _remote.fetchLikedArticles(limit: limit, offset: offset);
+      final articlesJson = response['articles'] as List<dynamic>;
+      final hasMore = response['has_more'] as bool;
+
+      if (articlesJson.isEmpty) return false;
+
+      final articles = articlesJson
+          .map((json) => NewsArticle.fromJson(json as Map<String, dynamic>))
+          .toList();
+
+      final companions = articles.map((a) => a.toCompanion()).toList();
+      await _dao.upsertArticles(companions);
+
+      // Force mark them as liked in local DB in bulk
+      final ids = articles.map((a) => a.id).toList();
+      await _dao.setLikesBulk(ids, true);
+
+      return hasMore;
+    } catch (e) {
+      debugPrint('[Repo] syncLikedArticles error: $e');
+      rethrow;
+    }
+  }
+
+  @override
   Stream<List<NewsArticle>> watchReadingHistory() {
     return _dao
         .watchReadingHistory()

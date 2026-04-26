@@ -324,6 +324,20 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     ));
   }
 
+  Future<void> setLike(String articleId, bool isLiked) async {
+    await (update(newsArticlesTable)..where((t) => t.id.equals(articleId)))
+        .write(NewsArticlesTableCompanion(
+      isLiked: Value(isLiked),
+    ));
+  }
+
+  Future<void> setLikesBulk(List<String> ids, bool isLiked) async {
+    await (update(newsArticlesTable)..where((t) => t.id.isIn(ids)))
+        .write(NewsArticlesTableCompanion(
+      isLiked: Value(isLiked),
+    ));
+  }
+
   Future<void> toggleFavorite(String articleId) async {
     final query = select(newsArticlesTable)
       ..where((t) => t.id.equals(articleId));

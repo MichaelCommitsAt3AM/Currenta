@@ -73,6 +73,10 @@ abstract class NewsRepository {
   /// Returns a stream of liked articles.
   Stream<List<NewsArticle>> watchLikes();
 
+  /// Fetches liked articles from remote and syncs to local cache.
+  /// Returns true if there are more articles to fetch.
+  Future<bool> syncLikedArticles({int limit = 30, int offset = 0});
+
   /// Returns a stream of recently viewed articles, newest-first.
   Stream<List<NewsArticle>> watchReadingHistory();
 

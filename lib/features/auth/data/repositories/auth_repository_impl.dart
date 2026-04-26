@@ -193,6 +193,12 @@ class AuthRepositoryImpl implements AuthRepository {
         googleSignIn.signOut(),
       ]);
 
+      // Clear local persistence for sensitive fields
+      await Future.wait([
+        _secureStorage.delete('primary_country_code'),
+        _secureStorage.delete('last_location_check_at'),
+      ]);
+
       // Clear the country cache on sign out
       _cachedCountry = null;
 

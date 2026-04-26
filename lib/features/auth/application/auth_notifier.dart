@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/app_exception.dart';
@@ -98,7 +99,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           avatarUrl: repository.avatarUrl,
         )) {
     // Listen to Supabase auth state changes
-    _repository.authStateChanges.listen((isAuthenticated) async {
+    _authSubscription = _repository.authStateChanges.listen((isAuthenticated) async {
       debugPrint('[Auth] authStateChanges emitted: isAuthenticated=$isAuthenticated');
       String? country;
       String? name;
@@ -131,8 +132,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final AuthRepository _repository;
   final NewsRepository _newsRepository;
+  late final StreamSubscription<bool> _authSubscription;
 
   bool _isDetectingLocation = false;
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
 
   /// Exposes the current user ID if logged in
   String? get currentUserId => _repository.currentUserId;
@@ -183,6 +191,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       await _repository.signOut();
+      await _newsRepository.wipeLocalData();
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);

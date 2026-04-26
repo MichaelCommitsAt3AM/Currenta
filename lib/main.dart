@@ -79,12 +79,22 @@ Future<void> main() async {
   String errorMessage = '';
 
   try {
-    final initResults = await Future.wait([
-      Firebase.initializeApp(
+    // 1. Initialize Firebase with a safety guard
+    try {
+      await Firebase.initializeApp(
         options: AppConfig.isProd
             ? prod.DefaultFirebaseOptions.currentPlatform
             : dev.DefaultFirebaseOptions.currentPlatform,
-      ),
+      );
+    } catch (e) {
+      // If the app is already initialized, we can safely ignore this error
+      if (!e.toString().contains('duplicate-app')) {
+        rethrow;
+      }
+    }
+
+    // 2. Initialize other services in parallel
+    final initResults = await Future.wait([
       Supabase.initialize(
         url: AppConfig.supabaseUrl,
         anonKey: AppConfig.supabaseAnonKey,
@@ -95,12 +105,12 @@ Future<void> main() async {
       SharedPreferences.getInstance(),
     ]);
 
-    prefs = initResults[2] as SharedPreferences;
+    prefs = initResults[1] as SharedPreferences;
     hasCompletedOnboarding =
         prefs.getBool('has_completed_onboarding') ?? false;
 
     // ── Firebase App Check ─────────────────────────────────────────────────────
-    if (kReleaseMode) {
+    if (AppConfig.isProd || !kDebugMode) {
       await FirebaseAppCheck.instance.activate(
         androidProvider: AndroidProvider.playIntegrity,
         appleProvider: AppleProvider.deviceCheck,
@@ -171,8 +181,9 @@ Future<void> _initializeDeferredTasks() async {
           '[Auth] No session found. Signing in anonymously (deferred)...');
       await supabase.auth.signInAnonymously();
     }
-  } catch (e) {
+  } catch (e, st) {
     debugPrint('[Init] Deferred initialization failed: $e');
+    _reportError(e, st);
   }
 }
 
