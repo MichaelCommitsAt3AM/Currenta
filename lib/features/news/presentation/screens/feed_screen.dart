@@ -242,7 +242,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         // Image preloading
         final imageUrl = article.imageUrl;
         if (imageUrl != null && imageUrl.isNotEmpty) {
-          precacheImage(CachedNetworkImageProvider(imageUrl), context);
+          precacheImage(
+            CachedNetworkImageProvider(imageUrl),
+            context,
+            onError: (error, stackTrace) {
+              debugPrint('[FeedScreen] Precache failed for $imageUrl: $error');
+            },
+          );
         }
       }
     }

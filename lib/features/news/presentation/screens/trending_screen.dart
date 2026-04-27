@@ -53,7 +53,13 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
         final article = displayArticles[nextIndex];
         final imageUrl = article.imageUrl;
         if (imageUrl != null && imageUrl.isNotEmpty) {
-          precacheImage(CachedNetworkImageProvider(imageUrl), context);
+          precacheImage(
+            CachedNetworkImageProvider(imageUrl),
+            context,
+            onError: (error, stackTrace) {
+              debugPrint('[TrendingScreen] Precache failed for $imageUrl: $error');
+            },
+          );
         }
       }
     }
