@@ -111,7 +111,7 @@ class AboutScreen extends StatelessWidget {
             title: 'Send Feedback',
             icon: Icons.feedback_outlined,
             onTap: () => launchUrl(
-                Uri.parse('mailto:feedback@currenta.app?subject=App Feedback')),
+                Uri.parse('mailto:${AppConfig.supportEmail}?subject=App Feedback')),
           ),
 
           const SizedBox(height: 64),

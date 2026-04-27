@@ -10,6 +10,8 @@
     <link rel="stylesheet" href="style.css">
     <!-- Supabase JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="aurora"></div>
@@ -22,7 +24,7 @@
             <form id="login-form">
                 <div class="input-group">
                     <label for="email">Email</label>
-                    <input type="email" id="email" required placeholder="admin@currenta.app">
+                    <input type="email" id="email" required placeholder="admin@currenta.tech">
                 </div>
                 <div class="input-group">
                     <label for="password">Password</label>
@@ -60,10 +62,14 @@
                         <span class="nav-icon">🔍</span>
                         <span class="nav-text">Database Explorer</span>
                     </li>
+                    <li class="nav-item" data-tab="analytics-tab">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-text">Analytics</span>
+                    </li>
                 </ul>
                 <div class="sidebar-footer">
                     <div class="user-info">
-                        <div id="user-email-display" class="email">admin@currenta.app</div>
+                        <div id="user-email-display" class="email">admin@currenta.tech</div>
                     </div>
                 </div>
             </nav>
@@ -222,6 +228,84 @@
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <section id="analytics-tab" class="tab-content hidden">
+                    <section class="analytics-section">
+                        <div class="section-header">
+                            <h2>Insights & Analytics</h2>
+                            <p>Real-time performance metrics for AI usage and content engagement.</p>
+                        </div>
+
+                        <!-- KPI Cards -->
+                        <div class="analytics-grid">
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">🤖</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">AI Messages Today</span>
+                                    <h3 id="stat-ai-messages">0</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">⚡</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">Quota Saturation</span>
+                                    <h3 id="stat-quota">0%</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">👥</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">Total Users</span>
+                                    <h3 id="stat-users">0</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">🗞️</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">News Generated</span>
+                                    <h3 id="stat-news">0</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Row -->
+                        <div class="charts-container">
+                            <div class="glass-card chart-card">
+                                <h3>Category Distribution</h3>
+                                <div class="chart-wrapper">
+                                    <canvas id="category-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="glass-card chart-card">
+                                <h3>Ingestion Health (24h)</h3>
+                                <div class="chart-wrapper">
+                                    <canvas id="health-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Liked Articles -->
+                        <div class="glass-card table-card">
+                            <div class="card-header">
+                                <h3>Trending Articles (7d)</h3>
+                                <span class="badge">Engagement</span>
+                            </div>
+                            <div class="table-wrapper">
+                                <table id="trending-articles-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Article Title</th>
+                                            <th>Likes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="trending-articles-body">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </section>

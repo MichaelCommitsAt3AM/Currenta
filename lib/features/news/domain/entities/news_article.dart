@@ -116,6 +116,9 @@ abstract class NewsArticle with _$NewsArticle {
 
     /// Whether this is a major news source (Google News, etc)
     @JsonKey(name: 'is_major_source') @Default(false) bool isMajorSource,
+
+    /// Type of item (article, exhaustion_marker)
+    @JsonKey(name: 'item_type') @Default('article') String itemType,
   }) = _NewsArticle;
 
   factory NewsArticle.fromJson(Map<String, dynamic> json) =>

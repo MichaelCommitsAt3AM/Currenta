@@ -22,9 +22,27 @@ let warningModalActive = false;
 let checkInterval = null;
 let selectedCategories = [];
 
-function clearTrailingHash() {
+// Analytics state
+let categoryChart = null;
+let healthChart = null;
+
+function handleUrlAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.substring(1));
+    const errorEl = document.getElementById('auth-error');
+
+    const error = params.get('error') || fragment.get('error');
+    const description = params.get('error_description') || fragment.get('error_description');
+
+    if (error && errorEl) {
+        errorEl.textContent = `Login Error: ${description || error}`;
+        // Clean the URL
+        const cleanUrl = `${window.location.pathname}${window.location.search.replace(/[?&]error=[^&]*/, '').replace(/[?&]error_description=[^&]*/, '').replace(/[?&]error_code=[^&]*/, '')}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
+
     // Supabase OAuth can leave a trailing '#', which confuses operators but carries no state.
-    if (window.location.hash === '#') {
+    if (window.location.hash === '#' || window.location.hash.includes('error=')) {
         const cleanUrl = `${window.location.pathname}${window.location.search}`;
         window.history.replaceState({}, document.title, cleanUrl);
     }
@@ -194,7 +212,7 @@ async function init() {
     // Check initial session
     const { data } = await supabaseClient.auth.getSession();
     session = data.session;
-    clearTrailingHash();
+    handleUrlAuthParams();
 
     let isAdminSession = false;
     if (session) {
@@ -392,6 +410,10 @@ function switchTab(tabId) {
             content.classList.add('hidden');
         }
     });
+
+    if (tabId === 'analytics-tab') {
+        loadAnalytics();
+    }
 }
 
 let lastQueryResults = null;
@@ -833,28 +855,36 @@ async function handleImageUpload(e) {
 
 async function handlePublish() {
     const btn = document.getElementById('publish-btn');
+    const loader = btn.querySelector('.loader');
+    const btnText = btn.querySelector('.btn-text');
     const errorEl = document.getElementById('publish-error');
     
-    const articleData = {
-        title: document.getElementById('draft-title').value,
-        summary: document.getElementById('draft-summary').value,
+    // Validate
+    const title = document.getElementById('draft-title').value;
+    const summary = document.getElementById('draft-summary').value;
+    const source = document.getElementById('draft-source').value;
+    const originalUrl = document.getElementById('news-url').value || 'manual';
+    
+    if (!title || !summary || selectedCategories.length === 0) {
+        errorEl.textContent = 'Title, Summary, and at least one Category are required.';
+        return;
+    }
+
+    const payload = {
+        title,
+        summary,
         categories: selectedCategories,
         subcategory: document.getElementById('draft-subcategory').value,
-        source_name: document.getElementById('draft-source').value,
-        original_url: document.getElementById('news-url').value || 'https://manual.push/' + Date.now(),
-        image_url: document.getElementById('draft-image-url').value || null,
+        source_name: source,
+        original_url: originalUrl,
+        image_url: document.getElementById('draft-image-url').value,
         country_code: document.getElementById('draft-country').value || null,
         is_paywalled: document.getElementById('draft-paywall').checked
     };
 
-    if (articleData.categories.length === 0) {
-        errorEl.textContent = 'Please select at least one category.';
-        return;
-    }
-
+    loader.classList.remove('hidden');
+    btnText.classList.add('hidden');
     btn.disabled = true;
-    btn.querySelector('.loader').classList.remove('hidden');
-    btn.querySelector('.btn-text').classList.add('hidden');
     errorEl.textContent = '';
 
     try {
@@ -864,32 +894,157 @@ async function handlePublish() {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`
             },
-            body: JSON.stringify(articleData)
+            body: JSON.stringify(payload)
         });
 
         if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.detail || 'Publish failed');
+            const data = await response.json();
+            throw new Error(data.detail || 'Publish failed');
         }
 
-        showToast();
-        // Reset
-        document.getElementById('news-url').value = '';
+        showToast('Article Published Successfully!');
         document.getElementById('editor-section').classList.add('hidden');
-        
+        clearEditor();
     } catch (err) {
         errorEl.textContent = err.message;
     } finally {
+        loader.classList.add('hidden');
+        btnText.classList.remove('hidden');
         btn.disabled = false;
-        btn.querySelector('.loader').classList.add('hidden');
-        btn.querySelector('.btn-text').classList.remove('hidden');
     }
 }
 
-function showToast() {
+// --- Analytics Logic ---
+
+async function loadAnalytics() {
+    try {
+        const response = await fetch(`${CONFIG.API_BASE_URL}/api/admin/analytics/overview`, {
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`
+            }
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch analytics');
+
+        const data = await response.json();
+        renderAnalytics(data);
+    } catch (err) {
+        console.error('Analytics Error:', err);
+    }
+}
+
+function renderAnalytics(data) {
+    // 1. KPI Stats
+    document.getElementById('stat-ai-messages').textContent = data.ai_usage.messages_today.toLocaleString();
+    
+    const quotaSaturation = data.user_growth.total_users > 0 
+        ? Math.round((data.ai_usage.quota_users / data.user_growth.total_users) * 100) 
+        : 0;
+    document.getElementById('stat-quota').textContent = `${quotaSaturation}%`;
+    
+    document.getElementById('stat-users').textContent = data.user_growth.total_users.toLocaleString();
+    document.getElementById('stat-news').textContent = data.ai_usage.news_generations_today.toLocaleString();
+
+    // 2. Charts
+    renderCategoryChart(data.content_engagement.category_distribution);
+    renderHealthChart(data.ingestion_health);
+
+    // 3. Trending Articles Table
+    const tableBody = document.getElementById('trending-articles-body');
+    tableBody.innerHTML = '';
+    
+    if (data.content_engagement.top_liked.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="2">No engagement data for the last 7 days.</td></tr>';
+    } else {
+        data.content_engagement.top_liked.forEach(article => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${article.title}</td>
+                <td style="font-weight: 600; color: var(--accent);">${article.likes}</td>
+            `;
+            tableBody.appendChild(tr);
+        });
+    }
+}
+
+function renderCategoryChart(data) {
+    const ctx = document.getElementById('category-chart').getContext('2d');
+    
+    if (categoryChart) categoryChart.destroy();
+
+    const labels = data.map(d => d.category);
+    const counts = data.map(d => d.count);
+
+    categoryChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: counts,
+                backgroundColor: [
+                    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', 
+                    '#ec4899', '#06b6d4', '#f97316', '#6366f1'
+                ],
+                borderWidth: 0,
+                hoverOffset: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: '#94a3b8', padding: 20, font: { family: 'Inter' } }
+                }
+            }
+        }
+    });
+}
+
+function renderHealthChart(data) {
+    const ctx = document.getElementById('health-chart').getContext('2d');
+    
+    if (healthChart) healthChart.destroy();
+
+    const labels = data.map(d => d.status);
+    const counts = data.map(d => d.count);
+    
+    const colors = {
+        'SUCCESS': '#10b981',
+        'FAILED': '#ef4444',
+        'SKIPPED': '#f59e0b',
+        'REQUESTED': '#3b82f6'
+    };
+
+    healthChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: counts,
+                backgroundColor: labels.map(l => colors[l] || '#94a3b8'),
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { color: '#94a3b8', padding: 20, font: { family: 'Inter' } }
+                }
+            }
+        }
+    });
+}
+
+function showToast(msg) {
     const toast = document.getElementById('toast');
+    toast.querySelector('.toast-msg').textContent = msg;
     toast.classList.remove('hidden');
-    setTimeout(() => toast.classList.add('hidden'), 4000);
+    setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
 // Start the app

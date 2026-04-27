@@ -26,7 +26,8 @@ VALID_CATEGORIES = frozenset([
 # Only these columns are sent to the client — never the embedding vector or internal fields
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
-    published_at, created_at, categories, subcategory, is_paywalled, country_code, ranking_score, cluster_id, is_major_source
+    published_at, created_at, categories, subcategory, is_paywalled, country_code, ranking_score, cluster_id, is_major_source,
+    'article' as item_type
 """
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
@@ -491,7 +492,7 @@ async def get_feed(
 
         common_where = "published_at > NOW() - INTERVAL '72 hours'"
         if viewed_ids:
-            common_where += f" AND id NOT IN ({','.join([f'${i+1}' for i in range(len(viewed_ids))])})"
+            common_where += f" AND id NOT IN ({','.join([f'${i+1}::uuid' for i in range(len(viewed_ids))])})"
             viewed_params = [UUID(vid) for vid in viewed_ids]
         else:
             viewed_params = []
@@ -513,7 +514,7 @@ async def get_feed(
                 p_params = viewed_params + [interests, orjson.dumps(user_state["interest_embedding"]).decode()]
                 
                 if country:
-                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1})"
+                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
                     p_params.append(country)
                 else:
                     p_where += " AND country_code IS NULL"
@@ -532,7 +533,7 @@ async def get_feed(
                 p_params = viewed_params + [interests]
                 
                 if country:
-                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1})"
+                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
                     p_params.append(country)
                 else:
                     p_where += " AND country_code IS NULL"
@@ -551,7 +552,7 @@ async def get_feed(
             t_params = viewed_params + [interests]
             
             if country:
-                t_where += f" AND (country_code IS NULL OR country_code = ${len(t_params)+1})"
+                t_where += f" AND (country_code IS NULL OR country_code = ${len(t_params)+1}::text)"
                 t_params.append(country)
             else:
                 t_where += " AND country_code IS NULL"
@@ -564,12 +565,12 @@ async def get_feed(
             )
 
             # Bucket 3: Discovery (10%)
-            # High-quality articles within interests but from sources the user might not follow.
-            d_where = f"{common_where} AND is_major_source = TRUE AND categories && ${len(viewed_params)+1}::text[]"
-            d_params = viewed_params + [interests]
+            # Random selection from any category to break the filter bubble
+            d_where = common_where
+            d_params = list(viewed_params)
             
             if country:
-                d_where += f" AND (country_code IS NULL OR country_code = ${len(d_params)+1})"
+                d_where += f" AND (country_code IS NULL OR country_code = ${len(d_params)+1}::text)"
                 d_params.append(country)
             else:
                 d_where += " AND country_code IS NULL"
@@ -582,52 +583,147 @@ async def get_feed(
                 order_by="RANDOM()"
             )
 
-        # Deduplicate across buckets (prefer Personalized > Trending > Discovery)
+            # Bucket 4: Global Trending (Phase 2 fallback / Cold start filler)
+            # High quality trending news from ANY category.
+            gt_where = f"{common_where} AND ranking_score > 0.3"
+            if interests:
+                # For users with interests, we specifically look for trending news OUTSIDE their interests
+                gt_where += f" AND NOT (categories && ${len(viewed_params)+1}::text[])"
+                gt_params = list(viewed_params) + [interests]
+            else:
+                gt_params = list(viewed_params)
+            
+            if country:
+                gt_where += f" AND (country_code IS NULL OR country_code = ${len(gt_params)+1}::text)"
+                gt_params.append(country)
+            else:
+                gt_where += " AND country_code IS NULL"
+            
+            global_trending_bucket = await fetch_bucket(
+                conn,
+                gt_where,
+                gt_params,
+                "Global Trending"
+            )
+
+        # Deduplicate and Split across buckets (prefer Personalized > Trending > Discovery)
         all_ids = set()
-        def dedupe(bucket):
-            unique = []
+        interest_set = set(interests)
+        is_cold_start = not interests
+        
+        def process_bucket(bucket):
+            primary = []
+            secondary = []
             for a in bucket:
                 if a['id'] not in all_ids:
-                    unique.append(a)
                     all_ids.add(a['id'])
-            return unique
+                    # Check if the primary category (index 0) is in user interests
+                    cats = a.get('categories') or []
+                    # In cold start, everything in the initial buckets is considered primary
+                    if is_cold_start or (cats and cats[0] in interest_set):
+                        primary.append(a)
+                    else:
+                        secondary.append(a)
+            return primary, secondary
         
-        final_personalized = dedupe(personalized_bucket)
-        final_trending = dedupe(trending_bucket)
-        final_discovery = dedupe(discovery_bucket)
+        p_primary, p_secondary = process_bucket(personalized_bucket)
+        t_primary, t_secondary = process_bucket(trending_bucket)
+        d_primary, d_secondary = process_bucket(discovery_bucket)
+        
+        # Global trending articles are always secondary (unless it's a cold start)
+        gt_primary, gt_secondary = process_bucket(global_trending_bucket)
 
-        # 5. Diversifier with Weighted Interleaving
-        # Using the requested 60/30/10 ratio
-        active_buckets = []
-        active_ratios = []
+        # 5. Two-Phase Diversification
         
-        if final_personalized:
-            active_buckets.append(final_personalized)
-            active_ratios.append(0.6)
-        if final_trending:
-            active_buckets.append(final_trending)
-            active_ratios.append(0.3)
-        if final_discovery:
-            active_buckets.append(final_discovery)
-            active_ratios.append(0.1)
-            
-        # Re-normalize ratios if some buckets are empty
-        if active_ratios:
-            total_ratio = sum(active_ratios)
-            active_ratios = [r / total_ratio for r in active_ratios]
+        # --- Phase 1: Primary Matches ---
+        active_buckets_p = []
+        active_ratios_p = []
+        
+        # If cold start, we use global trending as the core of the primary feed
+        if is_cold_start and gt_primary:
+            active_buckets_p.append(gt_primary)
+            active_ratios_p.append(1.0)
         else:
-            active_buckets = [[]]
-            active_ratios = [1.0]
+            if p_primary:
+                active_buckets_p.append(p_primary)
+                active_ratios_p.append(0.6)
+            if t_primary:
+                active_buckets_p.append(t_primary)
+                active_ratios_p.append(0.3)
+            if d_primary:
+                active_buckets_p.append(d_primary)
+                active_ratios_p.append(0.1)
+            
+        if active_ratios_p:
+            total_r = sum(active_ratios_p)
+            active_ratios_p = [r/total_r for r in active_ratios_p]
+            div_p = Diversifier(active_buckets_p, active_ratios_p, ignore_cat_limit=is_category_page)
+            primary_results = div_p.interleave(limit=300)
+        else:
+            primary_results = []
 
-        diversifier = Diversifier(
-            buckets=active_buckets,
-            ratios=active_ratios,
-            max_consecutive_cat=3,
-            max_consecutive_source=2,
-            ignore_cat_limit=is_category_page
-        )
+        # --- Phase 2: Secondary Matches ---
+        active_buckets_s = []
+        active_ratios_s = []
         
-        session_articles = diversifier.interleave(limit=300)
+        # Prioritize Global Trending in Phase 2
+        if gt_secondary:
+            active_buckets_s.append(gt_secondary)
+            active_ratios_s.append(0.5) # High weight for trending news from other categories
+            
+        if p_secondary:
+            active_buckets_s.append(p_secondary)
+            active_ratios_s.append(0.3)
+        if t_secondary:
+            active_buckets_s.append(t_secondary)
+            active_ratios_s.append(0.15)
+        if d_secondary:
+            active_buckets_s.append(d_secondary)
+            active_ratios_s.append(0.05)
+            
+        if active_ratios_s:
+            total_r = sum(active_ratios_s)
+            active_ratios_s = [r/total_r for r in active_ratios_s]
+            div_s = Diversifier(active_buckets_s, active_ratios_s, ignore_cat_limit=is_category_page)
+            secondary_results = div_s.interleave(limit=300)
+        else:
+            secondary_results = []
+
+        # --- Assembly ---
+        session_articles = primary_results
+        
+        # Insert marker if we have both primary and secondary content, 
+        # or if we only have secondary content but the user has interests (meaning primary is exhausted).
+        # We don't show the marker on specific category pages OR during cold start.
+        show_marker = not is_category_page and not is_cold_start and secondary_results
+        
+        if show_marker:
+            marker = {
+                "id": "00000000-0000-0000-0000-000000000000",
+                "title": "You're all caught up!",
+                "summary": "You've seen all the latest stories from your selected categories. Here are some other interesting topics you might like.",
+                "original_url": "https://currenta.tech",
+                "image_url": None,
+                "source_name": "Currenta",
+                "published_at": datetime.now().isoformat(),
+                "created_at": datetime.now().isoformat(),
+                "categories": ["world"],
+                "item_type": "exhaustion_marker",
+                "ranking_score": 0.0,
+                "is_paywalled": False,
+                "is_major_source": True,
+            }
+            # Only append primary_results if they exist, otherwise we just start with the marker?
+            # Actually, if primary_results is empty, the marker says "caught up" which is fine.
+            session_articles.append(marker)
+            session_articles.extend(secondary_results)
+        elif is_cold_start:
+            # In cold start, just combine everything seamlessly
+            session_articles.extend(secondary_results)
+        elif not primary_results and not secondary_results:
+            session_articles = []
+        elif not secondary_results:
+            session_articles = primary_results
 
         # 5. Global Deduplication (just in case)
         # (Already handled by the dedupe function above)

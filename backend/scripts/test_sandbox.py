@@ -20,7 +20,7 @@ def test_sandbox_email():
         print("❌ Error: Sandbox credentials not found in .env")
         return
 
-    sender = "no-reply@mail.currenta.tech"
+    sender = "no-reply@currenta.tech"
     receiver = "test-user@example.com"
     
     # Create message

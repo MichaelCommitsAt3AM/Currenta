@@ -4,6 +4,7 @@
 // Loads the next batch of 10 articles when the user is within 5 pages of the end.
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -635,6 +636,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         }
 
         final article = feed.articles[i];
+        
+        if (article.itemType == 'exhaustion_marker') {
+          return const ExhaustionMarkerCard();
+        }
 
         return RepaintBoundary(
           child: NewsCard(
@@ -956,6 +961,189 @@ class _FilterChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+// ── Exhaustion Marker Card ───────────────────────────────────────────────────
+
+class ExhaustionMarkerCard extends StatelessWidget {
+  const ExhaustionMarkerCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      color: const Color(0xFF0A0C14),
+      child: Stack(
+        children: [
+          // Background Gradient Glow
+          Positioned(
+            top: -100,
+            left: -100,
+            child: Container(
+              width: 400,
+              height: 400,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+              ),
+            ),
+          ),
+          
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Animated Icon Container
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: const Color(0xFF6C63FF).withValues(alpha: 0.2),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.check_circle_outline_rounded,
+                      color: Color(0xFF6C63FF),
+                      size: 64,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  
+                  // Text Content
+                  const Text(
+                    "You're All Caught Up!",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      fontFamily: 'Outfit',
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "You've seen all the latest stories from your selected categories. Keep scrolling to discover what else is happening in the world.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 16,
+                      height: 1.6,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 60),
+                  
+                  // Animated Scroll Indicator
+                  const _ScrollNudge(),
+                ],
+              ),
+            ),
+          ),
+          
+          // Bottom Gradient
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 200,
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF0A0C14).withValues(alpha: 0),
+                      const Color(0xFF0A0C14),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScrollNudge extends StatefulWidget {
+  const _ScrollNudge();
+
+  @override
+  State<_ScrollNudge> createState() => _ScrollNudgeState();
+}
+
+class _ScrollNudgeState extends State<_ScrollNudge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+    
+    _animation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0, end: 10)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 10, end: 0)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _animation.value),
+          child: Column(
+            children: [
+              Text(
+                "Scroll to discover",
+                style: TextStyle(
+                  color: const Color(0xFF6C63FF).withValues(alpha: 0.8),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Outfit',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.8),
+                size: 28,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

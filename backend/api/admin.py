@@ -15,13 +15,22 @@ from ..services.ingestion import (
     generate_content_hash,
     calculate_ranking_score,
     log_ingestion_event,
-    LLM_PROVIDER
+    LLM_PROVIDER,
+    VALID_CATEGORIES
 )
 import asyncio
+from datetime import date, timedelta
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class AnalyticsOverview(BaseModel):
+    ai_usage: dict
+    content_engagement: dict
+    user_growth: dict
+    ingestion_health: dict
 
 
 @router.get("/session/check")
@@ -383,3 +392,79 @@ async def run_admin_query(
     except Exception as e:
         logger.error(f"Error running admin query: {e}")
         raise HTTPException(status_code=400, detail=f"SQL Error: {str(e)}")
+
+
+@router.get("/analytics/overview", response_model=AnalyticsOverview)
+async def get_analytics_overview(
+    request: Request,
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Fetches aggregated analytics data for the dashboard.
+    """
+    pool = request.app.state.db_pool
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    
+    async with pool.acquire() as conn:
+        # 1. AI Usage
+        ai_usage = await conn.fetchrow("""
+            SELECT 
+                (SELECT COALESCE(SUM(daily_count), 0) FROM user_ai_usage WHERE last_reset_at = $1) as messages_today,
+                (SELECT COUNT(*) FROM user_ai_usage WHERE daily_count >= 30 AND last_reset_at = $1) as quota_users,
+                (SELECT COUNT(*) FROM ingestion_logs WHERE status = 'SUCCESS' AND created_at >= $1) as news_generations_today
+        """, today)
+        
+        # 2. Content Engagement
+        top_liked = await conn.fetch("""
+            SELECT a.title, COUNT(l.user_id) as likes
+            FROM articles a
+            JOIN article_likes l ON a.id = l.article_id
+            WHERE a.published_at > NOW() - INTERVAL '7 days'
+            GROUP BY a.id, a.title
+            ORDER BY likes DESC
+            LIMIT 5
+        """)
+        
+        cat_distribution = await conn.fetch("""
+            SELECT category, COUNT(*) as count
+            FROM user_interests
+            GROUP BY category
+            ORDER BY count DESC
+        """)
+        
+        # 3. User Growth
+        # Note: If created_at doesn't exist, this might fail, so we'll be careful.
+        try:
+            growth = await conn.fetchrow("""
+                SELECT 
+                    (SELECT COUNT(*) FROM user_profiles) as total_users,
+                    (SELECT COUNT(*) FROM user_profiles WHERE created_at >= $1) as new_users_24h
+            """, today)
+        except Exception:
+            # Fallback if created_at is missing
+            growth = {"total_users": 0, "new_users_24h": 0}
+            total = await conn.fetchval("SELECT COUNT(*) FROM user_profiles")
+            growth["total_users"] = total
+        
+        # 4. Ingestion Health
+        ingestion = await conn.fetch("""
+            SELECT status, COUNT(*) as count
+            FROM ingestion_logs
+            WHERE created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY status
+        """)
+        
+        return {
+            "ai_usage": {
+                "messages_today": ai_usage["messages_today"],
+                "quota_users": ai_usage["quota_users"],
+                "news_generations_today": ai_usage["news_generations_today"]
+            },
+            "content_engagement": {
+                "top_liked": [dict(r) for r in top_liked],
+                "category_distribution": [dict(r) for r in cat_distribution]
+            },
+            "user_growth": dict(growth),
+            "ingestion_health": [dict(r) for r in ingestion]
+        }

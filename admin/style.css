@@ -585,19 +585,123 @@ header {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* --- Toast --- */
 .toast {
     position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    background: var(--success-color);
+    bottom: 32px;
+    right: 32px;
+    background: rgba(16, 185, 129, 0.9);
+    backdrop-filter: blur(10px);
     color: white;
-    padding: 1rem 1.5rem;
-    border-radius: 10px;
+    padding: 12px 24px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
-    gap: 0.8rem;
+    gap: 12px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.3);
     z-index: 2000;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast.hidden {
+    transform: translateY(100px);
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* --- Analytics --- */
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.kpi-card {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 24px;
+}
+
+.kpi-icon {
+    font-size: 2.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+}
+
+.kpi-label {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.kpi-info h3 {
+    font-size: 1.8rem;
+    margin: 0;
+    color: var(--accent);
+}
+
+.charts-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+@media (max-width: 1024px) {
+    .charts-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-card {
+    padding: 24px;
+}
+
+.chart-card h3 {
+    margin-bottom: 20px;
+    font-size: 1.1rem;
+}
+
+.chart-wrapper {
+    position: relative;
+    height: 300px;
+    width: 100%;
+}
+
+.table-card {
+    padding: 24px;
+}
+
+.table-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+#trending-articles-table th {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+#trending-articles-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+#trending-articles-table tr:hover {
+    background: rgba(255,255,255,0.02);
 }
 
 /* Session Warning Card */

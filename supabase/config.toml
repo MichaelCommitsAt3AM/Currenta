@@ -219,7 +219,7 @@ host = "sandbox.smtp.mailtrap.io"
 port = 2525
 user = "85a2d08ffa7a91"
 pass = "env(MAILTRAP_SANDBOX_PASS)"
-admin_email = "no-reply@mail.currenta.tech"
+admin_email = "no-reply@currenta.tech"
 sender_name = "Currenta (Local Dev)"
 
 # Uncomment to customize email template
