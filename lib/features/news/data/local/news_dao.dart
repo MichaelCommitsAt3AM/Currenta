@@ -38,8 +38,10 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
-    final countryBoostExpr = CustomExpression<int>(
-        "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
+    final countryBoostExpr = countryCode != null
+        ? CustomExpression<int>(
+            "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END")
+        : const Constant(1);
 
     final trendingTierExpr =
         CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
@@ -122,8 +124,10 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
-    final countryBoostExpr = CustomExpression<int>(
-        "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END");
+    final countryBoostExpr = countryCode != null
+        ? CustomExpression<int>(
+            "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END")
+        : const Constant(1);
 
     final trendingTierExpr =
         CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");

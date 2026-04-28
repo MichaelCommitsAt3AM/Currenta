@@ -110,7 +110,7 @@ Future<void> main() async {
         prefs.getBool('has_completed_onboarding') ?? false;
 
     // ── Firebase App Check ─────────────────────────────────────────────────────
-    if (AppConfig.isProd || !kDebugMode) {
+    if (AppConfig.isProd && !kDebugMode) {
       await FirebaseAppCheck.instance.activate(
         androidProvider: AndroidProvider.playIntegrity,
         appleProvider: AppleProvider.deviceCheck,

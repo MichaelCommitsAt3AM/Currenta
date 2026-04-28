@@ -460,7 +460,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       // 2. Handle AI Chat sheet
       if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
-        final article = nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
+        final article =
+            nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
 
         // Clear immediately so it doesn't re-open on next rebuild
         ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
@@ -510,6 +511,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
     });
 
+    debugPrint(
+        '[FeedScreen] Building with _selectedCategory: ${_selectedCategory?.name}');
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.valueOrNull;
 
@@ -566,7 +569,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
                       // Restoration Guard: If the controller hasn't jumped to the restored index yet,
                       // keep shimmering to avoid showing the wrong article (index 0) briefly.
-                      if (feed.currentIndex != _currentIndex && feed.currentIndex != 0) {
+                      if (feed.currentIndex != _currentIndex &&
+                          feed.currentIndex != 0) {
                         return const ShimmerFeed();
                       }
 
@@ -578,15 +582,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
             _CategoryBar(
               selectedCategory: _selectedCategory,
               onCategoryChanged: (cat) {
-                if (_selectedCategory == cat) return;
+                debugPrint('[FeedScreen] onCategoryChanged: ${cat?.name}');
+                if (_selectedCategory == cat) {
+                  debugPrint(
+                      '[FeedScreen] Category already selected: ${cat?.name}');
+                  return;
+                }
 
-                // Sync UI state immediately for instant feedback
-                setState(() {
-                  _selectedCategory = cat;
-                });
-                _lastTriggeredPage = -1;
-
-                // Trigger feed loading immediately
+                // Trigger feed loading immediately. The Notifier will update its state 
+                // synchronously to reflect the new category, which will update our UI.
                 ref
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
@@ -596,7 +600,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
             // ── Refresh Badge (Twitter Style) ──────────────────────────
             _RefreshBadge(
-              isVisible: feed?.isStale ?? false,
+              isVisible:
+                  (feed?.isStale ?? false) || (feed?.isRefreshing ?? false),
+              isRefreshing: feed?.isRefreshing ?? false,
               onTap: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
@@ -642,7 +648,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         }
 
         final article = feed.articles[i];
-        
+
         if (article.itemType == 'exhaustion_marker') {
           return const ExhaustionMarkerCard();
         }
@@ -664,9 +670,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 // ── Refresh Badge (Twitter Style) ────────────────────────────────────────────
 
 class _RefreshBadge extends StatelessWidget {
-  const _RefreshBadge({required this.isVisible, required this.onTap});
+  const _RefreshBadge({
+    required this.isVisible,
+    required this.isRefreshing,
+    required this.onTap,
+  });
 
   final bool isVisible;
+  final bool isRefreshing;
   final VoidCallback onTap;
 
   @override
@@ -684,41 +695,61 @@ class _RefreshBadge extends StatelessWidget {
         opacity: isVisible ? 1.0 : 0.0,
         child: Center(
           child: GestureDetector(
-            onTap: isVisible ? onTap : null,
+            onTap: isVisible && !isRefreshing ? onTap : null,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: EdgeInsets.symmetric(
+                horizontal: isRefreshing ? 12 : 20,
+                vertical: 10,
+              ),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6C63FF), Color(0xFF8A84FF)],
+                gradient: LinearGradient(
+                  colors: isRefreshing
+                      ? [const Color(0xFF161B2E), const Color(0xFF1E2643)]
+                      : [const Color(0xFF6C63FF), const Color(0xFF8A84FF)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(100),
+                border: isRefreshing
+                    ? Border.all(color: Colors.white.withValues(alpha: 0.1))
+                    : null,
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
+                    color:
+                        (isRefreshing ? Colors.black : const Color(0xFF6C63FF))
+                            .withValues(alpha: 0.4),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
-                  SizedBox(width: 10),
-                  Text(
-                    'Refresh',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      fontFamily: 'Outfit',
-                      letterSpacing: 0.3,
+              child: isRefreshing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
+                      ),
+                    )
+                  : const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
+                        SizedBox(width: 10),
+                        Text(
+                          'Refresh',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            fontFamily: 'Outfit',
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
         ),
@@ -847,19 +878,28 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
         child: Row(
           children: [
             // Fixed Sidebar Menu Button (Left)
-            GestureDetector(
-              onTap: widget.onOpenDrawer,
-              child: Container(
-                height: 32,
-                width: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(100),
-                  border:
-                      Border.all(color: Colors.white.withValues(alpha: 0.20)),
+            Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: widget.onOpenDrawer,
+                borderRadius: BorderRadius.circular(100),
+                child: Container(
+                  height: 40,
+                  width: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(100),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.20),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.menu_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
-                child: const Icon(Icons.menu_rounded,
-                    color: Colors.white, size: 20),
               ),
             ),
             const SizedBox(width: 8),
@@ -867,7 +907,7 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
             // Scrollable Chips area
             Expanded(
               child: SizedBox(
-                height: 32,
+                height: 40,
                 child: ListView(
                   controller: _scrollController,
                   scrollDirection: Axis.horizontal,
@@ -940,30 +980,42 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeInCirc,
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF6C63FF)
-              : Colors.white.withValues(alpha: 0.13),
-          borderRadius: BorderRadius.circular(100),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF6C63FF)
-                : Colors.white.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: () {
+          debugPrint('[FilterChip] Tapped: $label');
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(100),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeInCirc,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? const Color(0xFF6C63FF)
+                  : Colors.white.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(100),
+              border: Border.all(
+                color: isSelected
+                    ? const Color(0xFF6C63FF)
+                    : Colors.white.withValues(alpha: 0.28),
+              ),
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
           ),
         ),
       ),
@@ -996,7 +1048,7 @@ class ExhaustionMarkerCard extends StatelessWidget {
               ),
             ),
           ),
-          
+
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -1021,7 +1073,7 @@ class ExhaustionMarkerCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 40),
-                  
+
                   // Text Content
                   const Text(
                     "You're All Caught Up!",
@@ -1045,16 +1097,16 @@ class ExhaustionMarkerCard extends StatelessWidget {
                       fontFamily: 'Inter',
                     ),
                   ),
-                  
+
                   const SizedBox(height: 60),
-                  
+
                   // Animated Scroll Indicator
                   const _ScrollNudge(),
                 ],
               ),
             ),
           ),
-          
+
           // Bottom Gradient
           Positioned(
             bottom: 0,
@@ -1101,7 +1153,7 @@ class _ScrollNudgeState extends State<_ScrollNudge>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
-    
+
     _animation = TweenSequence<double>([
       TweenSequenceItem(
         tween: Tween<double>(begin: 0, end: 10)

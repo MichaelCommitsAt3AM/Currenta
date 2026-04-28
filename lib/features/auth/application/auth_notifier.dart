@@ -283,8 +283,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final currentCountry = state.preferredCountry;
       
       if (currentCountry == null) {
-        // First time detection, just save it
-        await _repository.savePreferredCountry(country);
+        // First time detection: if signed in, sync to DB; if not, just update local state
+        if (state.isAuthenticated || state.isAnonymous) {
+          await _repository.savePreferredCountry(country);
+        }
+        
         state = state.copyWith(
           preferredCountry: () => country,
           hasCheckedLocation: true,

@@ -1,11 +1,29 @@
 // lib/features/auth/presentation/screens/welcome_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
+import '../../application/auth_notifier.dart';
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
+
+  @override
+  ConsumerState<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Trigger location detection as soon as the app opens for the first time.
+    // This allows the network request to finish while the user is reading this screen
+    // or picking categories, making the first feed load much faster.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(authNotifierProvider.notifier).detectLocation();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

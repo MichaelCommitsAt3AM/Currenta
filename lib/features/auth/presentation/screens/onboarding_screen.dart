@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../news/domain/entities/news_category.dart';
 import 'auth_bridge_screen.dart';
 import 'login_screen.dart';
+import '../../application/auth_notifier.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -17,6 +18,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   void initState() {
     super.initState();
+    // Ensure location detection is running while the user picks categories.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(authNotifierProvider.notifier).detectLocation();
+    });
   }
 
   void _toggleCategory(NewsCategory category) {

@@ -37,6 +37,7 @@ class FeedState {
     this.expiresAt,
     this.isServerExhausted = false,
     this.isStale = false,
+    this.isRefreshing = false,
   });
 
   final List<NewsArticle> articles;
@@ -75,6 +76,9 @@ class FeedState {
   /// True if the feed has exceeded its soft TTL and a refresh is recommended.
   final bool isStale;
 
+  /// True when a full feed refresh (replacement) is in progress.
+  final bool isRefreshing;
+
   FeedState copyWith({
     List<NewsArticle>? articles,
     bool? isLoadingMore,
@@ -90,6 +94,7 @@ class FeedState {
     DateTime? expiresAt,
     bool? isServerExhausted,
     bool? isStale,
+    bool? isRefreshing,
   }) =>
       FeedState(
         articles: articles ?? this.articles,
@@ -111,6 +116,7 @@ class FeedState {
         expiresAt: expiresAt ?? this.expiresAt,
         isServerExhausted: isServerExhausted ?? this.isServerExhausted,
         isStale: isStale ?? this.isStale,
+        isRefreshing: isRefreshing ?? this.isRefreshing,
       );
 }
 
@@ -133,6 +139,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   final Set<NewsCategory?> _fetchingStates = {};
 
   bool _isDisposed = false;
+  
+  /// Tracker for the most recent category switch request to ignore stale results.
+  NewsCategory? _lastRequestedCategory;
 
   @override
   Future<FeedState> build() async {
@@ -437,9 +446,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   Future<void> filterByCategory(NewsCategory? category) async {
+    debugPrint('[NewsFeedNotifier] filterByCategory: ${category?.name}');
+    _lastRequestedCategory = category;
+
     // 1. Save current state to cache before switching away.
     final oldState = state.valueOrNull;
     if (oldState != null) {
+      debugPrint('[NewsFeedNotifier] Caching old state for: ${oldState.selectedCategory?.name}');
       _feedCache[oldState.selectedCategory] =
           oldState.copyWith(isLoadingMore: false);
     }
@@ -463,12 +476,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final newState = cached.copyWith(isStale: isStale);
       state = AsyncData(newState);
       _persistence.saveCurrentArticleId(newState.articles.firstOrNull?.id);
+
+      // If the cached state has no session (e.g. from a previous local-only hit),
+      // establish one now so loadNextPage() works.
+      if (newState.sessionId == null) {
+        Future.microtask(() => _establishSessionInBackground(category));
+      }
       return;
     }
 
-    // 3. Start a fresh session (Cache-First)
-    // Yield immediately so UI can render the category highlight & shimmer
-    state = const AsyncLoading<FeedState>();
+    // Yield immediately so UI can render the category highlight & shimmer.
+    // We emit a temporary state with the new category so the UI can update its tabs instantly.
+    state = AsyncData(FeedState(selectedCategory: category, isRefreshing: true));
+    state = const AsyncLoading<FeedState>().copyWithPrevious(state);
     await Future.microtask(() {});
 
     try {
@@ -486,6 +506,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       const int initialIndex = 0;
 
       if (localArticles.isNotEmpty) {
+        // Concurrency Guard: Check if the user has already moved on to another category.
+        if (_lastRequestedCategory != category) return;
+
         final newState = FeedState(
           articles: localArticles,
           selectedCategory: category,
@@ -517,6 +540,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isServerExhausted: !response.hasMore,
         isStale: false,
       );
+      
+      // Concurrency Guard: Check if the user has already moved on to another category.
+      if (_lastRequestedCategory != category) return;
 
       _persistence.saveLastRefreshTime(DateTime.now());
       state = AsyncData(newState);
@@ -524,6 +550,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (newState.articles.isNotEmpty) {
         _persistence.saveCurrentArticleId(newState.articles.first.id);
+      }
+
+      // ── Fallback: Secondary Content ──
+      if (newState.articles.length < 5 && !response.hasMore) {
+        await _loadNextPageFromLocalSecondary(newState);
       }
     } catch (e, st) {
       state = AsyncError(e, st);
@@ -538,8 +569,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final currentCategory = startState?.selectedCategory;
     
     // 1. Hide the refresh badge immediately for better UX
-    if (startState != null && startState.isStale) {
-      state = AsyncData(startState.copyWith(isStale: false));
+    if (startState != null) {
+      state = AsyncData(startState.copyWith(isStale: false, isRefreshing: true));
     }
 
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
@@ -712,8 +743,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final current = state.valueOrNull;
       if (current == null || current.selectedCategory != category) return;
 
-      // Patch the state with session metadata only — keep cached articles intact.
+      // Deduplicate and Append: Merge remote articles into the UI state instead of discarding them.
+      // This ensures Remote0-Remote9 are actually shown to the user.
+      final existingIds = current.articles.map((a) => a.id).toSet();
+      final newArticles = response.articles.where((a) => !existingIds.contains(a.id)).toList();
+      final combinedArticles = [...current.articles, ...newArticles];
+
+      // Patch the state with session metadata AND the new articles
       final patched = current.copyWith(
+        articles: combinedArticles,
         sessionId: response.sessionId,
         nextCursor: () => response.nextCursor,
         hasMore: response.hasMore,
@@ -722,6 +760,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
       state = AsyncData(patched);
       _feedCache[category] = patched;
+
+      // ── Fallback: Secondary Content ──
+      // If we are server-exhausted but have very few articles, immediately try to 
+      // load secondary-category articles from local cache to provide a better experience.
+      if (combinedArticles.length < 5 && !response.hasMore) {
+        await _loadNextPageFromLocalSecondary(patched);
+      }
     } catch (e) {
       // Non-fatal: pagination will still work on a session that is established
       // lazily at the next loadNextPage call.

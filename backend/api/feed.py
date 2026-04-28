@@ -439,16 +439,30 @@ async def get_feed(
             else:
                 country = None
 
+        if country:
+            # Trigger background refresh for this country if it hasn't been fetched recently.
+            # This ensures that even if our cron is slow, a user checking their local tab triggers an update.
+            background_tasks.add_task(fetch_local_news_on_demand, country, db_pool)
+        
         # 3. Internal Interest Logic
         # If a specific category is requested, we override personal interests to focus 
         # strictly on that category, applying the ranking boost and bypassing diversification limits.
         is_category_page = category is not None
+        is_local_request = (category == 'local')
         
         if is_category_page:
-            interests = [category]
-            topic_interests = [category]
-            has_local_interest = True # For category pages, we check local bucket if applicable
-            category_boost = category
+            if is_local_request:
+                # For the 'local' page, we don't filter by the 'local' string in categories
+                # because articles are usually tagged with topics (politics, tech) and country_code.
+                interests = [] 
+                topic_interests = []
+                has_local_interest = True
+                category_boost = None 
+            else:
+                interests = [category]
+                topic_interests = [category]
+                has_local_interest = False
+                category_boost = category
         else:
             user_interests = user_state.get("interests", []) if user_state else []
             interests = user_interests
@@ -509,12 +523,24 @@ async def get_feed(
         async with db_pool.acquire() as conn:
             # Bucket 1: Personalized (60%)
             if user_state and user_state.get("interest_embedding"):
-                # Index calculation: viewed_params($1..$N), interests($N+1), embedding($N+2), country($N+3)
-                p_where = f"{common_where} AND categories && ${len(viewed_params)+1}::text[]"
-                p_params = viewed_params + [interests, orjson.dumps(user_state["interest_embedding"]).decode()]
+                # Index calculation: viewed_params($1..$N), [interests($N+1)], embedding($N+2), country($N+3)
+                p_params = list(viewed_params)
+                
+                if not is_local_request:
+                    p_where = f"{common_where} AND categories && ${len(p_params)+1}::text[]"
+                    p_params.append(interests)
+                else:
+                    p_where = common_where
+                
+                # Embedding index depends on whether interests were added
+                emb_idx = len(p_params) + 1
+                p_params.append(orjson.dumps(user_state["interest_embedding"]).decode())
                 
                 if country:
-                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
+                    if is_local_request:
+                        p_where += f" AND country_code = ${len(p_params)+1}::text"
+                    else:
+                        p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
                     p_params.append(country)
                 else:
                     p_where += " AND country_code IS NULL"
@@ -524,16 +550,23 @@ async def get_feed(
                     p_where,
                     p_params,
                     "Personalized",
-                    order_by=f"embedding <=> ${len(viewed_params)+2}::vector",
+                    order_by=f"embedding <=> ${emb_idx}::vector",
                     category_boost=category_boost
                 )
             else:
                 # Cold start: rely on category matches
-                p_where = f"{common_where} AND categories && ${len(viewed_params)+1}::text[]"
-                p_params = viewed_params + [interests]
+                p_params = list(viewed_params)
+                if not is_local_request:
+                    p_where = f"{common_where} AND categories && ${len(p_params)+1}::text[]"
+                    p_params.append(interests)
+                else:
+                    p_where = common_where
                 
                 if country:
-                    p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
+                    if is_local_request:
+                        p_where += f" AND country_code = ${len(p_params)+1}::text"
+                    else:
+                        p_where += f" AND (country_code IS NULL OR country_code = ${len(p_params)+1}::text)"
                     p_params.append(country)
                 else:
                     p_where += " AND country_code IS NULL"
@@ -548,11 +581,18 @@ async def get_feed(
 
             # Bucket 2: Trending (30%)
             # Must respect user interests while being high-ranking
-            t_where = f"{common_where} AND ranking_score > 0.1 AND categories && ${len(viewed_params)+1}::text[]"
-            t_params = viewed_params + [interests]
+            t_params = list(viewed_params)
+            if not is_local_request:
+                t_where = f"{common_where} AND ranking_score > 0.1 AND categories && ${len(t_params)+1}::text[]"
+                t_params.append(interests)
+            else:
+                t_where = f"{common_where} AND ranking_score > 0.1"
             
             if country:
-                t_where += f" AND (country_code IS NULL OR country_code = ${len(t_params)+1}::text)"
+                if is_local_request:
+                    t_where += f" AND country_code = ${len(t_params)+1}::text"
+                else:
+                    t_where += f" AND (country_code IS NULL OR country_code = ${len(t_params)+1}::text)"
                 t_params.append(country)
             else:
                 t_where += " AND country_code IS NULL"
@@ -570,7 +610,10 @@ async def get_feed(
             d_params = list(viewed_params)
             
             if country:
-                d_where += f" AND (country_code IS NULL OR country_code = ${len(d_params)+1}::text)"
+                if is_local_request:
+                    d_where += f" AND country_code = ${len(d_params)+1}::text"
+                else:
+                    d_where += f" AND (country_code IS NULL OR country_code = ${len(d_params)+1}::text)"
                 d_params.append(country)
             else:
                 d_where += " AND country_code IS NULL"
@@ -586,18 +629,15 @@ async def get_feed(
             # Bucket 4: Global Trending (Phase 2 fallback / Cold start filler)
             # High quality trending news from ANY category.
             gt_where = f"{common_where} AND ranking_score > 0.3"
-            if interests:
+            gt_params = list(viewed_params)
+            if interests and not is_local_request:
                 # For users with interests, we specifically look for trending news OUTSIDE their interests
-                gt_where += f" AND NOT (categories && ${len(viewed_params)+1}::text[])"
-                gt_params = list(viewed_params) + [interests]
-            else:
-                gt_params = list(viewed_params)
+                gt_where += f" AND NOT (categories && ${len(gt_params)+1}::text[])"
+                gt_params.append(interests)
             
-            if country:
-                gt_where += f" AND (country_code IS NULL OR country_code = ${len(gt_params)+1}::text)"
-                gt_params.append(country)
-            else:
-                gt_where += " AND country_code IS NULL"
+            # Global Trending should NOT be restricted by country — it's the source for world variety.
+            # We already have common_where (recency + optional paywall filter).
+            pass
             
             global_trending_bucket = await fetch_bucket(
                 conn,
@@ -608,8 +648,10 @@ async def get_feed(
 
         # Deduplicate and Split across buckets (prefer Personalized > Trending > Discovery)
         all_ids = set()
+        # In cold start (new user with no interests), we prioritize global trending content.
+        # However, for explicit category pages (like 'Local'), we want to see content from all buckets.
+        is_cold_start = not interests and not is_category_page
         interest_set = set(interests)
-        is_cold_start = not interests
         
         def process_bucket(bucket):
             primary = []
@@ -619,8 +661,8 @@ async def get_feed(
                     all_ids.add(a['id'])
                     # Check if the primary category (index 0) is in user interests
                     cats = a.get('categories') or []
-                    # In cold start, everything in the initial buckets is considered primary
-                    if is_cold_start or (cats and cats[0] in interest_set):
+                    # In cold start OR on a specific category page, everything in the initial buckets is considered primary
+                    if is_cold_start or is_category_page or (cats and cats[0] in interest_set):
                         primary.append(a)
                     else:
                         secondary.append(a)

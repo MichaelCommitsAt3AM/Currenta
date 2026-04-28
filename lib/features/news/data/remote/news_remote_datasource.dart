@@ -49,7 +49,7 @@ class NewsRemoteDataSource {
       final session = Supabase.instance.client.auth.currentSession;
 
       String? appCheckToken;
-      if (AppConfig.isProd || !kDebugMode) {
+      if (AppConfig.isProd && !kDebugMode) {
         try {
           appCheckToken = await FirebaseAppCheck.instance.getToken();
           debugPrint('[Remote] App Check token retrieved successfully');
