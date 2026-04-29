@@ -6,6 +6,7 @@ import '../domain/entities/news_article.dart';
 import '../domain/repositories/news_repository.dart';
 import '../../auth/application/auth_notifier.dart';
 import '../../../core/providers/providers.dart';
+import 'trending_filters_notifier.dart';
 
 part 'trending_notifier.g.dart';
 
@@ -17,20 +18,15 @@ class TrendingNotifier extends _$TrendingNotifier {
 
   @override
   Future<List<NewsArticle>> build() async {
-    // Listen to auth changes to refresh trending when country preference changes
-    ref.listen<AuthState>(authNotifierProvider, (previous, next) {
-      if (previous?.preferredCountry != next.preferredCountry) {
-        debugPrint('[Trending] Country changed, refreshing...');
-        refresh();
-      }
-    });
-
-    // Initial fetch
+    // Watch filters to trigger re-fetch
+    ref.watch(trendingFiltersNotifierProvider);
+    
     return _fetch();
   }
 
   Future<List<NewsArticle>> _fetch({bool force = false}) async {
     final now = DateTime.now();
+    final filters = ref.read(trendingFiltersNotifierProvider);
 
     // 1. Check if we have valid cached data
     if (!force && _lastFetchTime != null) {
@@ -47,10 +43,13 @@ class TrendingNotifier extends _$TrendingNotifier {
 
     // 2. Otherwise fetch from remote
     try {
-      debugPrint('[Trending] Fetching fresh trending articles...');
-      final country = ref.read<AuthState>(authNotifierProvider).preferredCountry;
+      debugPrint('[Trending] Fetching fresh trending articles with filters: $filters');
 
-      final articles = await _repo.fetchTrending(limit: 20, country: country);
+      final articles = await _repo.fetchTrending(
+        limit: 20,
+        country: filters.countryCode,
+        hours: filters.hours,
+      );
       _lastFetchTime = now;
       return articles;
     } catch (e) {

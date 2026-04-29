@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../domain/entities/trending_filters.dart';
 
 class LocalPersistenceRepository {
   LocalPersistenceRepository({required SharedPreferences prefs}) : _prefs = prefs;
@@ -11,6 +13,7 @@ class LocalPersistenceRepository {
   static const _kHasSeenPersonalizationOnboarding = 'has_seen_personalization_onboarding';
   static const _kNeedsFeedRefresh = 'needs_feed_refresh';
   static const _kLastRefreshAt = 'last_refresh_at';
+  static const _kTrendingFilters = 'trending_filters';
 
   Future<void> saveCurrentArticleId(String? articleId) async {
     if (articleId == null) {
@@ -68,4 +71,18 @@ class LocalPersistenceRepository {
 
   Future<void> setNeedsFeedRefresh(bool value) =>
       _prefs.setBool(_kNeedsFeedRefresh, value);
+
+  Future<void> saveTrendingFilters(TrendingFilters filters) async {
+    await _prefs.setString(_kTrendingFilters, jsonEncode(filters.toJson()));
+  }
+
+  TrendingFilters getTrendingFilters() {
+    final raw = _prefs.getString(_kTrendingFilters);
+    if (raw == null) return const TrendingFilters();
+    try {
+      return TrendingFilters.fromJson(jsonDecode(raw));
+    } catch (_) {
+      return const TrendingFilters();
+    }
+  }
 }

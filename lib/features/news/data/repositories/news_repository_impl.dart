@@ -282,9 +282,17 @@ class NewsRepositoryImpl implements NewsRepository {
   }
 
   @override
-  Future<List<NewsArticle>> fetchTrending({int limit = 20, String? country}) async {
+  Future<List<NewsArticle>> fetchTrending({
+    int limit = 20,
+    String? country,
+    int? hours,
+  }) async {
     try {
-      final remoteArticles = await _remote.fetchTrendingArticles(limit: limit, country: country);
+      final remoteArticles = await _remote.fetchTrendingArticles(
+        limit: limit,
+        country: country,
+        hours: hours,
+      );
       // We don't necessarily want to cache these, or we can upsert if we want them available offline.
       // Let's upsert them so they appear in the feed too if relevant.
       final companions = remoteArticles.map((a) => a.toCompanion()).toList();

@@ -1,26 +1,27 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'news_feed_notifier.dart';
+part of 'trending_filters_notifier.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$newsFeedNotifierHash() => r'7cdfc4271e2ae8fbe9d864268282529c082b0127';
+String _$trendingFiltersNotifierHash() =>
+    r'e2b936fea7be46d1d7db519115cf3d81b76ed8fa';
 
-/// See also [NewsFeedNotifier].
-@ProviderFor(NewsFeedNotifier)
-final newsFeedNotifierProvider =
-    AutoDisposeAsyncNotifierProvider<NewsFeedNotifier, FeedState>.internal(
-  NewsFeedNotifier.new,
-  name: r'newsFeedNotifierProvider',
+/// See also [TrendingFiltersNotifier].
+@ProviderFor(TrendingFiltersNotifier)
+final trendingFiltersNotifierProvider = AutoDisposeNotifierProvider<
+    TrendingFiltersNotifier, TrendingFilters>.internal(
+  TrendingFiltersNotifier.new,
+  name: r'trendingFiltersNotifierProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
       ? null
-      : _$newsFeedNotifierHash,
+      : _$trendingFiltersNotifierHash,
   dependencies: null,
   allTransitiveDependencies: null,
 );
 
-typedef _$NewsFeedNotifier = AutoDisposeAsyncNotifier<FeedState>;
+typedef _$TrendingFiltersNotifier = AutoDisposeNotifier<TrendingFilters>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

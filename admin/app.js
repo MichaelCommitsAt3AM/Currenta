@@ -21,10 +21,48 @@ let sessionStartTime = null;
 let warningModalActive = false;
 let checkInterval = null;
 let selectedCategories = [];
+let isCheckingAdmin = false;
 
 // Analytics state
 let categoryChart = null;
 let healthChart = null;
+
+function setAuthLoading(isLoading) {
+    const loadingEl = document.getElementById('auth-loading');
+    const loginForm = document.getElementById('login-form');
+    const googleBtn = document.getElementById('google-login');
+    const divider = document.querySelector('.divider');
+    const errorEl = document.getElementById('auth-error');
+
+    if (isLoading) {
+        loadingEl.classList.remove('hidden');
+        loginForm.classList.add('hidden');
+        googleBtn.classList.add('hidden');
+        if (divider) divider.classList.add('hidden');
+        errorEl.textContent = '';
+        document.getElementById('auth-retry-btn').classList.add('hidden');
+    } else {
+        loadingEl.classList.add('hidden');
+        loginForm.classList.remove('hidden');
+        googleBtn.classList.remove('hidden');
+        if (divider) divider.classList.remove('hidden');
+    }
+}
+
+function setAuthError(message, showRetry = false) {
+    const errorEl = document.getElementById('auth-error');
+    errorEl.textContent = message;
+    
+    const retryBtn = document.getElementById('auth-retry-btn');
+    if (showRetry) {
+        retryBtn.classList.remove('hidden');
+    } else {
+        retryBtn.classList.add('hidden');
+    }
+    
+    // If we have an error, we should probably stop the loading state
+    setAuthLoading(false);
+}
 
 function handleUrlAuthParams() {
     const params = new URLSearchParams(window.location.search);
@@ -33,10 +71,25 @@ function handleUrlAuthParams() {
 
     const error = params.get('error') || fragment.get('error');
     const description = params.get('error_description') || fragment.get('error_description');
+    const errorCode = params.get('error_code') || fragment.get('error_code');
 
     if (error && errorEl) {
-        errorEl.textContent = `Login Error: ${description || error}`;
-        // Clean the URL
+        console.error('[Auth] Login error detected in URL params:', { error, errorCode, description });
+
+        let message = `Login Error: ${description || error}`;
+
+        if ((description || '').includes('Unable to exchange external code')) {
+            const supabaseCallback = `${CONFIG.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/callback`;
+            message += `\n\nFix: In Google Cloud Console → OAuth client, add this as an Authorized redirect URI: ${supabaseCallback}. Then in Supabase → Auth → Providers → Google, ensure the Client ID/Secret match that OAuth client.`;
+        }
+
+        if (errorCode) {
+            message += `\n\n(error_code: ${errorCode})`;
+        }
+
+        setAuthError(message);
+        
+        // Clean the URL but keep the hash if it's not an error hash
         const cleanUrl = `${window.location.pathname}${window.location.search.replace(/[?&]error=[^&]*/, '').replace(/[?&]error_description=[^&]*/, '').replace(/[?&]error_code=[^&]*/, '')}`;
         window.history.replaceState({}, document.title, cleanUrl);
     }
@@ -73,14 +126,11 @@ async function verifyAdminViaLegacyProbe() {
         throw new Error('Admin backend is reachable but currently unhealthy.');
     }
 
-    // Any non-auth response means the request reached an admin-protected route.
     return true;
 }
 
 async function enforceAdminSession() {
     if (!session?.access_token) return false;
-
-    const errorEl = document.getElementById('auth-error');
 
     try {
         const response = await fetch(`${CONFIG.API_BASE_URL}/api/admin/session/check`, {
@@ -92,11 +142,15 @@ async function enforceAdminSession() {
 
         if (response.status === 403 || response.status === 401) {
             await supabaseClient.auth.signOut();
-            errorEl.textContent = 'Access denied: this account is not an admin.';
+            setAuthError('Access denied: this account is not an admin.');
             return false;
         }
 
         if (!response.ok) {
+            if (response.status === 404) {
+                return await verifyAdminViaLegacyProbe();
+            }
+            
             let detail = '';
             try {
                 const body = await response.json();
@@ -104,16 +158,9 @@ async function enforceAdminSession() {
             } catch (_) {
                 detail = '';
             }
-
-            if (response.status === 404) {
-                // Fallback to legacy admin probe when this endpoint is missing in older deployments.
-                return await verifyAdminViaLegacyProbe();
-            }
-
-            throw new Error(detail || `Unable to verify admin privileges right now (HTTP ${response.status}).`);
+            throw new Error(detail || `Server returned ${response.status}`);
         }
 
-        errorEl.textContent = '';
         if (response.ok) {
             const data = await response.json();
             if (data.email) {
@@ -122,9 +169,15 @@ async function enforceAdminSession() {
         }
         return true;
     } catch (err) {
-        errorEl.textContent = err.message || 'Unable to verify admin privileges right now.';
-        await supabaseClient.auth.signOut();
-        return false;
+        console.error('[Auth] Verification failed:', err);
+        // If it's a network error or 5xx, allow retry instead of signing out immediately
+        const isNetworkError = err.name === 'TypeError' || err.message.includes('fetch');
+        const message = isNetworkError 
+            ? 'Backend connection failed. The server might be starting up...' 
+            : (err.message || 'Unable to verify admin privileges.');
+        
+        setAuthError(message, true);
+        return null; // Return null to indicate a transient error (retry-able)
     }
 }
 
@@ -199,7 +252,6 @@ const COUNTRIES = [
 // --- Initialization ---
 
 async function init() {
-    // strict login: use sessionStorage so tab close results in logout
     supabaseClient = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
         auth: {
             storage: window.sessionStorage,
@@ -209,52 +261,64 @@ async function init() {
         }
     });
     
-    // Check initial session
-    const { data } = await supabaseClient.auth.getSession();
-    session = data.session;
     handleUrlAuthParams();
 
-    let isAdminSession = false;
-    if (session) {
-        isAdminSession = await enforceAdminSession();
-    }
-
-    if (isAdminSession) {
-        // Load session start time from storage or set it now
-        const savedStart = sessionStorage.getItem('admin_session_start');
-        sessionStartTime = savedStart ? parseInt(savedStart) : Date.now();
-        if (!savedStart) sessionStorage.setItem('admin_session_start', sessionStartTime);
-        startSessionTimer();
-    }
-
-    updateUI(isAdminSession);
-
+    // The primary driver for UI state will be the onAuthStateChange listener
+    // but we can trigger an initial check if detectSessionInUrl is slow
+    const { data } = await supabaseClient.auth.getSession();
+    session = data.session;
+    
     // Listen for auth changes
     supabaseClient.auth.onAuthStateChange(async (event, _session) => {
+        console.log('[Auth] State change:', event, _session ? 'Session present' : 'No session');
         session = _session;
 
-        if (event === 'SIGNED_IN') {
-            const isAdmin = await enforceAdminSession();
-            if (!isAdmin) {
-                updateUI(false);
-                return;
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+            if (session && !isCheckingAdmin) {
+                await performAdminVerification();
             }
-
-            sessionStartTime = Date.now();
-            sessionStorage.setItem('admin_session_start', sessionStartTime);
-            startSessionTimer();
         } else if (event === 'SIGNED_OUT') {
             sessionStartTime = null;
             sessionStorage.removeItem('admin_session_start');
             stopSessionTimer();
+            updateUI(false);
+            setAuthLoading(false);
         }
-
-        updateUI(!!session);
     });
 
     setupEventListeners();
     renderCategories();
     renderCountries();
+}
+
+async function performAdminVerification() {
+    if (!session || isCheckingAdmin) return;
+    
+    isCheckingAdmin = true;
+    setAuthLoading(true);
+
+    const isAdmin = await enforceAdminSession();
+    isCheckingAdmin = false;
+    
+    if (isAdmin === true) {
+        // Success
+        const savedStart = sessionStorage.getItem('admin_session_start');
+        sessionStartTime = savedStart ? parseInt(savedStart) : Date.now();
+        if (!savedStart) sessionStorage.setItem('admin_session_start', sessionStartTime);
+        startSessionTimer();
+        
+        updateUI(true);
+        setAuthLoading(false);
+    } else if (isAdmin === false) {
+        // Access Denied (enforceAdminSession already signed out and set error)
+        updateUI(false);
+        setAuthLoading(false);
+    } else {
+        // Transient error (isAdmin is null)
+        // Keep in loading state or show retry
+        setAuthLoading(false);
+        // Error message was already set by enforceAdminSession
+    }
 }
 
 function startSessionTimer() {
@@ -327,6 +391,7 @@ function setupEventListeners() {
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('google-login').addEventListener('click', handleGoogleLogin);
     document.getElementById('logout-btn').addEventListener('click', () => supabaseClient.auth.signOut());
+    document.getElementById('auth-retry-btn').addEventListener('click', performAdminVerification);
 
     // Drafting
     document.getElementById('draft-btn').addEventListener('click', handleDraftGeneration);
@@ -704,10 +769,24 @@ async function handleLogin(e) {
 }
 
 async function handleGoogleLogin() {
+    // Keep redirectTo stable across hosting setups (e.g. /admin/ vs /admin/index.html)
+    // and ensure it ends with a trailing slash so Supabase allowlisting is predictable.
+    let redirectPath = window.location.pathname;
+    redirectPath = redirectPath.replace(/index\.html$/, '');
+    if (!redirectPath.endsWith('/')) {
+        // If this looks like a directory path, normalize to a trailing slash.
+        const lastSegment = redirectPath.split('/').pop() || '';
+        if (!lastSegment.includes('.')) {
+            redirectPath += '/';
+        }
+    }
+    const redirectTo = window.location.origin + redirectPath;
+    console.log('[Auth] Initiating Google login with redirectTo:', redirectTo);
+    
     const { error } = await supabaseClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            redirectTo: window.location.origin + window.location.pathname,
+            redirectTo: redirectTo,
             queryParams: {
                 prompt: 'select_account'
             }
@@ -715,6 +794,7 @@ async function handleGoogleLogin() {
     });
     
     if (error) {
+        console.error('[Auth] signInWithOAuth error:', error);
         document.getElementById('auth-error').textContent = error.message;
     }
 }

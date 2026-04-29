@@ -12,6 +12,7 @@ import orjson
 from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip, verify_app_check, get_feed_rate_limit
 from ..core.geo import get_country_from_ip
 from ..services.ingestion import fetch_local_news_on_demand
+from ..services.personalization import schedule_debounced_personalization_update
 
 logger = logging.getLogger(__name__)
 
@@ -960,12 +961,16 @@ async def toggle_like(
                 "DELETE FROM article_likes WHERE user_id = $1 AND article_id = $2",
                 user.id, str(article_id)
             )
+            # Debounced background update
+            schedule_debounced_personalization_update(user.id)
             return {"status": "unliked"}
         else:
             await conn.execute(
                 "INSERT INTO article_likes (user_id, article_id) VALUES ($1, $2)",
                 user.id, str(article_id)
             )
+            # Debounced background update
+            schedule_debounced_personalization_update(user.id)
             return {"status": "liked"}
 
 

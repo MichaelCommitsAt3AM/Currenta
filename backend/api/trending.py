@@ -104,33 +104,42 @@ def _select_diverse_trending_articles(articles: List[dict], limit: int) -> List[
 @limiter.limit("60/minute")
 async def get_trending_feed(
     request: Request,
-    country: Optional[str] = Query(None, description="Prioritize trends from this country"),
+    country: Optional[str] = Query(None, description="Filter trends by this country"),
+    hours: int = Query(72, ge=1, le=168, description="Time window in hours"),
     limit: int = Query(20, ge=1, le=50),
     db_pool: asyncpg.Pool = Depends(get_db)
 ):
     """
-    Returns the top trending articles globally based on trend_score.
-    If 'country' is specified, stories from that country are prioritized at the top.
+    Returns the top trending articles.
+    If 'country' is specified, results are strictly filtered to that country.
+    'hours' determines how far back to look (default 72h).
     """
     try:
         async with db_pool.acquire() as conn:
             candidate_limit = min(max(limit * 6, 40), 200)
 
-            # Fetch a larger candidate pool first, then apply ranking + dedup/diversity
-            # in memory so we can avoid stale and repetitive top results.
-            # We use a Case statement to prioritize the specified country.
-            query = f"""
-                SELECT {ARTICLE_COLUMNS}
-                FROM articles
-                WHERE trend_score > 0
-                AND published_at > NOW() - INTERVAL '72 hours'
-                ORDER BY 
-                    (CASE WHEN country_code = $2 THEN 1 ELSE 0 END) DESC,
-                    trend_score DESC, 
-                    published_at DESC
-                LIMIT $1
-            """
-            records = await conn.fetch(query, candidate_limit, country)
+            # Build query based on whether a country filter is active
+            if country and country.lower() != 'global':
+                query = f"""
+                    SELECT {ARTICLE_COLUMNS}
+                    FROM articles
+                    WHERE trend_score > 0
+                    AND country_code = $2
+                    AND published_at > NOW() - (INTERVAL '1 hour' * $3)
+                    ORDER BY trend_score DESC, published_at DESC
+                    LIMIT $1
+                """
+                records = await conn.fetch(query, candidate_limit, country.upper(), hours)
+            else:
+                query = f"""
+                    SELECT {ARTICLE_COLUMNS}
+                    FROM articles
+                    WHERE trend_score > 0
+                    AND published_at > NOW() - (INTERVAL '1 hour' * $2)
+                    ORDER BY trend_score DESC, published_at DESC
+                    LIMIT $1
+                """
+                records = await conn.fetch(query, candidate_limit, hours)
 
             now = datetime.now(timezone.utc)
             candidates: List[dict] = []
@@ -139,9 +148,10 @@ async def get_trending_feed(
                 r["ranking_score"] = _effective_trending_score(r, now)
                 candidates.append(r)
 
+            # For global feed, we don't have a specific country boost anymore in the sort
+            # since we handle strict filtering above for specific countries.
             candidates.sort(
                 key=lambda a: (
-                    (1.0 if a.get("country_code") == country else 0.0), # Local boost
                     float(a.get("ranking_score") or 0.0),
                     float(a.get("trend_score") or 0.0),
                     a.get("published_at") or datetime.min.replace(tzinfo=timezone.utc),

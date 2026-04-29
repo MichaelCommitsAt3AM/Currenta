@@ -6,6 +6,9 @@ import '../../application/trending_notifier.dart';
 import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
+import '../widgets/trending_filter_sheet.dart';
+import '../../application/trending_filters_notifier.dart';
+import '../../domain/entities/news_category.dart';
 
 class TrendingScreen extends ConsumerStatefulWidget {
   final NewsArticle? initialArticle;
@@ -100,6 +103,30 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
           ),
         ),
         centerTitle: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: GestureDetector(
+              onTap: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => const TrendingFilterSheet(),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                child: const Icon(Icons.tune_rounded, color: Colors.white, size: 20),
+              ),
+            ),
+          ),
+        ],
       ),
       body: trendingAsync.when(
         loading: () => const Center(

@@ -38,6 +38,17 @@
                 Sign in with Google
             </button>
             <p id="auth-error" class="error"></p>
+            
+            <!-- Verification Loading State -->
+            <div id="auth-loading" class="auth-loading hidden">
+                <div class="loader-large"></div>
+                <p>Verifying admin access...</p>
+            </div>
+
+            <!-- Verification Retry -->
+            <button id="auth-retry-btn" class="btn outline hidden" style="margin-top: 1rem; width: 100%;">
+                Retry Verification
+            </button>
         </div>
     </div>
 

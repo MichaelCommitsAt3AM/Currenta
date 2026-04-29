@@ -170,6 +170,30 @@ input:focus, textarea:focus {
     margin-top: 0.5rem;
 }
 
+.auth-loading {
+    margin-top: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.auth-loading p {
+    margin-bottom: 0;
+    font-weight: 500;
+    color: var(--accent-color);
+    font-size: 0.9rem;
+}
+
+.loader-large {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+}
+
 .btn.google img { width: 18px; }
 .btn.google:hover { filter: brightness(0.95); transform: translateY(-1px); }
 
@@ -408,6 +432,7 @@ header {
     color: var(--error-color);
     font-size: 0.9rem;
     margin-top: 1rem;
+    white-space: pre-line;
 }
 
 .badge {

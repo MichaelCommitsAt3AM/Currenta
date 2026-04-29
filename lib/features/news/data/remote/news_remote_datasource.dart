@@ -49,7 +49,7 @@ class NewsRemoteDataSource {
       final session = Supabase.instance.client.auth.currentSession;
 
       String? appCheckToken;
-      if (AppConfig.isProd && !kDebugMode) {
+      if (AppConfig.isProd && kReleaseMode) {
         try {
           appCheckToken = await FirebaseAppCheck.instance.getToken();
           debugPrint('[Remote] App Check token retrieved successfully');
@@ -191,12 +191,14 @@ class NewsRemoteDataSource {
   Future<List<NewsArticle>> fetchTrendingArticles({
     int limit = 20,
     String? country,
+    int? hours,
   }) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/trending';
       final queryParams = <String, dynamic>{
         'limit': limit,
         if (country != null) 'country': country,
+        if (hours != null) 'hours': hours,
       };
 
       final session = Supabase.instance.client.auth.currentSession;
