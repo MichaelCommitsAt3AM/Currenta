@@ -109,10 +109,8 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
             const SizedBox(height: 32),
 
             // ── Retry button ────────────────────────────────────
-            FilledButton.icon(
+            FilledButton(
               onPressed: widget.onRetry,
-              icon: Icon(widget.buttonLabel == 'Try Again' ? Icons.refresh_rounded : Icons.arrow_back_rounded, size: 18),
-              label: Text(widget.buttonLabel),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF6C63FF),
                 foregroundColor: Colors.white,
@@ -128,6 +126,20 @@ class _EmptyStateScreenState extends State<EmptyStateScreen>
                   fontWeight: FontWeight.w600,
                   fontSize: 14,
                 ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.buttonLabel == 'Try Again') ...[
+                    const Icon(Icons.refresh_rounded, size: 18),
+                    const SizedBox(width: 8),
+                  ],
+                  Text(widget.buttonLabel),
+                  if (widget.buttonLabel != 'Try Again') ...[
+                    const SizedBox(width: 8),
+                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                  ],
+                ],
               ),
             ),
           ],

@@ -228,7 +228,12 @@ class AccountManagementScreen extends ConsumerWidget {
                       );
                       if (confirmed == true && context.mounted) {
                         await ref.read(authNotifierProvider.notifier).signOut();
-                        if (context.mounted) Navigator.pop(context);
+                        if (context.mounted) {
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                            (route) => false,
+                          );
+                        }
                       }
                     },
                   ),
@@ -261,10 +266,12 @@ class AccountManagementScreen extends ConsumerWidget {
                             AppSnackbar.showSuccess(context, 'Account and data deleted successfully');
                             
                             // Navigate to Welcome screen and clear history (brand new user experience)
-                            Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (_) => const WelcomeScreen()),
-                              (route) => false,
-                            );
+                            if (context.mounted) {
+                              Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                                (route) => false,
+                              );
+                            }
                           }
                         } catch (e) {
                           if (context.mounted) {

@@ -19,6 +19,7 @@ import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/widgets/location_update_popup.dart';
 import '../widgets/ai_quick_chat_sheet.dart';
 import '../widgets/feed_onboarding_overlay.dart';
+import '../../application/onboarding_notifier.dart';
 import 'empty_state_screen.dart';
 import 'error_state_screen.dart';
 import '../../../../theme/app_theme.dart';
@@ -42,7 +43,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   bool _hasWarmedUpBrowser = false;
   Timer? _viewTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _showOnboarding = false;
+  bool _hasScrolledOnce = false;
   bool _isManualShimmering = false;
   bool _didSubscribeRouteAware = false;
   bool _isRouteVisible = false;
@@ -81,42 +82,63 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   }
 
   void _checkOnboarding() {
-    final prefs = ref.read(localPersistenceRepositoryProvider);
-    if (!prefs.hasSeenFeedOnboarding()) {
-      setState(() {
-        _showOnboarding = true;
-      });
+    final notifier = ref.read(onboardingNotifierProvider.notifier);
+    if (!notifier.hasSeenFeedOnboarding) {
+      debugPrint('[FeedScreen] Triggering onboarding');
+      // Mark as seen immediately to prevent it from re-triggering 
+      // on next app start even if they don't finish the steps.
+      notifier.markFeedOnboardingSeen();
       _runScrollNudge();
     }
   }
 
   void _runScrollNudge() async {
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted || !_pageController.hasClients || !_showOnboarding) return;
+    // Initial wait before first nudge
+    await Future.delayed(const Duration(milliseconds: 2500));
+    
+    // Cycle the nudge every 3 seconds
+    while (mounted && !_hasScrolledOnce) {
+      final currentStep = ref.read(onboardingNotifierProvider);
+      
+      // If we've moved past the scroll step or onboarding is hidden, stop the loop
+      if (currentStep != OnboardingStep.none && currentStep != OnboardingStep.scroll) break;
 
-    // Nudge 20% down
-    await _pageController.animateTo(
-      MediaQuery.sizeOf(context).height * 0.2,
-      duration: const Duration(milliseconds: 800),
-      curve: Curves.easeInOutQuart,
-    );
+      // Ensure step is set to scroll
+      if (currentStep == OnboardingStep.none) {
+        ref.read(onboardingNotifierProvider.notifier).setStep(OnboardingStep.scroll);
+      }
 
-    if (!mounted || !_pageController.hasClients) return;
+      if (!_pageController.hasClients || _hasScrolledOnce) break;
 
-    // Return to 0
-    await _pageController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 600),
-      curve: Curves.easeOutBack,
-    );
+      // 1. Perform Nudge Down (1s)
+      await _pageController.animateTo(
+        MediaQuery.sizeOf(context).height * 0.15,
+        duration: const Duration(milliseconds: 1000),
+        curve: Curves.easeInOutQuart,
+      );
+
+      if (!mounted || !_pageController.hasClients || _hasScrolledOnce) break;
+
+      // 2. Return to 0 (0.8s)
+      await _pageController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeOutBack,
+      );
+
+      // 3. Wait 3 seconds before starting the next animation cycle
+      await Future.delayed(const Duration(seconds: 3));
+      
+      // Stop if user dismissed via "Got it" or scrolled
+      if (ref.read(onboardingNotifierProvider) != OnboardingStep.scroll || _hasScrolledOnce) break;
+    }
   }
 
   void _dismissOnboarding() {
-    if (!_showOnboarding) return;
-    setState(() {
-      _showOnboarding = false;
-    });
-    ref.read(localPersistenceRepositoryProvider).setHasSeenFeedOnboarding(true);
+    final step = ref.read(onboardingNotifierProvider);
+    if (step == OnboardingStep.none) return;
+    
+    ref.read(onboardingNotifierProvider.notifier).dismiss();
   }
 
   @override
@@ -225,6 +247,22 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   }
 
   void _onPageChanged(int index) {
+    if (!_hasScrolledOnce && index > 0) {
+      _hasScrolledOnce = true;
+      // If scroll onboarding was visible, hide it
+      final step = ref.read(onboardingNotifierProvider);
+      if (step == OnboardingStep.scroll) {
+        ref.read(onboardingNotifierProvider.notifier).dismiss();
+      }
+      
+      // Wait 1 second before showing category hint
+      Timer(const Duration(seconds: 1), () {
+        if (mounted) {
+          ref.read(onboardingNotifierProvider.notifier).setStep(OnboardingStep.categories);
+        }
+      });
+    }
+
     setState(() {
       _currentIndex = index;
     });
@@ -477,9 +515,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
 
       // 3. Trigger onboarding when feed is first loaded
-      if (nextFeed.articles.isNotEmpty && !_showOnboarding) {
-        final prefs = ref.read(localPersistenceRepositoryProvider);
-        if (!prefs.hasSeenFeedOnboarding()) {
+      final onboardingStep = ref.read(onboardingNotifierProvider);
+      if (nextFeed.articles.isNotEmpty && onboardingStep == OnboardingStep.none && !_hasScrolledOnce) {
+        final hasSeen = ref.read(onboardingNotifierProvider.notifier).hasSeenFeedOnboarding;
+        if (!hasSeen) {
           _checkOnboarding();
         }
       }
@@ -600,16 +639,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
             // ── Refresh Badge (Twitter Style) ──────────────────────────
             _RefreshBadge(
-              isVisible:
-                  (feed?.isStale ?? false) || (feed?.isRefreshing ?? false),
+              isVisible: !_isManualShimmering &&
+                  (feed?.articles.isNotEmpty ?? false) &&
+                  ((feed?.isStale ?? false) || (feed?.isRefreshing ?? false)),
               isRefreshing: feed?.isRefreshing ?? false,
               onTap: () =>
                   ref.read(newsFeedNotifierProvider.notifier).refresh(),
             ),
 
-            if (_showOnboarding)
+            if (ref.watch(onboardingNotifierProvider) != OnboardingStep.none)
               FeedOnboardingOverlay(
-                showCategoryHint: true,
+                step: ref.watch(onboardingNotifierProvider),
                 onDismiss: _dismissOnboarding,
               ),
           ],

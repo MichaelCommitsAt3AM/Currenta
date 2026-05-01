@@ -354,7 +354,17 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
 
-    // Allow both regular and guest users to personalize
+    // Wait for the auth profile to load (resolving anonymous session, interests, etc.)
+    if (!authState.isProfileLoaded || _isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF0A0C14),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF6C63FF)),
+        ),
+      );
+    }
+
+    // Only show error if we genuinely failed to establish ANY session (even guest)
     if (!authState.isAuthenticated && !authState.isAnonymous) {
       return Scaffold(
         backgroundColor: const Color(0xFF0A0C14),

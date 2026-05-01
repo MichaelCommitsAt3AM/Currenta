@@ -78,6 +78,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                     child: Container(
                       width: 90,
                       height: 90,
+                      clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.03),
                         borderRadius: BorderRadius.circular(28),
@@ -89,8 +90,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                       alignment: Alignment.center,
                       child: Image.asset(
                         'assets/icons/app_logo_new.png',
-                        height: 52,
-                        width: 52,
+                        height: 90,
+                        width: 90,
+                        fit: BoxFit.cover,
                       ),
                     ),
                   ),

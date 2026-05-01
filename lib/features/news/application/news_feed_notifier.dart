@@ -487,7 +487,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // Yield immediately so UI can render the category highlight & shimmer.
     // We emit a temporary state with the new category so the UI can update its tabs instantly.
-    state = AsyncData(FeedState(selectedCategory: category, isRefreshing: true));
+    // isRefreshing is false here because we want to shimmer without showing the dropdown spinner yet.
+    state = AsyncData(FeedState(selectedCategory: category, isRefreshing: false));
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
     await Future.microtask(() {});
 
@@ -733,6 +734,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Only updates session metadata in the state — does NOT replace articles.
   Future<void> _establishSessionInBackground(NewsCategory? category) async {
     if (_isDisposed) return;
+
+    final startState = state.valueOrNull;
+    if (startState != null &&
+        startState.selectedCategory == category &&
+        startState.articles.isNotEmpty) {
+      state = AsyncData(startState.copyWith(isRefreshing: true));
+    }
+
     try {
       final response = await _repo.syncMoreFromRemote(
         category: category,
@@ -757,6 +766,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         hasMore: response.hasMore,
         expiresAt: response.expiresAt,
         isServerExhausted: !response.hasMore,
+        isRefreshing: false,
       );
       state = AsyncData(patched);
       _feedCache[category] = patched;
@@ -771,6 +781,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // Non-fatal: pagination will still work on a session that is established
       // lazily at the next loadNextPage call.
       debugPrint('[Feed] Background session establishment failed: $e');
+
+      final current = state.valueOrNull;
+      if (current != null && current.selectedCategory == category) {
+        state = AsyncData(current.copyWith(isRefreshing: false));
+      }
     }
   }
   

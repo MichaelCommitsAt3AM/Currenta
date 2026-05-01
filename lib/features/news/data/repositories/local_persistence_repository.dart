@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/entities/trending_filters.dart';
 
@@ -10,6 +11,7 @@ class LocalPersistenceRepository {
   static const _kCurrentArticleId = 'current_article_id';
   static const _kLastForYouArticleId = 'last_for_you_article_id';
   static const _kHasSeenFeedOnboarding = 'has_seen_feed_onboarding';
+  static const _kHasSeenFavoritesOnboarding = 'has_seen_favorites_onboarding';
   static const _kHasSeenPersonalizationOnboarding = 'has_seen_personalization_onboarding';
   static const _kNeedsFeedRefresh = 'needs_feed_refresh';
   static const _kLastRefreshAt = 'last_refresh_at';
@@ -58,7 +60,20 @@ class LocalPersistenceRepository {
   }
 
   Future<void> setHasSeenFeedOnboarding(bool value) async {
+    debugPrint('[LocalPersistence] Setting has_seen_feed_onboarding to $value');
     await _prefs.setBool(_kHasSeenFeedOnboarding, value);
+    // Explicitly check if it was saved
+    final saved = _prefs.getBool(_kHasSeenFeedOnboarding);
+    debugPrint('[LocalPersistence] Verified has_seen_feed_onboarding: $saved');
+  }
+
+  bool hasSeenFavoritesOnboarding() {
+    return _prefs.getBool(_kHasSeenFavoritesOnboarding) ?? false;
+  }
+
+  Future<void> setHasSeenFavoritesOnboarding(bool value) async {
+    debugPrint('[LocalPersistence] Setting has_seen_favorites_onboarding to $value');
+    await _prefs.setBool(_kHasSeenFavoritesOnboarding, value);
   }
 
   bool hasSeenPersonalizationOnboarding() =>

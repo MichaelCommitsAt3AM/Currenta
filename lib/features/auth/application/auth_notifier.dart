@@ -25,6 +25,7 @@ class AuthState {
     this.detectedCountry,
     this.showLocationUpdatePopup = false,
     this.hasCheckedLocation = false,
+    this.email,
   });
 
   final bool isLoading;
@@ -44,6 +45,7 @@ class AuthState {
   final String? detectedCountry;
   final bool showLocationUpdatePopup;
   final bool hasCheckedLocation;
+  final String? email;
 
   AuthState copyWith({
     bool? isLoading,
@@ -63,6 +65,7 @@ class AuthState {
     String? Function()? detectedCountry,
     bool? showLocationUpdatePopup,
     bool? hasCheckedLocation,
+    String? Function()? email,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
@@ -82,6 +85,7 @@ class AuthState {
       detectedCountry: detectedCountry != null ? detectedCountry() : this.detectedCountry,
       showLocationUpdatePopup: showLocationUpdatePopup ?? this.showLocationUpdatePopup,
       hasCheckedLocation: hasCheckedLocation ?? this.hasCheckedLocation,
+      email: email != null ? email() : this.email,
     );
   }
 }
@@ -97,19 +101,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
           isAnonymous: repository.isAnonymous,
           displayName: repository.displayName,
           avatarUrl: repository.avatarUrl,
+          email: repository.email,
         )) {
     // Listen to Supabase auth state changes
     _authSubscription = _repository.authStateChanges.listen((isAuthenticated) async {
-      debugPrint('[Auth] authStateChanges emitted: isAuthenticated=$isAuthenticated');
       String? country;
       String? name;
       String? avatar;
+      String? email;
       List<String> interests = [];
       if (isAuthenticated || _repository.isAnonymous) {
         country = await _repository.getPreferredCountry();
         interests = await _repository.getUserInterests();
         name = _repository.displayName;
         avatar = _repository.avatarUrl;
+        email = _repository.email;
       }
       debugPrint('[Auth] Profile loaded: country=$country, interestsCount=${interests.length}');
       state = state.copyWith(
@@ -120,6 +126,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         selectedInterests: interests,
         displayName: () => name,
         avatarUrl: () => avatar,
+        email: () => email,
         hasCheckedLocation: false,
       );
 

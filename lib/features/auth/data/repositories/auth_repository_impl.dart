@@ -28,10 +28,13 @@ class AuthRepositoryImpl implements AuthRepository {
   String? _cachedCountry;
 
   @override
-  Stream<bool> get authStateChanges => _supabase.auth.onAuthStateChange.map(
-        (event) =>
-            event.session != null && event.session?.user.isAnonymous == false,
-      ).distinct();
+  Stream<bool> get authStateChanges => _supabase.auth.onAuthStateChange
+      .map((event) => event.session)
+      .distinct((prev, curr) =>
+          prev?.user.id == curr?.user.id &&
+          prev?.user.isAnonymous == curr?.user.isAnonymous)
+      .map((session) =>
+          session != null && session.user.isAnonymous == false);
 
   @override
   String? get currentUserId {
@@ -56,6 +59,15 @@ class AuthRepositoryImpl implements AuthRepository {
     final user = _supabase.auth.currentUser;
     if (user != null && !user.isAnonymous) {
       return user.userMetadata?['avatar_url'] as String?;
+    }
+    return null;
+  }
+
+  @override
+  String? get email {
+    final user = _supabase.auth.currentUser;
+    if (user != null && !user.isAnonymous) {
+      return user.email;
     }
     return null;
   }

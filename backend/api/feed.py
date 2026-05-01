@@ -182,7 +182,7 @@ class Diversifier:
     def interleave(self, limit: int) -> List[dict]:
         """
         Interleaves articles from buckets using a weighted scheduler to maintain
-        the requested ratios (e.g., 60/30/10) while enforcing diversity.
+        the requested ratios (e.g., 70/20/10) while enforcing diversity.
         """
         result = []
         
@@ -522,7 +522,7 @@ async def get_feed(
             geo_filter += ")"
 
         async with db_pool.acquire() as conn:
-            # Bucket 1: Personalized (60%)
+            # Bucket 1: Personalized (70%)
             if user_state and user_state.get("interest_embedding"):
                 # Index calculation: viewed_params($1..$N), [interests($N+1)], embedding($N+2), country($N+3)
                 p_params = list(viewed_params)
@@ -580,7 +580,7 @@ async def get_feed(
                     category_boost=category_boost
                 )
 
-            # Bucket 2: Trending (30%)
+            # Bucket 2: Trending (20%)
             # Must respect user interests while being high-ranking
             t_params = list(viewed_params)
             if not is_local_request:
@@ -689,10 +689,10 @@ async def get_feed(
         else:
             if p_primary:
                 active_buckets_p.append(p_primary)
-                active_ratios_p.append(0.6)
+                active_ratios_p.append(0.7)
             if t_primary:
                 active_buckets_p.append(t_primary)
-                active_ratios_p.append(0.3)
+                active_ratios_p.append(0.2)
             if d_primary:
                 active_buckets_p.append(d_primary)
                 active_ratios_p.append(0.1)
@@ -716,10 +716,10 @@ async def get_feed(
             
         if p_secondary:
             active_buckets_s.append(p_secondary)
-            active_ratios_s.append(0.3)
+            active_ratios_s.append(0.35)
         if t_secondary:
             active_buckets_s.append(t_secondary)
-            active_ratios_s.append(0.15)
+            active_ratios_s.append(0.1)
         if d_secondary:
             active_buckets_s.append(d_secondary)
             active_ratios_s.append(0.05)

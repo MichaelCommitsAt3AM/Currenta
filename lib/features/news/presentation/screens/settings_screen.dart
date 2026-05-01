@@ -8,15 +8,16 @@ import 'liked_articles_screen.dart';
 import 'reading_history_screen.dart';
 import 'about_screen.dart';
 import '../../../auth/presentation/screens/account_management_screen.dart';
+import '../../../auth/application/auth_notifier.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isAnon =
-        Supabase.instance.client.auth.currentSession?.user.isAnonymous ?? true;
-    final userEmail = Supabase.instance.client.auth.currentSession?.user.email;
+    final authState = ref.watch(authNotifierProvider);
+    final isAnon = authState.isAnonymous;
+    final userEmail = authState.email;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),

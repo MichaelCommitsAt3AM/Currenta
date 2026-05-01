@@ -77,12 +77,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       }
       if (next.isAuthenticated && !next.isLoading) {
         if (next.needsConflictResolution && next.conflictData != null) {
-          debugPrint('[Register] Conflict detected! Showing resolution dialog...');
+          debugPrint(
+              '[Register] Conflict detected! Showing resolution dialog...');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => PersonalizationConflictScreen(
                 guestData: next.conflictData!['guest'] as Map<String, dynamic>,
-                accountData: next.conflictData!['account'] as Map<String, dynamic>,
+                accountData:
+                    next.conflictData!['account'] as Map<String, dynamic>,
               ),
             ),
           );
@@ -91,7 +93,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
         if (widget.redirectToFeedOnSuccess) {
           if (next.selectedInterests.isEmpty) {
-            debugPrint('[Register] New user detected (no interests)! Redirecting to Onboarding...');
+            debugPrint(
+                '[Register] New user detected (no interests)! Redirecting to Onboarding...');
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const OnboardingScreen()),
               (route) => false,
@@ -99,7 +102,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           } else {
             // Mark onboarding as complete
             ref.read(onboardingRepositoryProvider).completeOnboarding();
-            
+
             // Clear news cache
             ref.read(newsRepositoryProvider).clearCache();
 
@@ -170,7 +173,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Join us to save your favorite articles.',
+                      'Join us to personalize your experience.',
                       style: TextStyle(
                         color: Color(0xFF8890B5),
                         fontSize: 16,

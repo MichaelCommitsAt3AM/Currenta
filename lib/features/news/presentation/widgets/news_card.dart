@@ -1,4 +1,5 @@
 // lib/features/news/presentation/widgets/news_card.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,8 @@ import 'package:auto_size_text/auto_size_text.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 import '../../application/news_feed_notifier.dart';
+import '../../application/onboarding_notifier.dart';
+import '../widgets/feed_onboarding_overlay.dart';
 import 'heart_shower.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
@@ -144,6 +147,13 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
     ref
         .read(newsFeedNotifierProvider.notifier)
         .toggleFavorite(widget.article.id);
+
+    // ── Onboarding Trigger ──
+    final onboarding = ref.read(onboardingNotifierProvider.notifier);
+    if (!onboarding.hasSeenFavoritesOnboarding) {
+      onboarding.setStep(OnboardingStep.favorites);
+      onboarding.markFavoritesOnboardingSeen();
+    }
   }
 
   void _showAuthSheet() {
@@ -589,6 +599,8 @@ class _PageIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kReleaseMode) return const SizedBox.shrink();
+
     return Row(
       children: [
         // Dot row

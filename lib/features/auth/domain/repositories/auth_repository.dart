@@ -13,6 +13,9 @@ abstract class AuthRepository {
   /// Returns the current user's avatar URL, or null if not signed in or not found.
   String? get avatarUrl;
 
+  /// Returns the current user's email, or null if not signed in or not found.
+  String? get email;
+
   /// Returns true if the current user is anonymous (guest).
   bool get isAnonymous;
 
