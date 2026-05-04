@@ -11,6 +11,7 @@ class LocalPersistenceRepository {
   static const _kCurrentArticleId = 'current_article_id';
   static const _kLastForYouArticleId = 'last_for_you_article_id';
   static const _kHasSeenFeedOnboarding = 'has_seen_feed_onboarding';
+  static const _kHasSeenExploreTopicsOnboarding = 'has_seen_explore_topics_onboarding';
   static const _kHasSeenFavoritesOnboarding = 'has_seen_favorites_onboarding';
   static const _kHasSeenPersonalizationOnboarding = 'has_seen_personalization_onboarding';
   static const _kNeedsFeedRefresh = 'needs_feed_refresh';
@@ -62,9 +63,15 @@ class LocalPersistenceRepository {
   Future<void> setHasSeenFeedOnboarding(bool value) async {
     debugPrint('[LocalPersistence] Setting has_seen_feed_onboarding to $value');
     await _prefs.setBool(_kHasSeenFeedOnboarding, value);
-    // Explicitly check if it was saved
-    final saved = _prefs.getBool(_kHasSeenFeedOnboarding);
-    debugPrint('[LocalPersistence] Verified has_seen_feed_onboarding: $saved');
+  }
+
+  bool hasSeenExploreTopicsOnboarding() {
+    return _prefs.getBool(_kHasSeenExploreTopicsOnboarding) ?? false;
+  }
+
+  Future<void> setHasSeenExploreTopicsOnboarding(bool value) async {
+    debugPrint('[LocalPersistence] Setting has_seen_explore_topics_onboarding to $value');
+    await _prefs.setBool(_kHasSeenExploreTopicsOnboarding, value);
   }
 
   bool hasSeenFavoritesOnboarding() {

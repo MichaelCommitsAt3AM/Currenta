@@ -22,7 +22,7 @@ class ShimmerFeed extends StatelessWidget {
           24,
           MediaQuery.paddingOf(context).top + 56,
           24,
-          24,
+          24 + MediaQuery.paddingOf(context).bottom,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

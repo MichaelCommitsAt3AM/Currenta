@@ -189,8 +189,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           const SizedBox(height: 48),
-
-          const SizedBox(height: 24), // Padding at bottom
+          SizedBox(height: MediaQuery.paddingOf(context).bottom + 24),
         ],
       ),
     );

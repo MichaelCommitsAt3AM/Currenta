@@ -6,11 +6,13 @@ enum OnboardingStep { scroll, categories, favorites, none }
 class FeedOnboardingOverlay extends StatefulWidget {
   final VoidCallback onDismiss;
   final OnboardingStep step;
+  final GlobalKey? targetKey;
 
   const FeedOnboardingOverlay({
     super.key,
     required this.onDismiss,
     required this.step,
+    this.targetKey,
   });
 
   @override
@@ -29,6 +31,8 @@ class _FeedOnboardingOverlayState extends State<FeedOnboardingOverlay> with Tick
   late Animation<double> _categoryFade;
 
   bool _isDismissing = false;
+  Offset? _targetOffset;
+  Size? _targetSize;
 
   @override
   void initState() {
@@ -79,7 +83,28 @@ class _FeedOnboardingOverlayState extends State<FeedOnboardingOverlay> with Tick
       _slideController.forward();
     } else if (widget.step == OnboardingStep.categories || widget.step == OnboardingStep.favorites) {
       _categoryFadeController.forward();
+      if (widget.step == OnboardingStep.categories) {
+        _updatePosition();
+      }
     }
+  }
+
+  void _updatePosition() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final key = widget.targetKey;
+      if (key == null || key.currentContext == null) return;
+
+      final renderBox = key.currentContext!.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final offset = renderBox.localToGlobal(Offset.zero);
+        final size = renderBox.size;
+        setState(() {
+          _targetOffset = offset;
+          _targetSize = size;
+        });
+      }
+    });
   }
 
   @override
@@ -92,6 +117,9 @@ class _FeedOnboardingOverlayState extends State<FeedOnboardingOverlay> with Tick
       } else if (widget.step == OnboardingStep.categories || widget.step == OnboardingStep.favorites) {
         _categoryFadeController.forward();
         _slideController.reverse();
+        if (widget.step == OnboardingStep.categories) {
+          _updatePosition();
+        }
       } else {
         _slideController.reverse();
         _categoryFadeController.reverse();
@@ -153,74 +181,76 @@ class _FeedOnboardingOverlayState extends State<FeedOnboardingOverlay> with Tick
 
         // ── Category Hint (Top) ──
         if (widget.step == OnboardingStep.categories) ...[
-          // Pulse Indicator (Positioned exactly over 2nd chip)
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 7,
-            left: 162,
-            child: FadeTransition(
-              opacity: _categoryFade,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Pulsing ring
-                  AnimatedBuilder(
-                    animation: _pulseController,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _pulseScale.value,
-                        child: Opacity(
-                          opacity: _pulseOpacity.value,
-                          child: Container(
-                            width: 92,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(100),
-                              border: Border.all(
-                                color: const Color(0xFF6C63FF),
-                                width: 2,
+          // Pulse Indicator (Positioned dynamically over target)
+          if (_targetOffset != null && _targetSize != null) ...[
+            Positioned(
+              top: _targetOffset!.dy,
+              left: _targetOffset!.dx,
+              child: FadeTransition(
+                opacity: _categoryFade,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Pulsing ring
+                    AnimatedBuilder(
+                      animation: _pulseController,
+                      builder: (context, child) {
+                        return Transform.scale(
+                          scale: _pulseScale.value,
+                          child: Opacity(
+                            opacity: _pulseOpacity.value,
+                            child: Container(
+                              width: _targetSize!.width,
+                              height: _targetSize!.height,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(100),
+                                border: Border.all(
+                                  color: const Color(0xFF6C63FF),
+                                  width: 2,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  // Static indicator
-                  Container(
-                    width: 92,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(100),
-                      color: const Color(0xFF6C63FF).withValues(alpha: 0.2),
-                      border: Border.all(
-                          color: const Color(0xFF6C63FF), width: 1.5),
+                        );
+                      },
                     ),
-                  ),
-                ],
+                    // Static indicator
+                    Container(
+                      width: _targetSize!.width,
+                      height: _targetSize!.height,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(100),
+                        color: const Color(0xFF6C63FF).withValues(alpha: 0.2),
+                        border: Border.all(
+                            color: const Color(0xFF6C63FF), width: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          
-          // Popup (Positioned relative to screen edges to avoid overflow)
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 60,
-            left: 16,
-            right: 16,
-            child: FadeTransition(
-              opacity: _categoryFade,
-              child: ScaleTransition(
-                scale: Tween<double>(begin: 0.9, end: 1.0).animate(_categoryFade),
-                child: Center(
-                  child: _OnboardingPopup(
-                    title: 'Explore Topics',
-                    subtitle: 'Tap to discover news by topic',
-                    onDismiss: _handleDismiss,
-                    isCompact: true,
+            
+            // Popup (Positioned relative to the illuminated chip)
+            Positioned(
+              top: _targetOffset!.dy + _targetSize!.height + 12,
+              left: 16,
+              right: 16,
+              child: FadeTransition(
+                opacity: _categoryFade,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.9, end: 1.0).animate(_categoryFade),
+                  child: Center(
+                    child: _OnboardingPopup(
+                      title: 'Explore Topics',
+                      subtitle: 'Tap to discover news by topic',
+                      onDismiss: _handleDismiss,
+                      isCompact: true,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
 
         // ── Favorites Hint (Bottom) ──

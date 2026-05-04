@@ -474,7 +474,8 @@ async def get_feed(
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
         async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None):
             if not order_by:
-                order_by = "ranking_score DESC, published_at DESC"
+                # Primary ranking logic: Major Sources > Ranking Score > Recency
+                order_by = "is_major_source DESC, ranking_score DESC, published_at DESC"
             
             if category_boost:
                 # Prioritize articles where the requested category is the PRIMARY category (index 1)
@@ -491,6 +492,14 @@ async def get_feed(
             articles = []
             for r in recs:
                 dict_r = dict(r)
+                
+                # Prepend 'local' category dynamically if the article matches the user's country context.
+                # This ensures consistent UI behavior across platforms without requiring manual DB tagging for every topic.
+                if country and dict_r.get('country_code') == country.upper():
+                    cats = list(dict_r.get('categories') or [])
+                    if 'local' not in cats:
+                        dict_r['categories'] = ['local'] + cats
+
                 dict_r['published_at'] = dict_r['published_at'].isoformat() if dict_r.get('published_at') else None
                 dict_r['created_at'] = dict_r['created_at'].isoformat() if dict_r.get('created_at') else None
                 dict_r['id'] = str(dict_r['id'])
@@ -606,9 +615,14 @@ async def get_feed(
             )
 
             # Bucket 3: Discovery (10%)
-            # Random selection from any category to break the filter bubble
-            d_where = common_where
+            # Random selection to break the filter bubble.
+            # When on a category page, we must still respect the category choice.
             d_params = list(viewed_params)
+            if is_category_page and not is_local_request:
+                d_where = f"{common_where} AND categories && ${len(d_params)+1}::text[]"
+                d_params.append(interests)
+            else:
+                d_where = common_where
             
             if country:
                 if is_local_request:
@@ -628,13 +642,17 @@ async def get_feed(
             )
 
             # Bucket 4: Global Trending (Phase 2 fallback / Cold start filler)
-            # High quality trending news from ANY category.
-            gt_where = f"{common_where} AND ranking_score > 0.3"
+            # High quality trending news. Constrained by category if requested.
             gt_params = list(viewed_params)
-            if interests and not is_local_request:
-                # For users with interests, we specifically look for trending news OUTSIDE their interests
-                gt_where += f" AND NOT (categories && ${len(gt_params)+1}::text[])"
+            if is_category_page and not is_local_request:
+                gt_where = f"{common_where} AND ranking_score > 0.3 AND categories && ${len(gt_params)+1}::text[]"
                 gt_params.append(interests)
+            else:
+                gt_where = f"{common_where} AND ranking_score > 0.3"
+                if interests and not is_local_request:
+                    # For general feed, we specifically look for trending news OUTSIDE their interests for variety
+                    gt_where += f" AND NOT (categories && ${len(gt_params)+1}::text[])"
+                    gt_params.append(interests)
             
             # Global Trending should NOT be restricted by country — it's the source for world variety.
             # We already have common_where (recency + optional paywall filter).
@@ -712,7 +730,7 @@ async def get_feed(
         # Prioritize Global Trending in Phase 2
         if gt_secondary:
             active_buckets_s.append(gt_secondary)
-            active_ratios_s.append(0.5) # High weight for trending news from other categories
+            active_ratios_s.append(0.5)
             
         if p_secondary:
             active_buckets_s.append(p_secondary)
@@ -731,6 +749,17 @@ async def get_feed(
             secondary_results = div_s.interleave(limit=300)
         else:
             secondary_results = []
+
+        # --- Final Ranking Refinement ---
+        # For new users/cold start, we want to ensure the top of the feed is strictly 
+        # the best of the best across both phases before diversification noise takes over.
+        if is_cold_start and primary_results:
+            # Re-sort the very top of the feed by ranking score to avoid 
+            # interleaving-induced quality drops (e.g. #2 being much worse than #3)
+            top_slice = primary_results[:10]
+            rest = primary_results[10:]
+            top_slice.sort(key=lambda a: (a.get('is_major_source', False), a.get('ranking_score', 0.0)), reverse=True)
+            primary_results = top_slice + rest
 
         # --- Assembly ---
         session_articles = primary_results

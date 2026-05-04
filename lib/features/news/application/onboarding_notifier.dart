@@ -21,9 +21,14 @@ class OnboardingNotifier extends StateNotifier<OnboardingStep> {
   }
 
   bool get hasSeenFeedOnboarding => _prefs.hasSeenFeedOnboarding();
+  bool get hasSeenExploreTopics => _prefs.hasSeenExploreTopicsOnboarding();
 
   Future<void> markFeedOnboardingSeen() async {
     await _prefs.setHasSeenFeedOnboarding(true);
+  }
+
+  Future<void> markExploreTopicsSeen() async {
+    await _prefs.setHasSeenExploreTopicsOnboarding(true);
   }
 
   bool get hasSeenFavoritesOnboarding => _prefs.hasSeenFavoritesOnboarding();

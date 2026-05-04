@@ -1,4 +1,5 @@
 // lib/features/news/presentation/widgets/news_card.dart
+import 'package:currenta/features/news/domain/entities/news_category.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,7 +37,8 @@ class NewsCard extends ConsumerStatefulWidget {
   ConsumerState<NewsCard> createState() => _NewsCardState();
 }
 
-class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMixin {
+class _NewsCardState extends ConsumerState<NewsCard>
+    with TickerProviderStateMixin {
   bool showShower = false;
 
   // Local optimistic state for instant feedback
@@ -87,7 +89,9 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
-      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.like, widget.article.id);
+      ref
+          .read(pendingActivityNotifierProvider.notifier)
+          .set(PendingAction.like, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -110,7 +114,9 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
-      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.like, widget.article.id);
+      ref
+          .read(pendingActivityNotifierProvider.notifier)
+          .set(PendingAction.like, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -132,7 +138,9 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
     final isAuth = ref.read(authNotifierProvider).isAuthenticated;
     if (!isAuth) {
-      ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.favorite, widget.article.id);
+      ref
+          .read(pendingActivityNotifierProvider.notifier)
+          .set(PendingAction.favorite, widget.article.id);
       _showAuthSheet();
       return;
     }
@@ -142,7 +150,9 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
     });
 
     // Run pop animation
-    _bookmarkController.forward(from: 0).then((_) => _bookmarkController.reverse());
+    _bookmarkController
+        .forward(from: 0)
+        .then((_) => _bookmarkController.reverse());
 
     ref
         .read(newsFeedNotifierProvider.notifier)
@@ -252,16 +262,28 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    final primaryCategory = widget.article.categories.isNotEmpty
-        ? widget.article.categories.first
-        : null;
-    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+    final authState = ref.watch(authNotifierProvider);
+    final userCountry = authState.preferredCountry;
+
+    // Determine the primary category to display.
+    // If the article is local to the user, we prioritize the 'Local' badge.
+    final isLocalToUser = widget.article.countryCode != null &&
+        userCountry != null &&
+        widget.article.countryCode == userCountry;
+
+    final displayCategory = isLocalToUser
+        ? NewsCategory.local
+        : (widget.article.categories.isNotEmpty
+            ? widget.article.categories.first
+            : NewsCategory.world);
+
+    final catColor = AppTheme.categoryColor(displayCategory.name);
     final size = MediaQuery.sizeOf(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
-        
+
         return Container(
           width: size.width,
           height: availableHeight,
@@ -273,7 +295,7 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
               children: [
                 // ── Background Gradient ─────────────────────
                 _BackgroundGradient(catColor: catColor),
-    
+
                 // ── Decorative accent circle ───────────────────────────
                 Positioned(
                   top: -60,
@@ -292,14 +314,15 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                     ),
                   ),
                 ),
-    
+
                 // ── Content area ───────────────────────────────────────
                 Padding(
                   padding: EdgeInsets.fromLTRB(
                     24,
-                    MediaQuery.paddingOf(context).top + (widget.topPadding ?? 56),
+                    MediaQuery.paddingOf(context).top +
+                        (widget.topPadding ?? 56),
                     24,
-                    24,
+                    24 + MediaQuery.paddingOf(context).bottom,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,16 +337,15 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                             color: catColor,
                           ),
                           _CategoryChip(
-                            label: primaryCategory != null
-                                ? '${primaryCategory.emoji} ${primaryCategory.displayName}'
-                                : '🌍 World',
+                            label:
+                                '${displayCategory.emoji} ${displayCategory.displayName}',
                             color: catColor,
                           ),
                         ],
                       ),
-    
+
                       const SizedBox(height: 16),
-    
+
                       // ── Feature Image ──────────────────────────────────
                       if (widget.article.imageUrl != null)
                         Flexible(
@@ -340,24 +362,38 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                                 child: CachedNetworkImage(
                                   imageUrl: widget.article.imageUrl!,
                                   fit: BoxFit.cover,
-                                  memCacheWidth: (size.width * MediaQuery.devicePixelRatioOf(context)).toInt(),
-                                  placeholder: (context, url) => Shimmer.fromColors(
-                                    baseColor: Colors.white.withValues(alpha: 0.05),
-                                    highlightColor: Colors.white.withValues(alpha: 0.1),
+                                  memCacheWidth: (size.width *
+                                          MediaQuery.devicePixelRatioOf(
+                                              context))
+                                      .toInt(),
+                                  memCacheHeight: (availableHeight *
+                                          0.25 *
+                                          MediaQuery.devicePixelRatioOf(
+                                              context))
+                                      .toInt(),
+                                  filterQuality: FilterQuality.low,
+                                  placeholder: (context, url) =>
+                                      Shimmer.fromColors(
+                                    baseColor:
+                                        Colors.white.withValues(alpha: 0.05),
+                                    highlightColor:
+                                        Colors.white.withValues(alpha: 0.1),
                                     child: Container(color: Colors.white),
                                   ),
                                   errorWidget: (context, url, error) => Center(
-                                    child: Icon(Icons.image_not_supported_rounded,
-                                        color: Colors.white.withValues(alpha: 0.2)),
+                                    child: Icon(
+                                        Icons.image_not_supported_rounded,
+                                        color: Colors.white
+                                            .withValues(alpha: 0.2)),
                                   ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-    
+
                       // ── Title ──────────────────────────────────────────
-                      AutoSizeText(
+                      Text(
                         widget.article.title,
                         style: const TextStyle(
                           color: Colors.white,
@@ -367,181 +403,192 @@ class _NewsCardState extends ConsumerState<NewsCard> with TickerProviderStateMix
                           letterSpacing: -0.3,
                         ),
                         maxLines: 3,
-                        minFontSize: 14,
-                        stepGranularity: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-    
-                      const SizedBox(height: 8),
-     
-                       // ── AI Summary ─────────────────────────────────────
-                       Expanded(
-                         child: SingleChildScrollView(
-                           physics: const BouncingScrollPhysics(),
-                           child: Text(
-                             widget.article.summary,
-                             style: TextStyle(
-                               color: Colors.white.withValues(alpha: 0.75),
-                               fontSize: 15,
-                               height: 1.5,
-                               fontWeight: FontWeight.w400,
-                             ),
-                           ),
-                         ),
-                       ),
- 
-                  const SizedBox(height: 2),
 
-                  // ── Source Row (tap to open article in default browser) ──
-                  GestureDetector(
-                    onTap: () =>
-                        _openOriginal(context, widget.article.originalUrl),
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Row(
-                        children: [
-                          if (widget.article.sourceFaviconUrl != null)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: CachedNetworkImage(
-                                  imageUrl: widget.article.sourceFaviconUrl!,
+                      const SizedBox(height: 8),
+
+                      // ── AI Summary ─────────────────────────────────────
+                      Expanded(
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Text(
+                            widget.article.summary,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.75),
+                              fontSize: 15,
+                              height: 1.5,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 2),
+
+                      // ── Source Row (tap to open article in default browser) ──
+                      GestureDetector(
+                        onTap: () =>
+                            _openOriginal(context, widget.article.originalUrl),
+                        behavior: HitTestBehavior.opaque,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Row(
+                            children: [
+                              if (widget.article.sourceFaviconUrl != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: CachedNetworkImage(
+                                      imageUrl:
+                                          widget.article.sourceFaviconUrl!,
+                                      width: 20,
+                                      height: 20,
+                                      placeholder: (context, url) => Container(
+                                        width: 20,
+                                        height: 20,
+                                        color: Colors.white
+                                            .withValues(alpha: 0.05),
+                                      ),
+                                      errorWidget: (context, url, _) =>
+                                          const SizedBox.shrink(),
+                                    ),
+                                  ),
+                                )
+                              else
+                                Container(
                                   width: 20,
                                   height: 20,
-                                  placeholder: (context, url) => Container(
-                                    width: 20,
-                                    height: 20,
-                                    color: Colors.white.withValues(alpha: 0.05),
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    color: catColor.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(4),
                                   ),
-                                  errorWidget: (context, url, _) =>
-                                      const SizedBox.shrink(),
+                                  child: Center(
+                                    child: Text(
+                                      widget.article.sourceName
+                                              .trim()
+                                              .isNotEmpty
+                                          ? widget.article.sourceName.trim()[0]
+                                          : '?',
+                                      style: TextStyle(
+                                          color: catColor,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            )
-                          else
-                            Container(
-                              width: 20,
-                              height: 20,
-                              margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(
-                                color: catColor.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Center(
+                              Expanded(
                                 child: Text(
-                                  widget.article.sourceName.trim().isNotEmpty 
-                                      ? widget.article.sourceName.trim()[0] 
-                                      : '?',
+                                  widget.article.sourceName.trim(),
                                   style: TextStyle(
-                                      color: catColor,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold),
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                            ),
-                          Expanded(
-                            child: Text(
-                              widget.article.sourceName.trim(),
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.6),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              const SizedBox(width: 8),
+                              Icon(Icons.open_in_new_rounded,
+                                  size: 14,
+                                  color: catColor.withValues(alpha: 0.6)),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      // ── Footer Actions ───────────────────────────────
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: _handleIconPress,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: Icon(
+                              _isLiked
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: _isLiked
+                                  ? Colors.redAccent
+                                  : Colors.white.withValues(alpha: 0.6),
+                              size: 24,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.open_in_new_rounded,
-                              size: 14, color: catColor.withValues(alpha: 0.6)),
+                          const SizedBox(width: 6),
+                          Text(_likesCount.toString(),
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.6))),
+                          const SizedBox(width: 24),
+                          ScaleTransition(
+                            scale: Tween<double>(begin: 1.0, end: 1.3).animate(
+                              CurvedAnimation(
+                                parent: _bookmarkController,
+                                curve: Curves.easeOutBack,
+                              ),
+                            ),
+                            child: IconButton(
+                              onPressed: _handleFavoritePress,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: Icon(
+                                _isFavorited
+                                    ? Icons.bookmark_rounded
+                                    : Icons.bookmark_border_rounded,
+                                color: _isFavorited
+                                    ? const Color(
+                                        0xFFFFD700) // Vibrant Gold/Yellow
+                                    : Colors.white.withValues(alpha: 0.6),
+                                size: 24,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 24),
+                          IconButton(
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              final isAuth = ref
+                                  .read(authNotifierProvider)
+                                  .isAuthenticated;
+                              if (!isAuth) {
+                                ref
+                                    .read(pendingActivityNotifierProvider
+                                        .notifier)
+                                    .set(PendingAction.chat, widget.article.id);
+                                _showAuthSheet();
+                                return;
+                              }
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) =>
+                                    AiQuickChatSheet(article: widget.article),
+                              );
+                            },
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            icon: Icon(
+                              Icons.auto_awesome,
+                              color: Colors.white.withValues(alpha: 0.6),
+                              size: 22,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (widget.index < widget.total - 1)
+                            Icon(Icons.keyboard_double_arrow_up_rounded,
+                                color: catColor.withValues(alpha: 0.4),
+                                size: 20),
                         ],
                       ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 4),
-
-                  // ── Footer Actions ───────────────────────────────
-                  Row(
-                    children: [
-                      IconButton(
-                        onPressed: _handleIconPress,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: Icon(
-                          _isLiked
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          color: _isLiked
-                              ? Colors.redAccent
-                              : Colors.white.withValues(alpha: 0.6),
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(_likesCount.toString(),
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6))),
-                      const SizedBox(width: 24),
-                      ScaleTransition(
-                        scale: Tween<double>(begin: 1.0, end: 1.3).animate(
-                          CurvedAnimation(
-                            parent: _bookmarkController,
-                            curve: Curves.easeOutBack,
-                          ),
-                        ),
-                        child: IconButton(
-                          onPressed: _handleFavoritePress,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: Icon(
-                            _isFavorited
-                                ? Icons.bookmark_rounded
-                                : Icons.bookmark_border_rounded,
-                            color: _isFavorited
-                                ? const Color(0xFFFFD700) // Vibrant Gold/Yellow
-                                : Colors.white.withValues(alpha: 0.6),
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 24),
-                      IconButton(
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          final isAuth = ref.read(authNotifierProvider).isAuthenticated;
-                          if (!isAuth) {
-                            ref.read(pendingActivityNotifierProvider.notifier).set(PendingAction.chat, widget.article.id);
-                            _showAuthSheet();
-                            return;
-                          }
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => AiQuickChatSheet(article: widget.article),
-                          );
-                        },
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        icon: Icon(
-                          Icons.auto_awesome,
-                          color: Colors.white.withValues(alpha: 0.6),
-                          size: 22,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (widget.index < widget.total - 1)
-                        Icon(Icons.keyboard_double_arrow_up_rounded,
-                            color: catColor.withValues(alpha: 0.4), size: 20),
-                    ],
-                  ),
                     ],
                   ),
                 ),
-    
+
                 // ── Heart Shower Particles ─────────────────────
                 HeartShower(
                   isAnimating: showShower,

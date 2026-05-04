@@ -263,6 +263,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       Future.microtask(() => _establishSessionInBackground(savedCategoryId));
     }
 
+    // ── Race Condition Guard ──
+    // If the user already switched categories while build() was awaiting profile/remote,
+    // we must not return the 'For You' state as the initial state, as that would 
+    // overwrite the user's explicit choice.
+    if (_lastRequestedCategory != null && _lastRequestedCategory != savedCategoryId) {
+      debugPrint('[Feed] build() detected late arrival. Respecting _lastRequestedCategory: ${_lastRequestedCategory?.name}');
+      return _feedCache[_lastRequestedCategory] ?? finalState;
+    }
+
     return finalState;
   }
 
@@ -340,8 +349,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       // Re-read state after the optional wait
-      final resolvedState = state.valueOrNull;
-      if (resolvedState == null || resolvedState.selectedCategory != category) return;
+      final current = state.valueOrNull;
+      final isCategoryActive = current != null && current.selectedCategory == category;
+      
+      // Determine the most relevant state for this category (current active, cached, or start)
+      final resolvedState = isCategoryActive ? current! : (_feedCache[category] ?? startState);
 
       // 3b. Remote Sync (Fetch next page from backend)
       final response = await _repo.syncMoreFromRemote(
@@ -351,16 +363,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
       );
 
-      final current = state.valueOrNull;
-      if (current == null || current.selectedCategory != category) return;
+      // Determine which state to use as base for update (either current active or cached)
+      final baseState = isCategoryActive ? current! : (_feedCache[category] ?? resolvedState);
 
       // 4. Session Guard: Only detect a mismatch when we had a known sessionId.
       //    Skipping this check when current.sessionId == null avoids a false reset
       //    during the background-session-establishment window.
-      if (current.sessionId != null &&
+      if (baseState.sessionId != null &&
           response.sessionId != null &&
-          response.sessionId != current.sessionId) {
-        final resetState = current.copyWith(
+          response.sessionId != baseState.sessionId) {
+        final resetState = baseState.copyWith(
           articles: response.articles,
           sessionId: response.sessionId,
           nextCursor: () => response.nextCursor,
@@ -368,36 +380,35 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           expiresAt: response.expiresAt,
           isLoadingMore: false,
         );
-        state = AsyncData(resetState);
+        
         _feedCache[category] = resetState;
+        if (isCategoryActive) state = AsyncData(resetState);
         return;
       }
 
       // 5. Empty Page Guard
       if (response.articles.isEmpty) {
         if (response.hasMore && response.nextCursor != null) {
-          // Server skipped ahead (e.g. some DB-missing IDs were bypassed) but there are
-          // still articles further in the session. Trust the server's cursor and keep going.
-          final advancedState = current.copyWith(
+          // Server skipped ahead
+          final advancedState = baseState.copyWith(
             isLoadingMore: false,
             hasMore: response.hasMore,
             nextCursor: () => response.nextCursor,
             expiresAt: response.expiresAt,
           );
-          state = AsyncData(advancedState);
           _feedCache[category] = advancedState;
+          if (isCategoryActive) state = AsyncData(advancedState);
         } else {
-          // Genuinely no more articles from server
-          final endState = current.copyWith(
+          // Genuinely no more articles
+          final endState = baseState.copyWith(
             hasMore: false,
             isLoadingMore: false,
             isServerExhausted: true,
           );
-          state = AsyncData(endState);
           _feedCache[category] = endState;
+          if (isCategoryActive) state = AsyncData(endState);
           
-          // Immediately try to load local secondary articles if we didn't get enough from server
-          if (current.articles.length < 5) {
+          if (baseState.articles.length < 5) {
              await _loadNextPageFromLocalSecondary(endState);
           }
         }
@@ -405,24 +416,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       // 6. Success: Deduplicate and Append
-      final existingIds = current.articles.map((a) => a.id).toSet();
+      final existingIds = baseState.articles.map((a) => a.id).toSet();
       
       final authState = ref.read(authNotifierProvider);
       final interests = authState.selectedInterests;
       final filteredNewArticles = _filterArticles(response.articles, interests, category);
       
-      debugPrint('[Feed] Filtered remote articles: ${response.articles.length} -> ${filteredNewArticles.length} (Interests: $interests)');
+      debugPrint('[Feed] Filtered remote articles: ${response.articles.length} -> ${filteredNewArticles.length}');
 
       final uniqueNewArticles = filteredNewArticles.where((a) => !existingIds.contains(a.id)).toList();
 
-      var nextArticles = [...current.articles, ...uniqueNewArticles];
+      var nextArticles = [...baseState.articles, ...uniqueNewArticles];
       
-      // Memory Guard: Prune the list if it exceeds 500 articles to prevent OOM
       if (nextArticles.length > 500) {
         nextArticles = nextArticles.sublist(0, 500);
       }
 
-      final nextState = current.copyWith(
+      final nextState = baseState.copyWith(
         articles: nextArticles,
         isLoadingMore: false,
         hasMore: response.hasMore,
@@ -430,8 +440,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         expiresAt: response.expiresAt,
       );
 
-      state = AsyncData(nextState);
       _feedCache[category] = nextState;
+      if (isCategoryActive) state = AsyncData(nextState);
       
     } catch (e, st) {
       FirebaseCrashlytics.instance.recordError(e, st, reason: 'Paging failure in loadNextPage');
@@ -463,37 +473,48 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         (cached.expiresAt == null ||
             DateTime.now().isBefore(cached.expiresAt!))) {
       
-      // Re-sync staleness flag with the global refresh timer
-      bool isStale = false;
-      final lastRefresh = _persistence.getLastRefreshTime();
-      if (lastRefresh != null) {
-        final age = DateTime.now().difference(lastRefresh);
-        if (age.inHours >= AppConfig.softTtlHours) {
-          isStale = true;
+      // PRODUCTION GUARD: If we're entering 'For You' and have no session yet,
+      // we don't return early. This ensures we don't get stuck with a potentially 
+      // biased local-only cache (e.g. if the user immediately clicked another category on boot).
+      if (category == null && cached.sessionId == null) {
+        debugPrint('[Feed] For You cache is sessionless. Proceeding to sync to ensure diversity.');
+      } else {
+        // Re-sync staleness flag
+        bool isStale = false;
+        final lastRefresh = _persistence.getLastRefreshTime();
+        if (lastRefresh != null) {
+          final age = DateTime.now().difference(lastRefresh);
+          if (age.inHours >= AppConfig.softTtlHours) {
+            isStale = true;
+          }
         }
-      }
 
-      final newState = cached.copyWith(isStale: isStale);
-      state = AsyncData(newState);
-      _persistence.saveCurrentArticleId(newState.articles.firstOrNull?.id);
+        final newState = cached.copyWith(isStale: isStale);
+        state = AsyncData(newState);
+        _persistence.saveCurrentArticleId(newState.articles.firstOrNull?.id);
 
-      // If the cached state has no session (e.g. from a previous local-only hit),
-      // establish one now so loadNextPage() works.
-      if (newState.sessionId == null) {
-        Future.microtask(() => _establishSessionInBackground(category));
+        if (newState.sessionId == null) {
+          Future.microtask(() => _establishSessionInBackground(category));
+        }
+        return;
       }
+    }
+
+    // 3. Concurrency Guard: If we are already fetching this category, don't start another one.
+    if (_fetchingStates.contains(category)) {
+      debugPrint('[Feed] Already fetching ${category?.name}. Ignoring redundant request.');
       return;
     }
 
     // Yield immediately so UI can render the category highlight & shimmer.
-    // We emit a temporary state with the new category so the UI can update its tabs instantly.
-    // isRefreshing is false here because we want to shimmer without showing the dropdown spinner yet.
     state = AsyncData(FeedState(selectedCategory: category, isRefreshing: false));
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
+    
+    _fetchingStates.add(category);
     await Future.microtask(() {});
 
     try {
-      // 4. Local Fetch (Cache-First) - For category switches, we show unseen first
+      // 4. Local Fetch (Cache-First)
       List<NewsArticle> localArticles = await _repo.fetchPage(
         category: category,
         preferredCategories: ref.read(authNotifierProvider).selectedInterests,
@@ -501,15 +522,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
         offset: 0,
         includeViewed: false,
-        primaryOnly: true, // User request: First look for primary-only
+        primaryOnly: true,
       );
 
+      final isCategoryStillActive = _lastRequestedCategory == category;
       const int initialIndex = 0;
 
       if (localArticles.isNotEmpty) {
-        // Concurrency Guard: Check if the user has already moved on to another category.
-        if (_lastRequestedCategory != category) return;
-
         final newState = FeedState(
           articles: localArticles,
           selectedCategory: category,
@@ -517,11 +536,24 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           hasMore: true,
           isServerExhausted: false,
         );
-        state = AsyncData(newState);
+        
         _feedCache[category] = newState;
+
+        if (isCategoryStillActive) {
+          // DIVERSITY GUARD: If For You has no session yet, we show a shimmer while syncing 
+          if (category == null) {
+             debugPrint('[Feed] Showing shimmer for For You until remote sync completes.');
+             state = const AsyncLoading<FeedState>();
+          } else {
+             state = AsyncData(newState);
+          }
+        }
 
         // Establish remote session in background
         Future.microtask(() => _establishSessionInBackground(category));
+        
+        // If we found local articles, we can stop the blocking part of filterByCategory.
+        // Even if the user switched away, we've updated the cache for when they return.
         return;
       }
 
@@ -531,6 +563,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
       );
 
+      _persistence.saveLastRefreshTime(DateTime.now());
+      
       final newState = FeedState(
         articles: response.articles,
         selectedCategory: category,
@@ -542,15 +576,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isStale: false,
       );
       
-      // Concurrency Guard: Check if the user has already moved on to another category.
-      if (_lastRequestedCategory != category) return;
-
-      _persistence.saveLastRefreshTime(DateTime.now());
-      state = AsyncData(newState);
       _feedCache[category] = newState;
 
-      if (newState.articles.isNotEmpty) {
-        _persistence.saveCurrentArticleId(newState.articles.first.id);
+      if (_lastRequestedCategory == category) {
+        state = AsyncData(newState);
+        if (newState.articles.isNotEmpty) {
+          _persistence.saveCurrentArticleId(newState.articles.first.id);
+        }
       }
 
       // ── Fallback: Secondary Content ──
@@ -558,7 +590,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         await _loadNextPageFromLocalSecondary(newState);
       }
     } catch (e, st) {
-      state = AsyncError(e, st);
+      if (_lastRequestedCategory == category) {
+        state = AsyncError(e, st);
+      }
+    } finally {
+      _fetchingStates.remove(category);
     }
   }
 
@@ -750,16 +786,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (_isDisposed) return;
       final current = state.valueOrNull;
-      if (current == null || current.selectedCategory != category) return;
+      final isCategoryActive = current != null && current.selectedCategory == category;
+      
+      // Use the existing cache as base if the category is not active
+      final base = isCategoryActive ? current : (_feedCache[category] ?? FeedState(selectedCategory: category));
 
       // Deduplicate and Append: Merge remote articles into the UI state instead of discarding them.
       // This ensures Remote0-Remote9 are actually shown to the user.
-      final existingIds = current.articles.map((a) => a.id).toSet();
+      final existingIds = base.articles.map((a) => a.id).toSet();
       final newArticles = response.articles.where((a) => !existingIds.contains(a.id)).toList();
-      final combinedArticles = [...current.articles, ...newArticles];
+      final combinedArticles = [...base.articles, ...newArticles];
 
       // Patch the state with session metadata AND the new articles
-      final patched = current.copyWith(
+      final patched = base.copyWith(
         articles: combinedArticles,
         sessionId: response.sessionId,
         nextCursor: () => response.nextCursor,
@@ -768,8 +807,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isServerExhausted: !response.hasMore,
         isRefreshing: false,
       );
-      state = AsyncData(patched);
+      
       _feedCache[category] = patched;
+      if (isCategoryActive) {
+        state = AsyncData(patched);
+      }
 
       // ── Fallback: Secondary Content ──
       // If we are server-exhausted but have very few articles, immediately try to 
@@ -851,12 +893,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     List<String> interests,
     NewsCategory? category,
   ) {
-    if (category != null) return articles; // Category feeds are already filtered by the backend parameter
+    if (category != null) {
+      // HARD GATEKEEPER: Ensure every article in a category feed actually 
+      // belongs to that category. This prevents "leaks" from broader backend 
+      // buckets or local cache pollution.
+      return articles.where((article) {
+        return article.categories.any((cat) => cat.name == category.name);
+      }).toList();
+    }
+    
     if (interests.isEmpty) return articles; // No interests selected yet, show everything
 
     return articles.where((article) {
-      // Defensive filter: Ensure at least one category matches the user's current interests.
-      // This prevents "stale" articles from a previous session/account from leaking in.
+      // Defensive filter for 'For You' feed: Ensure at least one category matches the user's current interests.
       return article.categories.any((cat) => interests.contains(cat.name));
     }).toList();
   }

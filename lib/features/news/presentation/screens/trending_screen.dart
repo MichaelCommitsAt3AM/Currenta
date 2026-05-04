@@ -49,23 +49,28 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
       ...articles.where((a) => a.id != widget.initialArticle?.id),
     ];
 
-    // Preload next 5 articles
-    for (var ahead = 1; ahead <= 5; ahead++) {
-      final nextIndex = index + ahead;
-      if (nextIndex < displayArticles.length) {
-        final article = displayArticles[nextIndex];
-        final imageUrl = article.imageUrl;
-        if (imageUrl != null && imageUrl.isNotEmpty) {
-          precacheImage(
-            CachedNetworkImageProvider(imageUrl),
-            context,
-            onError: (error, stackTrace) {
-              debugPrint('[TrendingScreen] Precache failed for $imageUrl: $error');
-            },
-          );
+    // Preload next 2 articles
+    // Defer to avoid jank during navigation/swipe
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      
+      for (var ahead = 1; ahead <= 2; ahead++) {
+        final nextIndex = index + ahead;
+        if (nextIndex < displayArticles.length) {
+          final article = displayArticles[nextIndex];
+          final imageUrl = article.imageUrl;
+          if (imageUrl != null && imageUrl.isNotEmpty) {
+            precacheImage(
+              CachedNetworkImageProvider(imageUrl),
+              context,
+              onError: (error, stackTrace) {
+                debugPrint('[TrendingScreen] Precache failed for $imageUrl: $error');
+              },
+            );
+          }
         }
       }
-    }
+    });
   }
 
   @override

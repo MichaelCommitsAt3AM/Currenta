@@ -1,5 +1,6 @@
 // lib/features/news/presentation/widgets/sidebar.dart
 
+import 'package:currenta/features/news/domain/entities/news_category.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -344,9 +345,13 @@ class _TrendingTile extends ConsumerWidget {
     final isLocal =
         article.countryCode != null && article.countryCode == userCountry;
 
-    final primaryCategory =
-        article.categories.isNotEmpty ? article.categories.first : null;
-    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+    final displayCategory = isLocal
+        ? NewsCategory.local
+        : (article.categories.isNotEmpty
+            ? article.categories.first
+            : NewsCategory.world);
+
+    final catColor = AppTheme.categoryColor(displayCategory.name);
 
     return InkWell(
       onTap: onTap,

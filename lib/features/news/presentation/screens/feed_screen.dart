@@ -48,6 +48,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   bool _didSubscribeRouteAware = false;
   bool _isRouteVisible = false;
   bool _isShowingRefreshAck = false;
+  final GlobalKey _onboardingCategoryKey = GlobalKey();
 
   @override
   void initState() {
@@ -250,17 +251,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     if (!_hasScrolledOnce && index > 0) {
       _hasScrolledOnce = true;
       // If scroll onboarding was visible, hide it
+      final notifier = ref.read(onboardingNotifierProvider.notifier);
       final step = ref.read(onboardingNotifierProvider);
+      
       if (step == OnboardingStep.scroll) {
-        ref.read(onboardingNotifierProvider.notifier).dismiss();
+        notifier.dismiss();
       }
       
-      // Wait 1 second before showing category hint
-      Timer(const Duration(seconds: 1), () {
-        if (mounted) {
-          ref.read(onboardingNotifierProvider.notifier).setStep(OnboardingStep.categories);
-        }
-      });
+      // Wait 1 second before showing category hint if they haven't seen it yet
+      if (!notifier.hasSeenExploreTopics) {
+        // Mark as seen immediately so it doesn't re-trigger
+        notifier.markExploreTopicsSeen();
+        
+        Timer(const Duration(seconds: 1), () {
+          if (mounted) {
+            notifier.setStep(OnboardingStep.categories);
+          }
+        });
+      }
     }
 
     setState(() {
@@ -271,25 +279,33 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
 
-    // 1. Preload images for next 5 articles to ensure smooth scrolling
-    for (var ahead = 1; ahead <= 5; ahead++) {
-      final nextIndex = index + ahead;
-      if (nextIndex < feed.articles.length) {
-        final article = feed.articles[nextIndex];
+    // 1. Preload images for next 2 articles to ensure smooth scrolling
+    // Defer pre-caching slightly to allow the swipe animation to finish smoothly
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      
+      final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+      if (feed == null) return;
 
-        // Image preloading
-        final imageUrl = article.imageUrl;
-        if (imageUrl != null && imageUrl.isNotEmpty) {
-          precacheImage(
-            CachedNetworkImageProvider(imageUrl),
-            context,
-            onError: (error, stackTrace) {
-              debugPrint('[FeedScreen] Precache failed for $imageUrl: $error');
-            },
-          );
+      for (var ahead = 1; ahead <= 2; ahead++) {
+        final nextIndex = index + ahead;
+        if (nextIndex < feed.articles.length) {
+          final article = feed.articles[nextIndex];
+
+          // Image preloading
+          final imageUrl = article.imageUrl;
+          if (imageUrl != null && imageUrl.isNotEmpty) {
+            precacheImage(
+              CachedNetworkImageProvider(imageUrl),
+              context,
+              onError: (error, stackTrace) {
+                debugPrint('[FeedScreen] Precache failed for $imageUrl: $error');
+              },
+            );
+          }
         }
       }
-    }
+    });
 
     // 2. Track view
     _trackPageView(index);
@@ -620,6 +636,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
             // ── Category filter bar ──────────────────────────────────
             _CategoryBar(
               selectedCategory: _selectedCategory,
+              onboardingCategoryKey: _onboardingCategoryKey,
               onCategoryChanged: (cat) {
                 debugPrint('[FeedScreen] onCategoryChanged: ${cat?.name}');
                 if (_selectedCategory == cat) {
@@ -651,6 +668,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               FeedOnboardingOverlay(
                 step: ref.watch(onboardingNotifierProvider),
                 onDismiss: _dismissOnboarding,
+                targetKey: _onboardingCategoryKey,
               ),
           ],
         ),
@@ -709,7 +727,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
 // ── Refresh Badge (Twitter Style) ────────────────────────────────────────────
 
-class _RefreshBadge extends StatelessWidget {
+class _RefreshBadge extends StatefulWidget {
   const _RefreshBadge({
     required this.isVisible,
     required this.isRefreshing,
@@ -721,75 +739,110 @@ class _RefreshBadge extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_RefreshBadge> createState() => _RefreshBadgeState();
+}
+
+class _RefreshBadgeState extends State<_RefreshBadge> {
+  bool _wasRefreshing = false;
+
+  @override
+  void didUpdateWidget(_RefreshBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isRefreshing && !widget.isRefreshing) {
+      _wasRefreshing = true;
+      // Keep the 'refreshing' state look for the duration of the exit animation
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          setState(() => _wasRefreshing = false);
+        }
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top + 64;
+    // Keep the refreshing look if we are currently refreshing OR if we are in the middle of hiding after a refresh
+    final effectivelyRefreshing = widget.isRefreshing || (!widget.isVisible && _wasRefreshing);
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 600),
       curve: Curves.easeOutBack,
-      top: isVisible ? topPadding : topPadding - 80,
+      top: widget.isVisible ? topPadding : topPadding - 80,
       left: 0,
       right: 0,
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 400),
-        opacity: isVisible ? 1.0 : 0.0,
+        opacity: widget.isVisible ? 1.0 : 0.0,
         child: Center(
           child: GestureDetector(
-            onTap: isVisible && !isRefreshing ? onTap : null,
-            child: Container(
+            onTap: widget.isVisible && !widget.isRefreshing ? widget.onTap : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
               padding: EdgeInsets.symmetric(
-                horizontal: isRefreshing ? 12 : 20,
+                horizontal: effectivelyRefreshing ? 12 : 20,
                 vertical: 10,
               ),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: isRefreshing
+                  colors: effectivelyRefreshing
                       ? [const Color(0xFF161B2E), const Color(0xFF1E2643)]
                       : [const Color(0xFF6C63FF), const Color(0xFF8A84FF)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(100),
-                border: isRefreshing
+                border: effectivelyRefreshing
                     ? Border.all(color: Colors.white.withValues(alpha: 0.1))
                     : null,
                 boxShadow: [
                   BoxShadow(
-                    color:
-                        (isRefreshing ? Colors.black : const Color(0xFF6C63FF))
-                            .withValues(alpha: 0.4),
+                    color: (effectivelyRefreshing
+                            ? Colors.black
+                            : const Color(0xFF6C63FF))
+                        .withValues(alpha: 0.4),
                     blurRadius: 20,
                     offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: isRefreshing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
-                      ),
-                    )
-                  : const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
-                        SizedBox(width: 10),
-                        Text(
-                          'Refresh',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            fontFamily: 'Outfit',
-                            letterSpacing: 0.3,
-                          ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(scale: animation, child: child),
+                ),
+                child: effectivelyRefreshing
+                    ? const SizedBox(
+                        key: ValueKey('spinner'),
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
                         ),
-                      ],
-                    ),
+                      )
+                    : const Row(
+                        key: ValueKey('refresh'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.refresh_rounded,
+                              color: Colors.white, size: 18),
+                          SizedBox(width: 10),
+                          Text(
+                            'Refresh',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              fontFamily: 'Outfit',
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
             ),
           ),
         ),
@@ -837,11 +890,13 @@ class _LoadingMorePage extends StatelessWidget {
 class _CategoryBar extends ConsumerStatefulWidget {
   const _CategoryBar({
     required this.selectedCategory,
+    required this.onboardingCategoryKey,
     required this.onCategoryChanged,
     required this.onOpenDrawer,
   });
 
   final NewsCategory? selectedCategory;
+  final GlobalKey onboardingCategoryKey;
   final ValueChanged<NewsCategory?> onCategoryChanged;
   final VoidCallback onOpenDrawer;
 
@@ -952,31 +1007,41 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
                   controller: _scrollController,
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
-                  children: [
-                    _FilterChip(
-                      key: _itemKeys[null],
-                      label: '✨ For You',
-                      isSelected: widget.selectedCategory == null,
-                      onTap: () => widget.onCategoryChanged(null),
-                    ),
-                    const SizedBox(width: 8),
-                    ..._getSortedCategories(ref)
+                  children: () {
+                    final sortedCats = _getSortedCategories(ref)
                         .where((cat) => cat.isSupported(
                             ref.watch(authNotifierProvider).preferredCountry ??
                                 View.of(context)
                                     .platformDispatcher
                                     .locale
                                     .countryCode))
-                        .map((cat) => Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: _FilterChip(
-                                key: _itemKeys[cat],
-                                label: '${cat.emoji}  ${cat.displayName}',
-                                isSelected: widget.selectedCategory == cat,
-                                onTap: () => widget.onCategoryChanged(cat),
-                              ),
-                            )),
-                  ],
+                        .toList();
+
+                    return [
+                      _FilterChip(
+                        key: _itemKeys[null],
+                        label: '✨ For You',
+                        isSelected: widget.selectedCategory == null,
+                        onTap: () => widget.onCategoryChanged(null),
+                      ),
+                      const SizedBox(width: 8),
+                      ...sortedCats.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final cat = entry.value;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _FilterChip(
+                            key: i == 0
+                                ? widget.onboardingCategoryKey
+                                : _itemKeys[cat],
+                            label: '${cat.emoji}  ${cat.displayName}',
+                            isSelected: widget.selectedCategory == cat,
+                            onTap: () => widget.onCategoryChanged(cat),
+                          ),
+                        );
+                      }),
+                    ];
+                  }(),
                 ),
               ),
             ),
