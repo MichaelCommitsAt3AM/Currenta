@@ -486,9 +486,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
 
       // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
-      if (nextFeed.selectedCategory != _selectedCategory && mounted) {
+      final nextCategory = next.valueOrNull?.selectedCategory;
+      if (nextCategory != _selectedCategory && mounted) {
         setState(() {
-          _selectedCategory = nextFeed.selectedCategory;
+          _selectedCategory = nextCategory;
         });
         // Reset pagination trigger marker when feed scope changes.
         _lastTriggeredPage = -1;
@@ -611,9 +612,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                           ref.read(newsFeedNotifierProvider.notifier).refresh(),
                     ),
                     data: (feed) {
-                      // Category Mismatch Guard: If the data state contains the OLD category,
-                      // keep shimmering until the new category's data arrives.
-                      if (feed.selectedCategory != _selectedCategory) {
+                      // Category Mismatch Guard: Only shimmer if the category is GENUINELY different.
+                      // If we are in transition (isLoading), we trust the notifier's intended category.
+                      if (feed.selectedCategory != _selectedCategory && !feedAsync.isLoading) {
                         return const ShimmerFeed();
                       }
 

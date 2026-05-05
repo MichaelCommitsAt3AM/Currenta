@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,8 +10,10 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options_dev.dart' as dev;
 import 'firebase_options_prod.dart' as prod;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'core/config/app_config.dart';
+import 'core/errors/app_exception.dart';
 import 'core/providers/providers.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,14 +27,46 @@ import 'core/widgets/connectivity_listener.dart';
 
 // ── Crash Reporting Shim ─────────────────────────────────────────────────────
 void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
+  // Identify common "benign" network or environment errors that shouldn't count as fatal crashes.
+  bool isNonFatal = false;
+  final errorStr = error.toString();
+
+  if (error is SocketException ||
+      error is AppException ||
+      error is DioException ||
+      errorStr.contains('AuthRetryableFetchException') ||
+      errorStr.contains('Failed host lookup') ||
+      errorStr.contains('ClientException with SocketException')) {
+    isNonFatal = true;
+  }
+
+  if (error is PlatformException) {
+    // Treat permission denials and sign-in cancellations as non-fatal
+    const nonFatalCodes = {
+      'sign_in_canceled',
+      'sign_in_failed',
+      'PERMISSION_DENIED',
+      'already_active',
+    };
+    if (nonFatalCodes.contains(error.code)) {
+      isNonFatal = true;
+    }
+  }
+
+  // Downgrade severity if identified as non-fatal
+  final effectiveFatal = isNonFatal ? false : fatal;
+
   // In debug mode use the standard output; in release this will be silent
   // until you wire up a real reporter.
-  debugPrint('[CrashReporter] ${fatal ? "FATAL" : "ERROR"}: $error');
+  debugPrint('[CrashReporter] ${effectiveFatal ? "FATAL" : "ERROR"}: $error');
+  if (isNonFatal && fatal) {
+    debugPrint('[CrashReporter] Info: Environment error detected. Downgraded severity from FATAL to ERROR.');
+  }
   debugPrintStack(stackTrace: stack);
 
   // Crashlytics integration:
   if (Firebase.apps.isNotEmpty) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: fatal);
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: effectiveFatal);
   }
 }
 
@@ -108,6 +143,18 @@ Future<void> main() async {
     prefs = initResults[1] as SharedPreferences;
     hasCompletedOnboarding =
         prefs.getBool('has_completed_onboarding') ?? false;
+
+    // ── Session Validity Check ────────────────────────────────────────────────
+    // If the user has completed onboarding but no session exists, they were likely
+    // a guest whose account was deleted due to inactivity (or they were signed out).
+    // In either case, we redirect them to the Welcome Screen for a fresh start.
+    final supabase = Supabase.instance.client;
+    if (supabase.auth.currentSession == null && hasCompletedOnboarding) {
+      debugPrint(
+          '[Auth] Onboarded user has no session. Resetting to Welcome Screen for recovery.');
+      hasCompletedOnboarding = false;
+      await prefs.setBool('has_completed_onboarding', false);
+    }
 
     // ── Firebase App Check ─────────────────────────────────────────────────────
     if (AppConfig.isProd && kReleaseMode) {

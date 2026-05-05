@@ -127,12 +127,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
         displayName: () => name,
         avatarUrl: () => avatar,
         email: () => email,
-        hasCheckedLocation: false,
       );
 
-      // Trigger detection automatically once the initial profile is loaded
-      if (isAuthenticated || _repository.isAnonymous) {
-        detectLocation();
+      // ── Strategic Location Re-check ──
+      // 1. Fresh Install Exception: If country is null, we check regardless of interests.
+      // 2. Regular Check: If interests contain 'local', we check.
+      final isFreshInstall = country == null;
+      final wantsLocal = interests.contains('local');
+
+      if ((isFreshInstall || wantsLocal) && !state.hasCheckedLocation && !_isDetectingLocation) {
+        detectLocation(force: isFreshInstall);
       }
     });
   }
@@ -274,44 +278,49 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> detectLocation() async {
-    if (state.hasCheckedLocation || _isDetectingLocation) return;
+  Future<void> detectLocation({bool force = false}) async {
+    if (!force && !state.selectedInterests.contains('local')) {
+      debugPrint('[Auth] Skipping location check: Local category not selected and not forced.');
+      return;
+    }
+
+    if (_isDetectingLocation) return;
     _isDetectingLocation = true;
-    debugPrint('[Auth] detectLocation started...');
+    
+    // Optimistically mark as checked to prevent redundant parallel calls 
+    // from multiple auth events during startup.
+    state = state.copyWith(hasCheckedLocation: true);
+    
+    debugPrint('[Auth] detectLocation started (force=$force)...');
     
     try {
       final country = await _repository.detectAndSaveCountry();
-      debugPrint('[Auth] detectLocation finished: $country');
-      if (country == null) {
-        state = state.copyWith(hasCheckedLocation: true);
-        return;
-      }
+      debugPrint('[Auth] detectLocation result: $country (Current: ${state.preferredCountry})');
+      
+      if (country == null) return;
 
       final currentCountry = state.preferredCountry;
       
       if (currentCountry == null) {
-        // First time detection: if signed in, sync to DB; if not, just update local state
-        if (state.isAuthenticated || state.isAnonymous) {
-          await _repository.savePreferredCountry(country);
-        }
-        
+        // First time detection (Onboarding/Fresh Install): Update local state silently.
+        // Save to remote profile is batched at the end of onboarding.
         state = state.copyWith(
           preferredCountry: () => country,
           hasCheckedLocation: true,
         );
       } else if (currentCountry != country && _repository.shouldAskLocationUpdate()) {
-        // Country changed and we should ask the user
+        // Location Update: We've moved countries. Show prompt as requested.
         state = state.copyWith(
           detectedCountry: () => country,
           showLocationUpdatePopup: true,
           hasCheckedLocation: true,
         );
       } else {
+        // Same Location or user dismissed: Do nothing per requirements.
         state = state.copyWith(hasCheckedLocation: true);
       }
     } catch (e) {
       debugPrint('[Auth] detectLocation error in Notifier: $e');
-      state = state.copyWith(hasCheckedLocation: true);
     } finally {
       _isDetectingLocation = false;
     }
@@ -343,8 +352,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> refreshInterests() async {
     if (state.isAuthenticated || state.isAnonymous) {
+      final wasLocalSelected = state.selectedInterests.contains('local');
       final interests = await _repository.getUserInterests();
+      final isLocalSelectedNow = interests.contains('local');
+
       state = state.copyWith(selectedInterests: interests);
+
+      // Robust Category Handoff: 
+      // If 'local' was just added, trigger a location check immediately.
+      if (!wasLocalSelected && isLocalSelectedNow) {
+        debugPrint('[Auth] Local category added. Triggering robust handoff check...');
+        detectLocation(force: true);
+      }
     }
   }
 

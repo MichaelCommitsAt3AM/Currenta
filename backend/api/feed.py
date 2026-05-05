@@ -450,6 +450,7 @@ async def get_feed(
         # strictly on that category, applying the ranking boost and bypassing diversification limits.
         is_category_page = category is not None
         is_local_request = (category == 'local')
+        strict_primary_category = is_category_page and not is_local_request
         
         if is_category_page:
             if is_local_request:
@@ -474,8 +475,16 @@ async def get_feed(
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
         async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None):
             if not order_by:
-                # Primary ranking logic: Major Sources > Ranking Score > Recency
-                order_by = "is_major_source DESC, ranking_score DESC, published_at DESC"
+                if strict_primary_category:
+                    # Category page behavior: Trending first, then Major Sources, then Ranking Score.
+                    # This matches the client expectation: exhaust trending before leaning on major sources.
+                    order_by = (
+                        "CASE WHEN trend_score > 0 THEN 0 ELSE 1 END ASC, "
+                        "is_major_source DESC, ranking_score DESC, published_at DESC"
+                    )
+                else:
+                    # General feed behavior: Major Sources > Ranking Score > Recency
+                    order_by = "is_major_source DESC, ranking_score DESC, published_at DESC"
             
             if category_boost:
                 # Prioritize articles where the requested category is the PRIMARY category (index 1)
@@ -536,7 +545,10 @@ async def get_feed(
                 # Index calculation: viewed_params($1..$N), [interests($N+1)], embedding($N+2), country($N+3)
                 p_params = list(viewed_params)
                 
-                if not is_local_request:
+                if strict_primary_category:
+                    p_where = f"{common_where} AND categories[1] = ${len(p_params)+1}::text"
+                    p_params.append(category)
+                elif not is_local_request:
                     p_where = f"{common_where} AND categories && ${len(p_params)+1}::text[]"
                     p_params.append(interests)
                 else:
@@ -566,7 +578,10 @@ async def get_feed(
             else:
                 # Cold start: rely on category matches
                 p_params = list(viewed_params)
-                if not is_local_request:
+                if strict_primary_category:
+                    p_where = f"{common_where} AND categories[1] = ${len(p_params)+1}::text"
+                    p_params.append(category)
+                elif not is_local_request:
                     p_where = f"{common_where} AND categories && ${len(p_params)+1}::text[]"
                     p_params.append(interests)
                 else:
@@ -592,11 +607,14 @@ async def get_feed(
             # Bucket 2: Trending (20%)
             # Must respect user interests while being high-ranking
             t_params = list(viewed_params)
-            if not is_local_request:
-                t_where = f"{common_where} AND ranking_score > 0.1 AND categories && ${len(t_params)+1}::text[]"
+            if strict_primary_category:
+                t_where = f"{common_where} AND trend_score > 0 AND categories[1] = ${len(t_params)+1}::text"
+                t_params.append(category)
+            elif not is_local_request:
+                t_where = f"{common_where} AND trend_score > 0 AND categories && ${len(t_params)+1}::text[]"
                 t_params.append(interests)
             else:
-                t_where = f"{common_where} AND ranking_score > 0.1"
+                t_where = f"{common_where} AND trend_score > 0"
             
             if country:
                 if is_local_request:
@@ -618,7 +636,10 @@ async def get_feed(
             # Random selection to break the filter bubble.
             # When on a category page, we must still respect the category choice.
             d_params = list(viewed_params)
-            if is_category_page and not is_local_request:
+            if strict_primary_category:
+                d_where = f"{common_where} AND categories[1] = ${len(d_params)+1}::text"
+                d_params.append(category)
+            elif is_category_page and not is_local_request:
                 d_where = f"{common_where} AND categories && ${len(d_params)+1}::text[]"
                 d_params.append(interests)
             else:
@@ -644,9 +665,9 @@ async def get_feed(
             # Bucket 4: Global Trending (Phase 2 fallback / Cold start filler)
             # High quality trending news. Constrained by category if requested.
             gt_params = list(viewed_params)
-            if is_category_page and not is_local_request:
-                gt_where = f"{common_where} AND ranking_score > 0.3 AND categories && ${len(gt_params)+1}::text[]"
-                gt_params.append(interests)
+            if strict_primary_category:
+                gt_where = f"{common_where} AND ranking_score > 0.3 AND categories[1] = ${len(gt_params)+1}::text"
+                gt_params.append(category)
             else:
                 gt_where = f"{common_where} AND ranking_score > 0.3"
                 if interests and not is_local_request:

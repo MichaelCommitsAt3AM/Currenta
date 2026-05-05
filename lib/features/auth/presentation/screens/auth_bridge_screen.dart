@@ -53,16 +53,23 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
       if (allSubCategories.isNotEmpty) {
         await authRepo.saveUserSubInterests(allSubCategories);
       }
-
-      // 2. Mark flow as completed locally
+      
+      // 2. Save detected/preferred country to backend
+      final detectedCountry = ref.read(authNotifierProvider).preferredCountry;
+      if (detectedCountry != null) {
+        debugPrint('[AuthBridge] Finalizing profile with country: $detectedCountry');
+        await authRepo.savePreferredCountry(detectedCountry);
+      }
+      
+      // 3. Mark flow as completed locally
       await onboardingRepo.completeOnboarding();
 
-      // 3. Clear cache and trigger fresh feed fetch so new interests apply immediately
+      // 4. Clear cache and trigger fresh feed fetch so new interests apply immediately
       await ref.read(newsRepositoryProvider).clearCache(); 
       
       if (!mounted) return;
       
-      // 4. Navigate to Feed
+      // 5. Navigate to Feed
       Navigator.of(context).pushAndRemoveUntil(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) => const FeedScreen(),

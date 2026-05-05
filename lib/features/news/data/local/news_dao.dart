@@ -2,6 +2,7 @@
 
 import 'package:drift/drift.dart';
 import '../../domain/entities/news_article.dart';
+import '../../domain/entities/news_category.dart';
 import 'app_database.dart';
 
 part 'news_dao.g.dart';
@@ -22,12 +23,17 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     bool primaryOnly = false,
   }) {
     final categoryFirstPrefix = category != null ? '["$category"%' : '';
+    // Some remote responses prepend a virtual 'local' marker for country-matched stories.
+    // For category tabs (e.g. 'tech'), we treat categories[0] == 'local' and categories[1] == '<cat>'
+    // as an effective primary match.
+    final categoryFirstWithLocalPrefix =
+        category != null ? '["local","$category"%' : '';
     final categoryContains = category != null ? '%"$category"%' : '';
 
     Expression<int> priorityExpr;
     if (category != null) {
       priorityExpr = CustomExpression<int>(
-          "CASE WHEN categories LIKE '$categoryFirstPrefix' THEN 0 ELSE 1 END");
+          "CASE WHEN (categories LIKE '$categoryFirstPrefix' OR categories LIKE '$categoryFirstWithLocalPrefix') THEN 0 ELSE 1 END");
     } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
       final likes = preferredCategories
           .map((c) => "categories LIKE '%\"$c\"%'")
@@ -70,7 +76,8 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           ..where((t) {
             final catFilter = category != null
                 ? (primaryOnly
-                    ? t.categories.like(categoryFirstPrefix)
+                    ? (t.categories.like(categoryFirstPrefix) |
+                        t.categories.like(categoryFirstWithLocalPrefix))
                     : t.categories.like(categoryContains))
                 : const Constant(true);
             final viewedIds = selectOnly(viewedArticlesTable)
@@ -108,12 +115,14 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     bool primaryOnly = false,
   }) async {
     final categoryFirstPrefix = category != null ? '["$category"%' : '';
+    final categoryFirstWithLocalPrefix =
+        category != null ? '["local","$category"%' : '';
     final categoryContains = category != null ? '%"$category"%' : '';
 
     Expression<int> priorityExpr;
     if (category != null) {
       priorityExpr = CustomExpression<int>(
-          "CASE WHEN categories LIKE '$categoryFirstPrefix' THEN 0 ELSE 1 END");
+          "CASE WHEN (categories LIKE '$categoryFirstPrefix' OR categories LIKE '$categoryFirstWithLocalPrefix') THEN 0 ELSE 1 END");
     } else if (preferredCategories != null && preferredCategories.isNotEmpty) {
       final likes = preferredCategories
           .map((c) => "categories LIKE '%\"$c\"%'")
@@ -143,10 +152,19 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
 
       if (lastArticle != null) {
         if (category != null) {
-          lastPriority = (lastArticle.categories.isNotEmpty &&
-                  lastArticle.categories.first.name == category)
-              ? 0
-              : 1;
+          NewsCategory? effectivePrimary;
+          if (lastArticle.categories.isEmpty) {
+            effectivePrimary = null;
+          } else if (lastArticle.categories.first.name == 'local' &&
+              lastArticle.categories.length > 1) {
+            effectivePrimary = lastArticle.categories[1];
+          } else {
+            effectivePrimary = lastArticle.categories.first;
+          }
+          lastPriority =
+              (effectivePrimary != null && effectivePrimary.name == category)
+                  ? 0
+                  : 1;
         } else if (preferredCategories != null &&
             preferredCategories.isNotEmpty) {
           lastPriority = (lastArticle.categories
@@ -201,7 +219,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       ..where(() {
         final catFilter = category != null
             ? (primaryOnly
-                ? newsArticlesTable.categories.like(categoryFirstPrefix)
+                ? (newsArticlesTable.categories.like(categoryFirstPrefix) |
+                    newsArticlesTable.categories
+                        .like(categoryFirstWithLocalPrefix))
                 : newsArticlesTable.categories.like(categoryContains))
             : (preferredCategories != null && preferredCategories.isNotEmpty)
                 ? CustomExpression<bool>(
@@ -268,7 +288,8 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
   }
 
   /// Returns the total number of locally-cached articles (optionally filtered by category).
-  Future<int> countArticles({String? category, bool primaryOnly = false}) async {
+  Future<int> countArticles(
+      {String? category, bool primaryOnly = false}) async {
     final query = selectOnly(newsArticlesTable)
       ..addColumns([newsArticlesTable.id.count()])
       ..where(category != null
@@ -440,7 +461,7 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       await delete(newsArticlesTable).go();
       await delete(viewedArticlesTable).go();
       await delete(chatSessionsTable).go();
-      // chatMessagesTable is not explicitly in tables list of @DriftAccessor 
+      // chatMessagesTable is not explicitly in tables list of @DriftAccessor
       // but it is in the database.
       await db.delete(db.chatMessagesTable).go();
     });

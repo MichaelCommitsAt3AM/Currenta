@@ -184,14 +184,18 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       await _supabase.auth.signInAnonymously();
     } on AuthException catch (e) {
+      if (e.message.toLowerCase().contains('user not found')) {
+        debugPrint('[Auth] User not found during anonymous sign-in. Clearing session...');
+        await _supabase.auth.signOut(scope: SignOutScope.local);
+      }
       throw ServerException(e.message);
     } catch (e) {
       if (e.toString().contains('No host specified')) {
         throw const ServerException(
-          'Supabase configuration is missing or invalid. Please check your AppConfig and environment variables.'
-        );
+            'Supabase configuration is missing or invalid. Please check your AppConfig and environment variables.');
       }
-      throw ServerException('An unexpected error occurred during guest sign-in: $e');
+      throw ServerException(
+          'An unexpected error occurred during guest sign-in: $e');
     }
   }
 

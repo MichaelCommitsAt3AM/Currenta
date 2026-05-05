@@ -431,6 +431,10 @@ BAD_DOMAIN_HINTS = [
     "draftkings", "fanduel", "betmgm", "pointsbet", "bet365", "bovada", "sportsbook", "oddschecker"
 ]
 
+GLOBAL_FORBIDDEN_DOMAINS = [
+    "streamlinefeed.co.ke",
+]
+
 BETTING_URL_HARD_SIGNALS = [
     "/odds", "-odds-", "/betting", "/sportsbook", "/parlay", "/moneyline",
     "/point-spread", "/wager", "/free-bet", "/bonus-bet", "/promo-code",
@@ -574,6 +578,9 @@ def is_junk_url(url: str, title: str = "", context_text: str = "") -> Optional[s
 
     if domain and any(bad in domain for bad in BAD_DOMAIN_HINTS):
         return f"Blocked betting domain hint: {domain}"
+
+    if domain and any(forbidden in domain for forbidden in GLOBAL_FORBIDDEN_DOMAINS):
+        return f"Globally forbidden domain: {domain}"
 
     for signal in BETTING_URL_HARD_SIGNALS:
         if signal in url_lc:
@@ -1580,6 +1587,10 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
 
             # Stage 1: Blocklist Check (Pre-fetch)
             block_reason = await BLOCKLIST_MANAGER.is_blocked(item["link"], conn=conn)
+            if not block_reason:
+                # Fast URL-level junk gate
+                block_reason = is_junk_url(item["link"], item.get("title", ""), item.get("description", ""))
+
             if block_reason:
                 await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item.get("source"), error_type="BLOCKLISTED", error_message=block_reason)
                 results["skipped"] += 1
@@ -2112,6 +2123,12 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         junk_url_reason = is_junk_url(url)
         if junk_url_reason:
             await log_ingestion_event(conn, url, "SKIPPED", error_type="SKIPPED_JUNK_URL", error_message=junk_url_reason)
+            return None
+
+        # Check database blocklist for on-demand ingest
+        db_block_reason = await BLOCKLIST_MANAGER.is_blocked(url, conn=conn)
+        if db_block_reason:
+            await log_ingestion_event(conn, url, "SKIPPED", error_type="BLOCKLISTED", error_message=db_block_reason)
             return None
 
         scraper_result = await asyncio.to_thread(scrape_article_sync, url)
