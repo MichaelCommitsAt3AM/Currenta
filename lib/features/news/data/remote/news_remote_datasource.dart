@@ -102,6 +102,9 @@ class NewsRemoteDataSource {
 
       return feedResponse;
     } on DioException catch (e) {
+      if (e.error is AppException) {
+        rethrow;
+      }
       final errorType = e.type.toString().split('.').last;
       final statusCode = e.response?.statusCode ?? 'NoStatus';
       final message =

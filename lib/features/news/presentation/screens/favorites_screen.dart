@@ -6,6 +6,7 @@ import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
+import '../../../../core/errors/app_exception.dart';
 
 class FavoritesScreen extends ConsumerStatefulWidget {
   const FavoritesScreen({super.key});
@@ -102,7 +103,7 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
         ),
         error: (e, _) => Center(
           child: Text(
-            'Error loading favorites: $e',
+            e.toDisplayMessage(),
             style: const TextStyle(color: Colors.white70),
           ),
         ),

@@ -610,4 +610,36 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> clearOnboardingStatus() async {
     await _prefs.setBool('has_completed_onboarding', false);
   }
+
+  @override
+  Future<void> resendOtp({
+    required String email,
+    required String type,
+  }) async {
+    try {
+      final OtpType otpType;
+      switch (type) {
+        case 'signup':
+          otpType = OtpType.signup;
+          break;
+        case 'recovery':
+          otpType = OtpType.recovery;
+          break;
+        case 'email':
+          otpType = OtpType.emailChange;
+          break;
+        default:
+          throw const ServerException('Invalid OTP type for resend');
+      }
+
+      await _supabase.auth.resend(
+        type: otpType,
+        email: email,
+      );
+    } on AuthException catch (e) {
+      throw ServerException(e.message);
+    } catch (e) {
+      throw ServerException('An unexpected error occurred: $e');
+    }
+  }
 }

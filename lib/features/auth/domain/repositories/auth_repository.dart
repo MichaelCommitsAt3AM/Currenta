@@ -105,4 +105,10 @@ abstract class AuthRepository {
 
   /// Sets whether the user should be prompted to update their location.
   Future<void> setShouldAskLocationUpdate(bool shouldAsk);
+
+  /// Resends an OTP code.
+  Future<void> resendOtp({
+    required String email,
+    required String type,
+  });
 }

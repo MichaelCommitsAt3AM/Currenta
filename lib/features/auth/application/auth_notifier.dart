@@ -212,9 +212,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _handleSignInResult(oldGuestUid);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -226,9 +226,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
           email: email, password: password, name: name);
       state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: email);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -240,9 +240,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _handleSignInResult(oldGuestUid);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -253,9 +253,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _newsRepository.wipeLocalData();
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -273,9 +273,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Deletion failed: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -285,9 +285,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _repository.updatePassword(newPassword);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -297,9 +297,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _repository.verifyOtp(email: email, token: token, type: type);
       state = state.copyWith(isLoading: false, needsOtp: false, pendingEmail: null);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -309,14 +309,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _repository.sendPasswordResetEmail(email);
       state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: email);
     } on AppException catch (e) {
-      state = state.copyWith(isLoading: false, error: e.message);
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Unexpected error: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
   void resetOtpState() {
      state = state.copyWith(needsOtp: false, pendingEmail: null);
+  }
+
+  Future<void> resendOtp(String email, String type) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _repository.resendOtp(email: email, type: type);
+      state = state.copyWith(isLoading: false);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
+    }
   }
 
   Future<void> refreshPreferredCountry() async {
@@ -384,7 +396,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         detectedCountry: () => null,
       );
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Failed to update location: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 
@@ -489,7 +501,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await refreshInterests();
       await refreshPreferredCountry();
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Failed to resolve conflict: $e');
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     }
   }
 }

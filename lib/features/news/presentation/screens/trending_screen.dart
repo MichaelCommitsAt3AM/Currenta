@@ -7,6 +7,7 @@ import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
 import '../widgets/trending_filter_sheet.dart';
+import '../../../../core/errors/app_exception.dart';
 
 class TrendingScreen extends ConsumerStatefulWidget {
   final NewsArticle? initialArticle;
@@ -142,7 +143,7 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
         ),
         error: (e, _) => Center(
           child: Text(
-            'Error loading trending: $e',
+            e.toDisplayMessage(),
             style: const TextStyle(color: Colors.white70),
           ),
         ),

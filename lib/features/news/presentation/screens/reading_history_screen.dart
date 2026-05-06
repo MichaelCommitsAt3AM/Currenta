@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/reading_history_notifier.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
+import '../../../../core/errors/app_exception.dart';
 
 class ReadingHistoryScreen extends ConsumerStatefulWidget {
   const ReadingHistoryScreen({super.key});
@@ -79,7 +80,7 @@ class _ReadingHistoryScreenState extends ConsumerState<ReadingHistoryScreen> {
         ),
         error: (e, _) => Center(
           child: Text(
-            'Error loading history: $e',
+            e.toDisplayMessage(),
             style: const TextStyle(color: Colors.white70),
           ),
         ),

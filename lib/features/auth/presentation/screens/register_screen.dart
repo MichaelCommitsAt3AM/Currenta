@@ -7,6 +7,7 @@ import '../widgets/auth_text_field.dart';
 import '../widgets/social_login_button.dart';
 import 'onboarding_screen.dart';
 import 'otp_verification_screen.dart';
+import 'forgot_password_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
@@ -73,7 +74,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     ref.listen(authNotifierProvider, (previous, next) {
       if (next.error != null) {
-        AppSnackbar.showError(context, next.error!);
+        final error = next.error!.toLowerCase();
+        if (error.contains('user already registered') ||
+            error.contains('already exists')) {
+          _showAccountExistsDialog(context, ref, _emailController.text.trim());
+        } else {
+          AppSnackbar.showError(context, next.error!);
+        }
       }
       if (next.isAuthenticated && !next.isLoading) {
         if (next.needsConflictResolution && next.conflictData != null) {
@@ -383,6 +390,53 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showAccountExistsDialog(
+      BuildContext context, WidgetRef ref, String email) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF161A26),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Account Exists',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'An account with the email $email already exists. Would you like to sign in or reset your password?',
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to Login screen
+            },
+            child:
+                const Text('Sign In', style: TextStyle(color: Color(0xFF6C63FF))),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ForgotPasswordScreen(initialEmail: email),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6C63FF),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Forgot Password?'),
+          ),
+        ],
       ),
     );
   }

@@ -1,6 +1,7 @@
 // lib/features/news/presentation/screens/error_state_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../../../core/errors/app_exception.dart';
 
 class ErrorStateScreen extends StatelessWidget {
   const ErrorStateScreen({
@@ -48,9 +49,7 @@ class ErrorStateScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              error.toString().length > 120
-                  ? '${error.toString().substring(0, 120)}…'
-                  : error.toString(),
+              error.toDisplayMessage(),
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'Inter',

@@ -1,4 +1,4 @@
-// lib/core/errors/app_exception.dart
+import 'package:flutter/foundation.dart';
 
 /// Typed exceptions for the Currenta app.
 /// All repository/datasource calls should throw these instead of raw exceptions.
@@ -6,8 +6,20 @@ sealed class AppException implements Exception {
   const AppException(this.message);
   final String message;
 
+  /// Returns a user-friendly message for UI display.
+  /// In release mode, technical details are hidden.
+  String get displayMessage {
+    if (kReleaseMode) {
+      if (this is NetworkException) {
+        return message;
+      }
+      return 'Something went wrong. Please try again.';
+    }
+    return message;
+  }
+
   @override
-  String toString() => '$runtimeType: $message';
+  String toString() => message;
 }
 
 /// Network is unavailable or the request timed out.
@@ -40,4 +52,21 @@ class NotFoundException extends AppException {
   const NotFoundException([
     super.message = 'The requested resource was not found.',
   ]);
+}
+
+/// Extension to provide consistent user-friendly error messages across the app.
+extension ErrorFormatter on Object {
+  String toDisplayMessage() {
+    if (this is AppException) {
+      return (this as AppException).displayMessage;
+    }
+    
+    if (kReleaseMode) {
+      // In release mode, any unexpected system error shows the generic message.
+      return 'Something went wrong. Please try again.';
+    }
+    
+    // In debug mode, show the original error for troubleshooting.
+    return toString();
+  }
 }

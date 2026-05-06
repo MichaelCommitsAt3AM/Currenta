@@ -8,6 +8,7 @@ import '../widgets/social_login_button.dart';
 import 'register_screen.dart';
 import 'onboarding_screen.dart';
 import 'otp_verification_screen.dart';
+import 'forgot_password_screen.dart';
 import '../screens/personalization_conflict_screen.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../../../core/providers/providers.dart';
@@ -187,7 +188,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () {
-                      _showForgotPasswordDialog(context, ref);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ForgotPasswordScreen(
+                            initialEmail: _emailController.text.trim(),
+                          ),
+                        ),
+                      );
                     },
                     child: const Text(
                       'Forgot Password?',
