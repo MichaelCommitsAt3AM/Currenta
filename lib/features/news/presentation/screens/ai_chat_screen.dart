@@ -148,6 +148,15 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     final messages = chatState.messages;
     final isLoading = chatState.isLoading;
 
+    // Optimization: Calculate lastUserIndex once per build instead of per itemBuilder scan.
+    int lastUserIndex = -1;
+    for (int i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role == 'user') {
+        lastUserIndex = i;
+        break;
+      }
+    }
+
     final showPendingPlaceholder = _pendingUserIndex != null &&
         _pendingUserIndex! >= 0 &&
         _pendingUserIndex! < messages.length &&
@@ -274,25 +283,17 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                 }
 
                 final msg = messages[msgIndex];
+                // Stable keys prevent expensive element destruction during streaming.
                 final messageKey = msgIndex == _pendingUserIndex
                     ? _pendingUserMessageKey
-                    : ValueKey(
-                        'msg_${msgIndex}_${msg.role}_${msg.content.hashCode}');
-
-                // A user message is editable if it's the last user message in the list.
-                // We find the index of the last user message.
-                int lastUserIndex = -1;
-                for (int i = messages.length - 1; i >= 0; i--) {
-                  if (messages[i].role == 'user') {
-                    lastUserIndex = i;
-                    break;
-                  }
-                }
+                    : ValueKey('msg_${msgIndex}_${msg.role}');
 
                 return _ChatBubble(
                   key: messageKey,
                   message: msg,
                   isEditable: (msgIndex == lastUserIndex) && !isLoading,
+                  // Optimization: Render simple Text during generation, switch to Markdown once done.
+                  isStreaming: isLoading && msgIndex == messages.length - 1,
                   onEdit: () => _showEditSheet(context, msg.content),
                 );
               },
@@ -342,12 +343,14 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 class _ChatBubble extends StatelessWidget {
   final ChatMessage message;
   final bool isEditable;
+  final bool isStreaming;
   final VoidCallback? onEdit;
 
   const _ChatBubble({
     super.key,
     required this.message,
     this.isEditable = false,
+    this.isStreaming = false,
     this.onEdit,
   });
 
@@ -445,8 +448,19 @@ class _ChatBubble extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          MarkdownBody(
-            data: message.content,
+          if (isStreaming)
+            Text(
+              message.content,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 16,
+                height: 1.6,
+                letterSpacing: 0.2,
+              ),
+            )
+          else
+            MarkdownBody(
+              data: message.content,
             selectable: true,
             styleSheet: MarkdownStyleSheet(
               blockSpacing: 16,

@@ -13,7 +13,6 @@ class OnboardingNotifier extends StateNotifier<OnboardingStep> {
   }
 
   void dismiss() {
-    final currentStep = state;
     state = OnboardingStep.none;
 
     // Optional: Mark specific onboarding as seen if needed
@@ -38,7 +37,8 @@ class OnboardingNotifier extends StateNotifier<OnboardingStep> {
   }
 }
 
-final onboardingNotifierProvider = StateNotifierProvider<OnboardingNotifier, OnboardingStep>((ref) {
+final onboardingNotifierProvider =
+    StateNotifierProvider<OnboardingNotifier, OnboardingStep>((ref) {
   final prefs = ref.watch(localPersistenceRepositoryProvider);
   return OnboardingNotifier(prefs);
 });

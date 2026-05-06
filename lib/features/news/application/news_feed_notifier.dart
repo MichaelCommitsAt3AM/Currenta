@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'package:currenta/core/config/app_config.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
 import '../domain/entities/news_category.dart';
@@ -128,11 +129,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       ref.read(localPersistenceRepositoryProvider);
 
   static const Duration _profileLoadTimeout = Duration(seconds: 8);
-  static const Duration _profilePollInterval = Duration(milliseconds: 150);
 
   /// In-memory cache to preserve feed state (articles, index, pagination status)
   /// for each category durante the session.
   final Map<NewsCategory?, FeedState> _feedCache = {};
+
+  /// Tracks the access order of categories in the cache for LRU eviction.
+  final List<NewsCategory?> _cacheAccessOrder = [];
+
+  static const int _maxCacheSize = 5;
 
   /// Tracking categories with active fetches to prevent redundant requests.
   final Set<NewsCategory?> _fetchingStates = {};
@@ -145,6 +150,52 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Timestamp of the last TTL check to throttle frequent resumed checks.
   DateTime? _lastTtlCheckAt;
 
+  FeedState? _getFromCache(NewsCategory? category) {
+    final cachedState = _feedCache[category];
+    if (cachedState != null) {
+      _cacheAccessOrder.remove(category);
+      _cacheAccessOrder.add(category);
+    }
+    return cachedState;
+  }
+
+  void _updateCache(NewsCategory? category, FeedState newState) {
+    _feedCache[category] = newState;
+    _cacheAccessOrder.remove(category);
+    _cacheAccessOrder.add(category);
+
+    if (_cacheAccessOrder.length > _maxCacheSize) {
+      final oldest = _cacheAccessOrder.first;
+      // Never evict the category currently displayed.
+      final currentCategory = state.valueOrNull?.selectedCategory;
+      if (oldest != currentCategory) {
+        _cacheAccessOrder.removeAt(0);
+        _feedCache.remove(oldest);
+        if (kDebugMode) {
+          _log('[Feed] LRU Evicted category: ${oldest?.name}');
+        }
+      } else if (_cacheAccessOrder.length > 1) {
+        final secondOldest = _cacheAccessOrder[1];
+        _cacheAccessOrder.removeAt(1);
+        _feedCache.remove(secondOldest);
+        if (kDebugMode) {
+          _log('[Feed] LRU Evicted second-oldest: ${secondOldest?.name}');
+        }
+      }
+    }
+  }
+
+  void _clearCache() {
+    _feedCache.clear();
+    _cacheAccessOrder.clear();
+  }
+
+  void _log(String message) {
+    if (kDebugMode) {
+      debugPrint(message);
+    }
+  }
+
   @override
   Future<FeedState> build() async {
     ref.onDispose(() => _isDisposed = true);
@@ -152,17 +203,25 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // 0. Trigger cache cleaning on startup.
     await _repo.clearOldCache();
 
+    // 0.1 Initialize TTL check throttle to prevent immediate re-check on resume
+    _lastTtlCheckAt = DateTime.now().toUtc();
+
     // 1. Watch profile (interests/country) to ensure ranking is always relevant.
     // By watching these, the build() method will automatically re-run whenever
     // personalization settings are updated, ensuring the feed is always fresh.
-    final authState = ref.watch(authNotifierProvider);
+    final interests =
+        ref.watch(authNotifierProvider.select((s) => s.selectedInterests));
+    final country =
+        ref.watch(authNotifierProvider.select((s) => s.preferredCountry));
+    final isProfileLoaded =
+        ref.watch(authNotifierProvider.select((s) => s.isProfileLoaded));
 
-    if (!authState.isProfileLoaded) {
+    _log(
+        '[Feed] build() triggered. isProfileLoaded=$isProfileLoaded, country=$country, interestsCount=${interests.length}');
+
+    if (!isProfileLoaded) {
       await _waitForProfileLoad();
     }
-
-    final interests = authState.selectedInterests;
-    final country = authState.preferredCountry;
 
     // 3. Initialization: Preserve the current category across re-builds
     // triggered by Auth profile updates.
@@ -193,16 +252,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     if (lastRefresh != null) {
       final age = now.difference(lastRefresh.toUtc());
-      debugPrint(
+      _log(
           '[Feed] Checking staleness: lastRefresh=$lastRefresh, now=$now, ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}');
 
       if (age.inHours >= AppConfig.hardTtlHours) {
-        debugPrint(
+        _log(
             '[Feed] Hard TTL exceeded (${age.inHours}h >= ${AppConfig.hardTtlHours}h)');
         needsRefresh = true;
         _persistence.saveLastForYouArticleId(null);
       } else if (age.inHours >= AppConfig.softTtlHours) {
-        debugPrint(
+        _log(
             '[Feed] Soft TTL exceeded (${age.inHours}h >= ${AppConfig.softTtlHours}h). Setting isStale=true');
         isStale = true;
       }
@@ -228,17 +287,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
             category: savedCategoryId,
             limit: _kPageSize,
           );
-          _persistence.saveLastRefreshTime(DateTime.now());
+          _persistence.saveLastRefreshTime(DateTime.now().toUtc());
           articles =
               _filterArticles(response.articles, interests, savedCategoryId);
-          debugPrint(
+          _log(
               '[Feed] Initial remote articles: ${response.articles.length} -> ${articles.length} (Interests: $interests)');
           sessionId = response.sessionId;
           nextCursor = response.nextCursor;
           hasMore = response.hasMore;
           expiresAt = response.expiresAt;
         } catch (e) {
-          debugPrint('[Feed] Initial sync failed: $e');
+          _log('[Feed] Initial sync failed: $e');
         }
       } else {
         // If we have stale data, return it immediately and refresh in background
@@ -262,7 +321,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       isStale: isStale,
     );
 
-    _feedCache[savedCategoryId] = finalState;
+    // 5. Initial cache seeding
+    _updateCache(savedCategoryId, finalState);
 
     // 7. If we served from cache (no remote fetch yet), establish a session in
     //    the background so that loadNextPage() has a valid sessionId + nextCursor.
@@ -278,50 +338,60 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // overwrite the user's explicit choice.
     if (_lastRequestedCategory != null &&
         _lastRequestedCategory != savedCategoryId) {
-      debugPrint(
+      _log(
           '[Feed] build() detected late arrival. Respecting _lastRequestedCategory: ${_lastRequestedCategory?.name}');
-      return _feedCache[_lastRequestedCategory] ?? finalState;
+      final cached = _getFromCache(_lastRequestedCategory);
+      if (cached != null) return cached;
+
+      final current = state.valueOrNull;
+      if (current != null &&
+          current.selectedCategory == _lastRequestedCategory) {
+        return current;
+      }
+
+      // Fall back to whatever this build computed if we cannot recover the
+      // user's already-selected category from cache/current state.
+      return finalState;
     }
 
     return finalState;
   }
 
   Future<void> _waitForProfileLoad() async {
+    // If already loaded, proceed immediately.
+    if (ref.read(authNotifierProvider).isProfileLoaded) return;
+
     final completer = Completer<void>();
-    Timer? pollTimer;
     Timer? timeoutTimer;
+    ProviderSubscription? subscription;
 
     void cleanup() {
-      pollTimer?.cancel();
       timeoutTimer?.cancel();
-      pollTimer = null;
       timeoutTimer = null;
+      subscription?.close();
+      subscription = null;
     }
 
-    void finishSuccessfully() {
+    void finish() {
       if (!completer.isCompleted) {
         cleanup();
         completer.complete();
       }
     }
 
+    // Reactive listener instead of polling reduces CPU wakeups.
+    subscription = ref.listen(authNotifierProvider, (prev, next) {
+      if (next.isProfileLoaded) {
+        finish();
+      }
+    }, fireImmediately: true);
+
     timeoutTimer = Timer(_profileLoadTimeout, () {
-      debugPrint(
-          '[Feed] Profile load timed out after ${_profileLoadTimeout.inSeconds}s. Proceeding with guest defaults.');
-      finishSuccessfully();
+      _log(
+          '[Feed] Profile load timed out after ${_profileLoadTimeout.inSeconds}s. Proceeding with defaults.');
+      finish();
     });
 
-    pollTimer = Timer.periodic(_profilePollInterval, (timer) {
-      if (_isDisposed) {
-        cleanup();
-        return;
-      }
-      if (ref.read(authNotifierProvider).isProfileLoaded) {
-        finishSuccessfully();
-      }
-    });
-
-    // Ensure cleanup if the notifier is disposed while waiting
     ref.onDispose(cleanup);
 
     return completer.future;
@@ -375,7 +445,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // Determine the most relevant state for this category (current active, cached, or start)
       final resolvedState =
-          isCategoryActive ? current : (_feedCache[category] ?? startState);
+          isCategoryActive ? current : (_getFromCache(category) ?? startState);
 
       // 3b. Remote Sync (Fetch next page from backend)
       final sentSessionId = resolvedState.sessionId;
@@ -389,7 +459,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // Determine which state to use as base for update (either current active or cached)
       final baseState = isCategoryActive
           ? (state.valueOrNull ?? current)
-          : (_feedCache[category] ?? resolvedState);
+          : (_getFromCache(category) ?? resolvedState);
 
       // 4. Session Guard: Handle session ID transitions.
       // If we sent null but now have a sessionId, verify they match to avoid double-fetching.
@@ -421,7 +491,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
             nextCursor: () => response.nextCursor,
             expiresAt: response.expiresAt,
           );
-          _feedCache[category] = advancedState;
+          _updateCache(category, advancedState);
           if (isCategoryActive) state = AsyncData(advancedState);
         } else {
           // Genuinely no more articles
@@ -430,7 +500,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
             isLoadingMore: false,
             isServerExhausted: true,
           );
-          _feedCache[category] = endState;
+          _updateCache(category, endState);
           if (isCategoryActive) state = AsyncData(endState);
 
           if (baseState.articles.length < 5) {
@@ -448,7 +518,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final filteredNewArticles =
           _filterArticles(response.articles, interests, category);
 
-      debugPrint(
+      _log(
           '[Feed] Filtered remote articles: ${response.articles.length} -> ${filteredNewArticles.length}');
 
       final uniqueNewArticles = filteredNewArticles
@@ -469,12 +539,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         expiresAt: response.expiresAt,
       );
 
-      _feedCache[category] = nextState;
+      _updateCache(category, nextState);
       if (isCategoryActive) state = AsyncData(nextState);
     } catch (e, st) {
       FirebaseCrashlytics.instance
           .recordError(e, st, reason: 'Paging failure in loadNextPage');
-      debugPrint('[FeedPaging] ERROR: $e\n$st');
+      _log('[FeedPaging] ERROR: $e\n$st');
     } finally {
       _fetchingStates.remove(category);
       final finalCurrent = state.valueOrNull;
@@ -485,20 +555,18 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   Future<void> filterByCategory(NewsCategory? category) async {
-    debugPrint('[NewsFeedNotifier] filterByCategory: ${category?.name}');
+    _log('[NewsFeedNotifier] filterByCategory: ${category?.name}');
     _lastRequestedCategory = category;
 
     // 1. Save current state to cache before switching away.
     final oldState = state.valueOrNull;
     if (oldState != null) {
-      debugPrint(
-          '[NewsFeedNotifier] Caching old state for: ${oldState.selectedCategory?.name}');
-      _feedCache[oldState.selectedCategory] =
-          oldState.copyWith(isLoadingMore: false);
+      _updateCache(
+          oldState.selectedCategory, oldState.copyWith(isLoadingMore: false));
     }
 
     // 2. Fast Path: If category is in cache and valid, switch immediately
-    final cached = _feedCache[category];
+    final cached = _getFromCache(category);
     if (cached != null &&
         (cached.expiresAt == null ||
             DateTime.now().toUtc().isBefore(cached.expiresAt!.toUtc()))) {
@@ -506,7 +574,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // we don't return early. This ensures we don't get stuck with a potentially
       // biased local-only cache (e.g. if the user immediately clicked another category on boot).
       if (category == null && cached.sessionId == null) {
-        debugPrint(
+        _log(
             '[Feed] For You cache is sessionless. Proceeding to sync to ensure diversity.');
       } else {
         // Re-sync staleness flag
@@ -530,7 +598,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         // If the cache doesn't contain any valid primary-category articles,
         // ignore it and fall through to fetch fresh data.
         if (category != null && sanitizedArticles.isEmpty) {
-          debugPrint(
+          _log(
               '[Feed] Cache had no primary matches for ${category.name}; fetching fresh.');
         } else {
           state = AsyncData(newState);
@@ -546,7 +614,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // 3. Concurrency Guard: If we are already fetching this category, don't start another one.
     if (_fetchingStates.contains(category)) {
-      debugPrint(
+      _log(
           '[Feed] Already fetching ${category?.name}. Ignoring redundant request.');
       return;
     }
@@ -583,12 +651,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           isServerExhausted: false,
         );
 
-        _feedCache[category] = newState;
+        _updateCache(category, newState);
 
         if (isCategoryStillActive) {
           // DIVERSITY GUARD: If For You has no session yet, we show a shimmer while syncing
           if (category == null) {
-            debugPrint(
+            _log(
                 '[Feed] Showing shimmer for For You until remote sync completes.');
             state = const AsyncLoading<FeedState>();
           } else {
@@ -610,7 +678,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         limit: _kPageSize,
       );
 
-      _persistence.saveLastRefreshTime(DateTime.now());
+      _persistence.saveLastRefreshTime(DateTime.now().toUtc());
 
       final interests = ref.read(authNotifierProvider).selectedInterests;
       final filteredArticles =
@@ -627,7 +695,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isStale: false,
       );
 
-      _feedCache[category] = newState;
+      _updateCache(category, newState);
 
       if (_lastRequestedCategory == category) {
         state = AsyncData(newState);
@@ -652,6 +720,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   /// Full refresh: invalidates ALL cached sessions and resets to page 1 with new data.
   Future<void> refresh() async {
     final startState = state.valueOrNull;
+
+    // Concurrency Guard: Don't start a new refresh if one is already in progress
+    if (startState?.isRefreshing ?? false) {
+      _log('[Feed] Refresh already in progress. Ignoring request.');
+      return;
+    }
+
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
 
     final currentCategory = startState?.selectedCategory;
@@ -665,7 +740,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     state = const AsyncLoading<FeedState>().copyWithPrevious(state);
 
     // Clear all cached sessions to ensure diversity fixes apply to every category
-    _feedCache.clear();
+    _clearCache();
 
     try {
       final response = await _repo.syncMoreFromRemote(
@@ -686,16 +761,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isStale: false,
       );
 
-      _persistence.saveLastRefreshTime(DateTime.now());
+      _persistence.saveLastRefreshTime(DateTime.now().toUtc());
       state = AsyncData(newState);
-      _feedCache[currentCategory] = newState;
+      _updateCache(currentCategory, newState);
 
       // Persistence: Reset scroll position to top on refresh
       if (newState.articles.isNotEmpty) {
         _persistence.saveCurrentArticleId(newState.articles.first.id);
       }
     } catch (e, st) {
-      debugPrint('[Feed] Refresh failed: $e');
+      _log('[Feed] Refresh failed: $e');
       if (startState != null) {
         state = AsyncData(startState).copyWithPrevious(AsyncError(e, st));
       } else {
@@ -710,7 +785,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     final now = DateTime.now().toUtc();
 
-    // 1. Throttle: Avoid checking TTL more than once every 30 seconds on resume.
+    // 1. Throttle & Concurrency: Avoid checking TTL more than once every 30 seconds
+    // on resume, and never while a refresh is already in flight.
+    if (current.isRefreshing) {
+      _log(
+          '[Feed] refreshIfStale: Refresh already in progress. Skipping check.');
+      return;
+    }
+
     if (_lastTtlCheckAt != null &&
         now.difference(_lastTtlCheckAt!).inSeconds < 30) {
       return;
@@ -719,8 +801,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     // 2. Hard Expiry check (backend controlled)
     if (current.expiresAt != null && now.isAfter(current.expiresAt!.toUtc())) {
-      debugPrint(
-          '[Feed] refreshIfStale: Hard expiry (backend) reached. Refreshing.');
+      _log('[Feed] refreshIfStale: Hard expiry (backend) reached. Refreshing.');
       await refresh();
       return;
     }
@@ -729,16 +810,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final lastRefresh = _persistence.getLastRefreshTime();
     if (lastRefresh != null) {
       final age = now.difference(lastRefresh.toUtc());
-      debugPrint(
+      _log(
           '[Feed] refreshIfStale check: ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}, hardTtl=${AppConfig.hardTtlHours}, isStale=${current.isStale}');
 
       if (age.inHours >= AppConfig.hardTtlHours) {
-        debugPrint(
+        _log(
             '[Feed] refreshIfStale: Hard TTL exceeded. Triggering full refresh.');
         await refresh();
       } else if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
-        debugPrint(
-            '[Feed] refreshIfStale: Soft TTL exceeded. Setting isStale=true');
+        _log('[Feed] refreshIfStale: Soft TTL exceeded. Setting isStale=true');
         state = AsyncData(current.copyWith(isStale: true));
       }
     }
@@ -799,7 +879,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (idx != -1) {
         final freshArticles = [...cachedState.articles];
         freshArticles[idx] = update(freshArticles[idx]);
-        _feedCache[entry.key] = cachedState.copyWith(articles: freshArticles);
+        _updateCache(entry.key, cachedState.copyWith(articles: freshArticles));
       }
     }
   }
@@ -842,7 +922,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     final startState = state.valueOrNull;
     if (startState != null &&
         startState.selectedCategory == category &&
-        startState.articles.isNotEmpty) {
+        startState.articles.isNotEmpty &&
+        !startState.isRefreshing) {
       state = AsyncData(startState.copyWith(isRefreshing: true));
     }
 
@@ -860,7 +941,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // Use the existing cache as base if the category is not active
       final base = isCategoryActive
           ? current
-          : (_feedCache[category] ?? FeedState(selectedCategory: category));
+          : (_getFromCache(category) ?? FeedState(selectedCategory: category));
 
       // Deduplicate and Append: Merge remote articles into the UI state instead of discarding them.
       // This ensures Remote0-Remote9 are actually shown to the user.
@@ -886,7 +967,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isRefreshing: false,
       );
 
-      _feedCache[category] = patched;
+      _updateCache(category, patched);
       if (isCategoryActive) {
         state = AsyncData(patched);
       }
@@ -900,7 +981,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     } catch (e) {
       // Non-fatal: pagination will still work on a session that is established
       // lazily at the next loadNextPage call.
-      debugPrint('[Feed] Background session establishment failed: $e');
+      _log('[Feed] Background session establishment failed: $e');
 
       final current = state.valueOrNull;
       if (current != null && current.selectedCategory == category) {
@@ -944,9 +1025,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
 
       state = AsyncData(nextState);
-      _feedCache[category] = nextState;
+      _updateCache(category, nextState);
     } catch (e) {
-      debugPrint('[Feed] Local secondary fetch failed: $e');
+      _log('[Feed] Local secondary fetch failed: $e');
       state = AsyncData(current.copyWith(isLoadingMore: false));
     } finally {
       _fetchingStates.remove(category);
@@ -958,7 +1039,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (_isDisposed) return;
 
     // 1. Wipe all existing sessions (they are now based on old interests/country)
-    _feedCache.clear();
+    _clearCache();
 
     // 2. Refresh the current active feed immediately
     await refresh();
@@ -1011,7 +1092,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     FeedState baseState,
     bool isCategoryActive,
   ) {
-    debugPrint(
+    _log(
         '[Feed] Session mismatch detected for ${category?.name}. Resetting feed.');
 
     final authState = ref.read(authNotifierProvider);
@@ -1027,7 +1108,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       isLoadingMore: false,
     );
 
-    _feedCache[category] = resetState;
+    _updateCache(category, resetState);
     if (isCategoryActive) state = AsyncData(resetState);
   }
 }

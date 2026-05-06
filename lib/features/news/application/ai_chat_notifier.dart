@@ -48,11 +48,17 @@ class AiChatNotifier extends _$AiChatNotifier {
   // the user navigates away mid-stream (provider gets disposed).
   StreamSubscription<String>? _streamSub;
   CancelToken? _cancelToken;
+  Timer? _throttleTimer;
+  String _chunkBuffer = '';
 
   @override
   AiChatState build(String articleId, String articleTitle) {
     // Clean up any in-flight stream when the provider is disposed.
-    ref.onDispose(() => _streamSub?.cancel());
+    ref.onDispose(() {
+      _streamSub?.cancel();
+      _cancelToken?.cancel('Provider disposed');
+      _throttleTimer?.cancel();
+    });
 
     // Load existing messages if any
     _loadMessages();
@@ -193,10 +199,17 @@ class AiChatNotifier extends _$AiChatNotifier {
               final String token = data['content'];
               if (token.isEmpty) continue;
 
-              _appendToLastMessage(token);
               if (!receivedContent) {
                 receivedContent = true;
-                state = state.copyWith(isLoading: false);
+                // Force immediate flush for first token so user sees response start
+                state = state.copyWith(
+                  messages: [
+                    ...state.messages.sublist(0, state.messages.length - 1),
+                    state.messages.last.copyWith(content: token),
+                  ],
+                );
+              } else {
+                _appendToLastMessage(token);
               }
             }
           } catch (e) {
@@ -205,6 +218,10 @@ class AiChatNotifier extends _$AiChatNotifier {
           }
         }
       }
+
+      // Ensure any remaining buffered chunks are flushed.
+      _throttleTimer?.cancel();
+      _flushBuffer();
 
       final trailing = buffer.trim();
       if (trailing.isNotEmpty) {
@@ -216,10 +233,17 @@ class AiChatNotifier extends _$AiChatNotifier {
           } else if (data.containsKey('content')) {
             final String token = data['content'];
             if (token.isNotEmpty) {
-              _appendToLastMessage(token);
               if (!receivedContent) {
                 receivedContent = true;
-                state = state.copyWith(isLoading: false);
+                state = state.copyWith(
+                  messages: [
+                    ...state.messages.sublist(0, state.messages.length - 1),
+                    state.messages.last.copyWith(content: token),
+                  ],
+                );
+              } else {
+                _appendToLastMessage(token);
+                _flushBuffer(); // Flush trailing immediately
               }
             }
           }
@@ -237,6 +261,10 @@ class AiChatNotifier extends _$AiChatNotifier {
       // Save AI message
       await repository.saveChatMessage(articleId, state.messages.last);
     } catch (e) {
+      // Ensure throttled streaming state can't flush into the error message.
+      _throttleTimer?.cancel();
+      _chunkBuffer = '';
+
       String errorMessage =
           'Sorry, I encountered an error. Please try again later.';
 
@@ -275,12 +303,20 @@ class AiChatNotifier extends _$AiChatNotifier {
     } finally {
       state = state.copyWith(isLoading: false);
       _cancelToken = null;
+
+      // Always stop any pending flush timer and clear buffer so subsequent
+      // messages cannot receive stale chunks.
+      _throttleTimer?.cancel();
+      _throttleTimer = null;
+      _chunkBuffer = '';
     }
   }
 
   void stopGeneration() {
     _cancelToken?.cancel("User stopped generation");
     _cancelToken = null;
+    _throttleTimer?.cancel();
+    _flushBuffer();
     state = state.copyWith(isLoading: false);
   }
 
@@ -319,14 +355,28 @@ class AiChatNotifier extends _$AiChatNotifier {
   }
 
   void _appendToLastMessage(String chunk) {
+    _chunkBuffer += chunk;
+
+    // If we're already waiting to flush, just keep buffering.
+    if (_throttleTimer?.isActive ?? false) return;
+
+    // Schedule a flush in 50ms to reduce UI update frequency.
+    _throttleTimer = Timer(const Duration(milliseconds: 50), _flushBuffer);
+  }
+
+  void _flushBuffer() {
+    if (_chunkBuffer.isEmpty) return;
+
     final msgs = state.messages;
     if (msgs.isEmpty || msgs.last.role != 'model') return;
+
     state = state.copyWith(
       messages: [
         ...msgs.sublist(0, msgs.length - 1),
-        msgs.last.copyWith(content: msgs.last.content + chunk),
+        msgs.last.copyWith(content: msgs.last.content + _chunkBuffer),
       ],
     );
+    _chunkBuffer = '';
   }
 
   void _updateLastMessage(String content) {

@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:auto_size_text/auto_size_text.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 import '../../application/news_feed_notifier.dart';

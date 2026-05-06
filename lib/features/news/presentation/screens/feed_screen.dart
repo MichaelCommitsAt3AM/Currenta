@@ -572,17 +572,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.valueOrNull;
 
-    // Determine the color of the current article for the sidebar
-    final articles = feed?.articles ?? [];
-    final currentArticle =
-        (_currentIndex >= 0 && _currentIndex < articles.length)
-            ? articles[_currentIndex]
-            : null;
-    final primaryCategory = currentArticle?.categories.isNotEmpty == true
-        ? currentArticle!.categories.first
-        : null;
-    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -596,7 +585,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       child: Scaffold(
         key: _scaffoldKey,
         backgroundColor: const Color(0xFF0A0C14),
-        drawer: Sidebar(catColor: catColor),
+        drawer: const _ThemedSidebar(),
         body: Stack(
           children: [
             // ── Main content ─────────────────────────────────────────
@@ -635,9 +624,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                   ),
 
             // ── Category filter bar ──────────────────────────────────
-            _CategoryBar(
-              selectedCategory: _selectedCategory,
+            _ThemedCategoryBar(
               onboardingCategoryKey: _onboardingCategoryKey,
+              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
               onCategoryChanged: (cat) {
                 debugPrint('[FeedScreen] onCategoryChanged: ${cat?.name}');
                 if (_selectedCategory == cat) {
@@ -652,7 +641,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                     .read(newsFeedNotifierProvider.notifier)
                     .filterByCategory(cat);
               },
-              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
             ),
 
             // ── Refresh Badge (Twitter Style) ──────────────────────────
@@ -720,6 +708,53 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
           ),
         );
       },
+    );
+  }
+}
+
+class _ThemedSidebar extends ConsumerWidget {
+  const _ThemedSidebar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentIndex = ref.watch(newsFeedNotifierProvider
+        .select((s) => s.valueOrNull?.currentIndex ?? 0));
+    final articles = ref.watch(
+        newsFeedNotifierProvider.select((s) => s.valueOrNull?.articles ?? []));
+
+    final currentArticle = (currentIndex >= 0 && currentIndex < articles.length)
+        ? articles[currentIndex]
+        : null;
+    final primaryCategory = currentArticle?.categories.isNotEmpty == true
+        ? currentArticle!.categories.first
+        : null;
+    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+
+    return Sidebar(catColor: catColor);
+  }
+}
+
+class _ThemedCategoryBar extends ConsumerWidget {
+  final GlobalKey onboardingCategoryKey;
+  final ValueChanged<NewsCategory?> onCategoryChanged;
+  final VoidCallback onOpenDrawer;
+
+  const _ThemedCategoryBar({
+    required this.onboardingCategoryKey,
+    required this.onCategoryChanged,
+    required this.onOpenDrawer,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final selectedCategory = ref.watch(newsFeedNotifierProvider
+        .select((s) => s.valueOrNull?.selectedCategory));
+
+    return _CategoryBar(
+      selectedCategory: selectedCategory,
+      onboardingCategoryKey: onboardingCategoryKey,
+      onCategoryChanged: onCategoryChanged,
+      onOpenDrawer: onOpenDrawer,
     );
   }
 }

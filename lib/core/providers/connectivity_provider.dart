@@ -13,6 +13,7 @@ enum ConnectivityStatus { online, offline, checking }
 @riverpod
 class ConnectivityNotifier extends _$ConnectivityNotifier {
   late final Connectivity _connectivity;
+  late final Dio _dio;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _networkErrorSubscription;
   Timer? _pollingTimer;
@@ -22,6 +23,10 @@ class ConnectivityNotifier extends _$ConnectivityNotifier {
   @override
   ConnectivityStatus build() {
     _connectivity = Connectivity();
+    _dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 5),
+      receiveTimeout: const Duration(seconds: 5),
+    ));
     
     // Listen to device-level connectivity changes
     _connectivitySubscription = _connectivity.onConnectivityChanged.listen(_handleConnectivityChange);
@@ -88,13 +93,8 @@ class ConnectivityNotifier extends _$ConnectivityNotifier {
     _pollingTimer?.cancel();
     
     try {
-      final dio = Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 5),
-      ));
-      
       // Ping the root endpoint of the backend as a lightweight check
-      final response = await dio.get(AppConfig.apiBaseUrl);
+      final response = await _dio.get(AppConfig.apiBaseUrl);
       
       if (response.statusCode == 200) {
         _stopPolling();

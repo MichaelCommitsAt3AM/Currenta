@@ -58,33 +58,32 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final hasPriority = category != null ||
         (preferredCategories != null && preferredCategories.isNotEmpty);
 
-    return (select(newsArticlesTable)
+    return (select(newsArticlesTable).join([
+      leftOuterJoin(viewedArticlesTable,
+          viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
+    ])
           ..orderBy([
             if (hasPriority)
-              (_) => OrderingTerm(
-                  expression: priorityExpr, mode: OrderingMode.asc),
-            (_) => OrderingTerm(
-                expression: trendingTierExpr, mode: OrderingMode.asc),
-            (_) => OrderingTerm(
-                expression: countryBoostExpr, mode: OrderingMode.asc),
-            (_) => OrderingTerm(
-                expression: majorSourceTierExpr, mode: OrderingMode.asc),
-            (t) => OrderingTerm.desc(t.rankingScore),
-            (t) => OrderingTerm.desc(t.publishedAt),
-            (t) => OrderingTerm.desc(t.id),
+              OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
+            OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
+            OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
+            OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
+            OrderingTerm.desc(newsArticlesTable.rankingScore),
+            OrderingTerm.desc(newsArticlesTable.publishedAt),
+            OrderingTerm.desc(newsArticlesTable.id),
           ])
-          ..where((t) {
-            final catFilter = category != null
-                ? (primaryOnly
-                    ? (t.categories.like(categoryFirstPrefix) |
-                        t.categories.like(categoryFirstWithLocalPrefix))
-                    : t.categories.like(categoryContains))
-                : const Constant(true);
-            final viewedIds = selectOnly(viewedArticlesTable)
-              ..addColumns([viewedArticlesTable.id]);
-            return catFilter & t.id.isNotInQuery(viewedIds);
-          }))
-        .watch();
+          ..where(
+            (category != null
+                    ? (primaryOnly
+                        ? (newsArticlesTable.categories.like(categoryFirstPrefix) |
+                            newsArticlesTable.categories
+                                .like(categoryFirstWithLocalPrefix))
+                        : newsArticlesTable.categories.like(categoryContains))
+                    : const Constant(true)) &
+                viewedArticlesTable.id.isNull(),
+          ))
+        .watch()
+        .map((rows) => rows.map((r) => r.readTable(newsArticlesTable)).toList());
   }
 
   Future<List<NewsArticlesTableData>> getArticles({String? category}) {

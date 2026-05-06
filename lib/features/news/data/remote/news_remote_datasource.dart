@@ -51,10 +51,16 @@ class NewsRemoteDataSource {
       String? appCheckToken;
       if (AppConfig.isProd && kReleaseMode) {
         try {
-          appCheckToken = await FirebaseAppCheck.instance.getToken();
-          debugPrint('[Remote] App Check token retrieved successfully');
+          // Explicitly prefer cached token to avoid blocking article fetches
+          // with sequential network calls for App Check.
+          appCheckToken = await FirebaseAppCheck.instance.getToken(false);
+          if (kDebugMode) {
+            debugPrint('[Remote] App Check token retrieved successfully');
+          }
         } catch (e) {
-          debugPrint('[Remote] App Check token retrieval failed: $e');
+          if (kDebugMode) {
+            debugPrint('[Remote] App Check token retrieval failed: $e');
+          }
         }
       }
 
@@ -65,13 +71,17 @@ class NewsRemoteDataSource {
         },
       );
 
-      debugPrint('[DIO →] GET $url with params: $queryParams');
+      if (kDebugMode) {
+        debugPrint('[DIO →] GET $url with params: $queryParams');
+      }
       final response =
           await _dio.get(url, queryParameters: queryParams, options: options);
 
       final responseData = response.data as Map<String, dynamic>;
-      debugPrint(
-          '[DIO ←] 200 Received articles: ${(responseData['articles'] as List?)?.length}, session_id: ${responseData['session_id']}, has_more: ${responseData['has_more']}');
+      if (kDebugMode) {
+        debugPrint(
+            '[DIO ←] 200 Received articles: ${(responseData['articles'] as List?)?.length}, session_id: ${responseData['session_id']}, has_more: ${responseData['has_more']}');
+      }
       final feedResponse = FeedResponse.fromJson(responseData);
 
       // Backend local feed is country-filtered; ensure local-tab cache queries can

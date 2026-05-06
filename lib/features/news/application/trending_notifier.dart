@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
 import '../domain/repositories/news_repository.dart';
-import '../../auth/application/auth_notifier.dart';
 import '../../../core/providers/providers.dart';
 import 'trending_filters_notifier.dart';
 
@@ -20,7 +19,7 @@ class TrendingNotifier extends _$TrendingNotifier {
   Future<List<NewsArticle>> build() async {
     // Watch filters to trigger re-fetch
     ref.watch(trendingFiltersNotifierProvider);
-    
+
     return _fetch();
   }
 
@@ -43,7 +42,8 @@ class TrendingNotifier extends _$TrendingNotifier {
 
     // 2. Otherwise fetch from remote
     try {
-      debugPrint('[Trending] Fetching fresh trending articles with filters: $filters');
+      debugPrint(
+          '[Trending] Fetching fresh trending articles with filters: $filters');
 
       final articles = await _repo.fetchTrending(
         limit: 20,

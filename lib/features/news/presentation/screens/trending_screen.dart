@@ -7,8 +7,6 @@ import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
 import '../widgets/trending_filter_sheet.dart';
-import '../../application/trending_filters_notifier.dart';
-import '../../domain/entities/news_category.dart';
 
 class TrendingScreen extends ConsumerStatefulWidget {
   final NewsArticle? initialArticle;
@@ -53,7 +51,7 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
     // Defer to avoid jank during navigation/swipe
     Future.delayed(const Duration(milliseconds: 250), () {
       if (!mounted) return;
-      
+
       for (var ahead = 1; ahead <= 2; ahead++) {
         final nextIndex = index + ahead;
         if (nextIndex < displayArticles.length) {
@@ -64,7 +62,8 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
               CachedNetworkImageProvider(imageUrl),
               context,
               onError: (error, stackTrace) {
-                debugPrint('[TrendingScreen] Precache failed for $imageUrl: $error');
+                debugPrint(
+                    '[TrendingScreen] Precache failed for $imageUrl: $error');
               },
             );
           }
@@ -125,9 +124,11 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
                 ),
-                child: const Icon(Icons.tune_rounded, color: Colors.white, size: 20),
+                child: const Icon(Icons.tune_rounded,
+                    color: Colors.white, size: 20),
               ),
             ),
           ),

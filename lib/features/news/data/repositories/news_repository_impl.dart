@@ -149,7 +149,9 @@ class NewsRepositoryImpl implements NewsRepository {
     try {
       await _dao.deleteAllArticles();
     } catch (e) {
-      debugPrint('[Cache] clearCache error: $e');
+      if (kDebugMode) {
+        debugPrint('[Cache] clearCache error: $e');
+      }
       throw CacheException();
     }
   }
@@ -159,7 +161,9 @@ class NewsRepositoryImpl implements NewsRepository {
     try {
       await _dao.deleteNonPersonalizedArticles();
     } catch (e) {
-      debugPrint('[Cache] clearFeed error: $e');
+      if (kDebugMode) {
+        debugPrint('[Cache] clearFeed error: $e');
+      }
       throw CacheException();
     }
   }
@@ -252,7 +256,9 @@ class NewsRepositoryImpl implements NewsRepository {
 
       return hasMore;
     } catch (e) {
-      debugPrint('[Repo] syncLikedArticles error: $e');
+      if (kDebugMode) {
+        debugPrint('[Repo] syncLikedArticles error: $e');
+      }
       rethrow;
     }
   }
@@ -310,7 +316,9 @@ class NewsRepositoryImpl implements NewsRepository {
     try {
       await _dao.wipeAllData();
     } catch (e) {
-       debugPrint('[Cache] wipeLocalData error: $e');
+      if (kDebugMode) {
+        debugPrint('[Cache] wipeLocalData error: $e');
+      }
     }
   }
 

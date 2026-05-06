@@ -88,6 +88,54 @@ class AuthState {
       email: email != null ? email() : this.email,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is AuthState &&
+        other.isLoading == isLoading &&
+        other.error == error &&
+        other.isAuthenticated == isAuthenticated &&
+        other.isAnonymous == isAnonymous &&
+        other.isProfileLoaded == isProfileLoaded &&
+        other.needsOtp == needsOtp &&
+        other.pendingEmail == pendingEmail &&
+        other.preferredCountry == preferredCountry &&
+        listEquals(other.selectedInterests, selectedInterests) &&
+        other.displayName == displayName &&
+        other.avatarUrl == avatarUrl &&
+        other.needsConflictResolution == needsConflictResolution &&
+        other.conflictData == conflictData &&
+        other.previousGuestUid == previousGuestUid &&
+        other.detectedCountry == detectedCountry &&
+        other.showLocationUpdatePopup == showLocationUpdatePopup &&
+        other.hasCheckedLocation == hasCheckedLocation &&
+        other.email == email;
+  }
+
+  @override
+  int get hashCode {
+    return Object.hashAll([
+      isLoading,
+      error,
+      isAuthenticated,
+      isAnonymous,
+      isProfileLoaded,
+      needsOtp,
+      pendingEmail,
+      preferredCountry,
+      Object.hashAll(selectedInterests),
+      displayName,
+      avatarUrl,
+      needsConflictResolution,
+      conflictData,
+      previousGuestUid,
+      detectedCountry,
+      showLocationUpdatePopup,
+      hasCheckedLocation,
+      email,
+    ]);
+  }
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
