@@ -253,11 +253,16 @@ async def verify_supabase_jwt(authorization: str = Header(None)):
             token,
             signing_key.key,
             algorithms=["ES256"],
-            audience="authenticated",
+            audience=["authenticated", "anon"],
             options={"verify_exp": True}
         )
+
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
         return User(
-            id=payload.get("sub"),
+            id=sub,
             email=payload.get("email"),
             role=payload.get("role")
         )

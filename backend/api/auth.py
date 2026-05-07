@@ -1,5 +1,6 @@
 import random
 import logging
+import uuid
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
@@ -7,10 +8,22 @@ from ..services.email import email_service
 from ..core.security import limiter, verify_supabase_jwt, User
 import httpx
 import os
+import asyncpg
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _redact_email(email: str) -> str:
+    email = (email or "").strip()
+    if "@" not in email:
+        return "<redacted>"
+    local, domain = email.split("@", 1)
+    if not local:
+        return f"<redacted>@{domain}"
+    # Keep the first character and redact the rest of the local-part.
+    return f"{local[0]}***@{domain}"
 
 class OTPRequest(BaseModel):
     email: str
@@ -29,7 +42,7 @@ async def send_otp_endpoint(request: Request, otp_req: OTPRequest):
     # Generate a random 6-digit OTP
     otp = str(random.randint(100000, 999999))
     
-    logger.info(f"Sending OTP to {otp_req.email}")
+    logger.info("Sending OTP to %s", _redact_email(otp_req.email))
     
     # Trigger the email sending via Mailtrap
     result = await email_service.send_otp(
@@ -65,9 +78,39 @@ async def delete_account_endpoint(request: Request, user: User = Depends(verify_
         logger.error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not configured")
         raise HTTPException(status_code=500, detail="Cloud configuration error")
 
+    pool = getattr(request.app.state, "db_pool", None)
+    if not pool:
+        logger.error("DB Pool not found in app.state — cannot delete user data.")
+        raise HTTPException(status_code=500, detail="Database connection error")
+
+    try:
+        user_uuid = uuid.UUID(user.id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
     logger.info(f"Deleting account for user: {user.id}")
 
     try:
+        # Best-effort purge of app tables. This makes deletion work even if
+        # foreign keys/cascades are missing in the deployed Supabase schema.
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for sql in (
+                    "DELETE FROM user_ai_usage WHERE user_id = $1",
+                    "DELETE FROM article_likes WHERE user_id = $1",
+                    "DELETE FROM article_favorites WHERE user_id = $1",
+                    "DELETE FROM article_dislikes WHERE user_id = $1",
+                    "DELETE FROM article_views WHERE user_id = $1",
+                    "DELETE FROM user_sub_interests WHERE user_id = $1",
+                    "DELETE FROM user_interests WHERE user_id = $1",
+                    "DELETE FROM user_profiles WHERE user_id = $1",
+                ):
+                    try:
+                        await conn.execute(sql, user_uuid)
+                    except asyncpg.UndefinedTableError:
+                        # Keep deletion resilient if schema differs across environments.
+                        logger.warning("Skip delete (missing table): %s", sql)
+
         async with httpx.AsyncClient() as client:
             # Call Supabase Auth Admin API to delete the user
             # https://supabase.com/docs/reference/auth/admin-delete-user

@@ -589,8 +589,8 @@ class AuthRepositoryImpl implements AuthRepository {
     
     if (user == null) return;
 
-    // 1. If non-anonymous, call backend to delete remote account
-    if (!user.isAnonymous && session != null) {
+    // 1. Call backend to delete remote account (works for both guest + registered)
+    if (session != null) {
       try {
         final url = '${AppConfig.apiBaseUrl}/api/auth/account';
         final options = Options(

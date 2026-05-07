@@ -68,6 +68,7 @@
                 <h3>2.5 Device, Diagnostic, and Security Data</h3>
                 <ul>
                     <li>Crash and diagnostic data to identify and fix application failures.</li>
+                    <li>App integrity and anti-abuse signals (for example, Firebase App Check attestation data such as Play Integrity on Android or DeviceCheck on iOS).</li>
                     <li>Security and abuse-prevention logs (for example, OTP and API rate-limiting events).</li>
                     <li>Operational logs for ingestion and platform reliability.</li>
                 </ul>
@@ -110,18 +111,21 @@
                 <p>We share personal data with service providers only as needed to operate Currenta:</p>
                 <ul>
                     <li><strong>Supabase</strong>: authentication, database, and storage infrastructure.</li>
-                    <li><strong>Google Firebase</strong>: core app services and crash reporting.</li>
+                    <li><strong>Google Firebase</strong>: core app services, crash reporting, and app integrity/abuse prevention (Firebase App Check).</li>
                     <li><strong>Google AI Services (Gemini and/or Vertex AI)</strong>: AI-assisted features such as chat and summarization.</li>
+                    <li><strong>Google Search (grounding)</strong>: when you use AI chat features, our AI provider may retrieve relevant web context via search to improve factual grounding.</li>
                     <li><strong>Google Sign-In</strong>: social authentication (if you choose it).</li>
                     <li><strong>Mailtrap</strong>: transactional email delivery (for example, OTP/verification emails).</li>
                     <li><strong>Cloud/hosting providers</strong>: infrastructure, network, and security operations.</li>
+                    <li><strong>Google Fonts</strong>: our website may load fonts from Google, which can involve standard web request data like IP address and user-agent.</li>
                 </ul>
                 <p>We may also disclose data if required by law, to protect rights/safety, or in connection with a merger, acquisition, financing, or asset sale.</p>
             </div>
 
             <div class="legal-section">
                 <h2>6. AI Processing Notice</h2>
-                <p>When you use AI features, your prompts and relevant article context are processed by our AI providers to generate responses. We implement controls to limit unnecessary personal data in prompts, but you should avoid submitting sensitive personal information in chat inputs unless necessary.</p>
+                <p>When you use AI features, your prompts and relevant article context are processed by our AI providers to generate responses. In some cases, the AI feature may also retrieve relevant public web context (for example, via search grounding) to help explain events and provide background.</p>
+                <p>We implement controls to limit unnecessary personal data in prompts, but you should avoid submitting sensitive personal information in chat inputs unless necessary.</p>
             </div>
 
             <div class="legal-section">
