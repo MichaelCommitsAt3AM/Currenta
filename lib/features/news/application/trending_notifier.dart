@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
+import '../domain/entities/trending_filters.dart';
 import '../domain/repositories/news_repository.dart';
 import '../../../core/providers/providers.dart';
 import 'trending_filters_notifier.dart';
@@ -14,13 +15,17 @@ class TrendingNotifier extends _$TrendingNotifier {
   NewsRepository get _repo => ref.read(newsRepositoryProvider);
   DateTime? _lastFetchTime;
   static const Duration _cacheTtl = Duration(minutes: 10);
+  TrendingFilters? _lastFilters;
 
   @override
   Future<List<NewsArticle>> build() async {
     // Watch filters to trigger re-fetch
-    ref.watch(trendingFiltersNotifierProvider);
+    final filters = ref.watch(trendingFiltersNotifierProvider);
+    
+    final isFilterChange = _lastFilters != null && _lastFilters != filters;
+    _lastFilters = filters;
 
-    return _fetch();
+    return _fetch(force: isFilterChange);
   }
 
   Future<List<NewsArticle>> _fetch({bool force = false}) async {

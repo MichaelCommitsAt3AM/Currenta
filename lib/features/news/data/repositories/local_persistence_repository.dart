@@ -98,13 +98,13 @@ class LocalPersistenceRepository {
     await _prefs.setString(_kTrendingFilters, jsonEncode(filters.toJson()));
   }
 
-  TrendingFilters getTrendingFilters() {
+  TrendingFilters? getTrendingFilters() {
     final raw = _prefs.getString(_kTrendingFilters);
-    if (raw == null) return const TrendingFilters();
+    if (raw == null) return null;
     try {
       return TrendingFilters.fromJson(jsonDecode(raw));
     } catch (_) {
-      return const TrendingFilters();
+      return null;
     }
   }
 }

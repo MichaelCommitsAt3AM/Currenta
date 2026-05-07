@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/entities/news_category.dart';
 import '../../domain/entities/trending_filters.dart';
 import '../../application/trending_filters_notifier.dart';
+import '../../../auth/application/auth_notifier.dart';
 
 class TrendingFilterSheet extends ConsumerStatefulWidget {
   const TrendingFilterSheet({super.key});
@@ -83,8 +84,9 @@ class _TrendingFilterSheetState extends ConsumerState<TrendingFilterSheet> {
                 ),
                 TextButton(
                   onPressed: () {
+                    final authState = ref.read(authNotifierProvider);
                     setState(() {
-                      _selectedCountryCode = null;
+                      _selectedCountryCode = authState.preferredCountry;
                       _selectedHours = 24;
                     });
                   },

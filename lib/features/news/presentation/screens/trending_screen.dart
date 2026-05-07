@@ -7,6 +7,7 @@ import '../../domain/entities/news_article.dart';
 import '../widgets/news_card.dart';
 import 'empty_state_screen.dart';
 import '../widgets/trending_filter_sheet.dart';
+import '../widgets/shimmer_feed.dart';
 import '../../../../core/errors/app_exception.dart';
 
 class TrendingScreen extends ConsumerStatefulWidget {
@@ -136,11 +137,8 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
         ],
       ),
       body: trendingAsync.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
-          ),
-        ),
+        skipLoadingOnReload: false,
+        loading: () => const ShimmerFeed(),
         error: (e, _) => Center(
           child: Text(
             e.toDisplayMessage(),

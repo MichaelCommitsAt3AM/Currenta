@@ -233,9 +233,9 @@ input:focus, textarea:focus {
 }
 
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 1rem 2rem;
+    max-width: 100%;
+    margin: 0;
+    padding: 1rem 1.5rem;
     animation: fadeIn 0.6s ease-out;
 }
 
@@ -256,7 +256,7 @@ header {
 /* Dashboard Layout */
 .dashboard-layout {
     display: flex;
-    gap: 2rem;
+    gap: 1.5rem;
     min-height: calc(100vh - 120px);
 }
 
@@ -290,7 +290,7 @@ header {
 }
 
 .sidebar {
-    width: 260px;
+    width: 220px;
     background: var(--card-bg);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius);
@@ -794,7 +794,8 @@ header {
 
 .table-wrapper {
     width: 100%;
-    overflow-x: auto;
+    overflow: auto;
+    max-height: 65vh;
     border-radius: 8px;
     border: 1px solid var(--glass-border);
     background: rgba(0, 0, 0, 0.2);
@@ -808,12 +809,15 @@ table {
 }
 
 th {
-    background: rgba(255, 255, 255, 0.05);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-color);
     padding: 0.8rem 1rem;
     text-align: left;
     font-weight: 600;
     color: var(--text-primary);
-    border-bottom: 1px solid var(--glass-border);
+    border-bottom: 2px solid var(--glass-border);
     white-space: nowrap;
 }
 

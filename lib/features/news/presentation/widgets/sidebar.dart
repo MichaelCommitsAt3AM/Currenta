@@ -8,6 +8,7 @@ import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
 import '../screens/trending_screen.dart';
 import '../../application/trending_notifier.dart';
+import '../../application/sidebar_trending_notifier.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
 
@@ -238,7 +239,7 @@ class Sidebar extends ConsumerWidget {
                       Consumer(
                         builder: (context, ref, child) {
                           final trendingAsync =
-                              ref.watch(trendingNotifierProvider);
+                              ref.watch(sidebarTrendingNotifierProvider);
 
                           return trendingAsync.when(
                             data: (articles) {
@@ -261,7 +262,7 @@ class Sidebar extends ConsumerWidget {
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 24),
                                 itemCount: articles.length
-                                    .clamp(0, 5), // Show top 5 in sidebar
+                                    .clamp(0, 4), // Show top 4 in sidebar
                                 physics: const NeverScrollableScrollPhysics(),
                                 shrinkWrap: true,
                                 separatorBuilder: (context, index) =>
