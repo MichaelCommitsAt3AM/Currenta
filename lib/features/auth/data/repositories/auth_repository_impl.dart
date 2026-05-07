@@ -33,8 +33,7 @@ class AuthRepositoryImpl implements AuthRepository {
       .distinct((prev, curr) =>
           prev?.user.id == curr?.user.id &&
           prev?.user.isAnonymous == curr?.user.isAnonymous)
-      .map((session) =>
-          session != null && session.user.isAnonymous == false);
+      .map((session) => session != null && session.user.isAnonymous == false);
 
   @override
   String? get currentUserId {
@@ -140,7 +139,8 @@ class AuthRepositoryImpl implements AuthRepository {
 
       // 3. Verify email if expectedEmail is provided (Linking case)
       if (expectedEmail != null && googleUser.email != expectedEmail) {
-        debugPrint('[Auth] Google email mismatch: expected $expectedEmail, got ${googleUser.email}');
+        debugPrint(
+            '[Auth] Google email mismatch: expected $expectedEmail, got ${googleUser.email}');
         throw const AuthActionException(
           'This Google account uses a different email address from your current account. Please select the correct Google account.',
         );
@@ -168,17 +168,19 @@ class AuthRepositoryImpl implements AuthRepository {
         provider: OAuthProvider.google,
         idToken: idToken,
       );
-      
+
       // 6. Migration is now handled selectively by the caller via checkPersonalizationConflict
       // and selectiveMigrateUserData. Auto-migration removed.
     } on GoogleSignInException catch (e) {
       debugPrint('[Auth] GoogleSignInException: ${e.code}, $e');
       if (e.code == GoogleSignInExceptionCode.canceled) {
-        return; 
+        return;
       }
-      throw ServerException('Google Sign-In failed (${e.code}): ${e.toString()}');
+      throw ServerException(
+          'Google Sign-In failed (${e.code}): ${e.toString()}');
     } on AuthException catch (e) {
-      debugPrint('[Auth] Supabase AuthException: ${e.message} (Code: ${e.statusCode})');
+      debugPrint(
+          '[Auth] Supabase AuthException: ${e.message} (Code: ${e.statusCode})');
       throw ServerException(e.message);
     } catch (e, stack) {
       debugPrint('[Auth] Unexpected error: $e');
@@ -193,7 +195,8 @@ class AuthRepositoryImpl implements AuthRepository {
       await _supabase.auth.signInAnonymously();
     } on AuthException catch (e) {
       if (e.message.toLowerCase().contains('user not found')) {
-        debugPrint('[Auth] User not found during anonymous sign-in. Clearing session...');
+        debugPrint(
+            '[Auth] User not found during anonymous sign-in. Clearing session...');
         await _supabase.auth.signOut(scope: SignOutScope.local);
       }
       throw ServerException(e.message);
@@ -236,30 +239,35 @@ class AuthRepositoryImpl implements AuthRepository {
       throw ServerException('An unexpected error occurred: $e');
     }
   }
+
   @override
   Future<void> saveUserInterests(List<String> categories) async {
     var user = _supabase.auth.currentUser;
-    
+
     // If no user exists (even anonymous), create one now so we can save preferences
     if (user == null) {
-      debugPrint('[Auth] No user found for saveUserInterests. Signing in anonymously...');
+      debugPrint(
+          '[Auth] No user found for saveUserInterests. Signing in anonymously...');
       await _supabase.auth.signInAnonymously();
       user = _supabase.auth.currentUser;
     }
 
     final uid = user?.id;
     if (uid == null) {
-      throw const ServerException('Unable to establish a session to save interests.');
+      throw const ServerException(
+          'Unable to establish a session to save interests.');
     }
 
     try {
       // Deduplicate categories to prevent Postgrest error 21000 on upsert
       final uniqueCategories = categories.toSet().toList();
-      
-      final dataToInsert = uniqueCategories.map((cat) => {
-        'user_id': uid,
-        'category': cat,
-      }).toList();
+
+      final dataToInsert = uniqueCategories
+          .map((cat) => {
+                'user_id': uid,
+                'category': cat,
+              })
+          .toList();
 
       // We use upsert to cleanly handle re-selections or updates
       await _supabase
@@ -280,7 +288,7 @@ class AuthRepositoryImpl implements AuthRepository {
           .from('user_interests')
           .select('category')
           .eq('user_id', uid);
-      
+
       return (response as List<dynamic>)
           .map((item) => item['category'] as String)
           .toList();
@@ -296,10 +304,7 @@ class AuthRepositoryImpl implements AuthRepository {
     if (uid == null) return;
 
     try {
-      await _supabase
-          .from('user_interests')
-          .delete()
-          .eq('user_id', uid);
+      await _supabase.from('user_interests').delete().eq('user_id', uid);
     } catch (e) {
       throw ServerException('Failed to clear interests: $e');
     }
@@ -308,28 +313,32 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> saveUserSubInterests(List<String> subCategories) async {
     var user = _supabase.auth.currentUser;
-    
+
     if (user == null) {
-      debugPrint('[Auth] No user found for saveUserSubInterests. Signing in anonymously...');
+      debugPrint(
+          '[Auth] No user found for saveUserSubInterests. Signing in anonymously...');
       await _supabase.auth.signInAnonymously();
       user = _supabase.auth.currentUser;
     }
 
     final uid = user?.id;
     if (uid == null) {
-      throw const ServerException('Unable to establish a session to save sub-interests.');
+      throw const ServerException(
+          'Unable to establish a session to save sub-interests.');
     }
 
     try {
       if (subCategories.isEmpty) return;
-      
+
       // Deduplicate sub-categories to prevent Postgrest error 21000 on upsert
       final uniqueSubCategories = subCategories.toSet().toList();
 
-      final dataToInsert = uniqueSubCategories.map((sub) => {
-        'user_id': uid,
-        'sub_category': sub,
-      }).toList();
+      final dataToInsert = uniqueSubCategories
+          .map((sub) => {
+                'user_id': uid,
+                'sub_category': sub,
+              })
+          .toList();
 
       await _supabase
           .from('user_sub_interests')
@@ -350,7 +359,7 @@ class AuthRepositoryImpl implements AuthRepository {
           .from('user_sub_interests')
           .select('sub_category')
           .eq('user_id', uid);
-      
+
       return (response as List<dynamic>)
           .map((item) => item['sub_category'] as String)
           .toList();
@@ -366,10 +375,7 @@ class AuthRepositoryImpl implements AuthRepository {
     if (uid == null) return;
 
     try {
-      await _supabase
-          .from('user_sub_interests')
-          .delete()
-          .eq('user_id', uid);
+      await _supabase.from('user_sub_interests').delete().eq('user_id', uid);
     } catch (e) {
       debugPrint('[Auth] Error clearing sub-interests: $e');
     }
@@ -379,7 +385,8 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> savePreferredCountry(String countryCode) async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) {
-      throw const ServerException('Must be authenticated to save country preference');
+      throw const ServerException(
+          'Must be authenticated to save country preference');
     }
 
     try {
@@ -391,7 +398,8 @@ class AuthRepositoryImpl implements AuthRepository {
       // Update caches (in-memory and disk)
       _cachedCountry = countryCode;
       await _secureStorage.write('primary_country_code', countryCode);
-      await _secureStorage.write('last_location_check_at', DateTime.now().millisecondsSinceEpoch.toString());
+      await _secureStorage.write('last_location_check_at',
+          DateTime.now().millisecondsSinceEpoch.toString());
     } catch (e) {
       debugPrint('[Auth] Error saving preferred country: $e');
       throw ServerException('Failed to save country preference: $e');
@@ -420,7 +428,7 @@ class AuthRepositoryImpl implements AuthRepository {
           .select('preferred_country')
           .eq('user_id', uid)
           .maybeSingle();
-      
+
       final remoteCountry = response?['preferred_country'] as String?;
       if (remoteCountry != null) {
         _cachedCountry = remoteCountry;
@@ -501,14 +509,15 @@ class AuthRepositoryImpl implements AuthRepository {
     final elapsedHours = (now - lastCheck) / (1000 * 60 * 60);
 
     if (elapsedHours < AppConfig.locationCacheTtlHours) {
-      debugPrint('[Auth] Skipping background location detection; cache is fresh (${elapsedHours.toStringAsFixed(1)}h elapsed).');
+      debugPrint(
+          '[Auth] Skipping background location detection; cache is fresh (${elapsedHours.toStringAsFixed(1)}h elapsed).');
       return getPreferredCountry();
     }
 
     try {
       final session = _supabase.auth.currentSession;
       final url = '${AppConfig.apiBaseUrl}/api/feed/detect-location';
-      
+
       final options = Options(
         headers: {
           if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
@@ -517,11 +526,12 @@ class AuthRepositoryImpl implements AuthRepository {
 
       final response = await _dio.get(url, options: options);
       final country = response.data['country'] as String?;
-      
+
       if (country != null) {
         _cachedCountry = country;
         await _secureStorage.write('primary_country_code', country);
-        await _secureStorage.write('last_location_check_at', DateTime.now().millisecondsSinceEpoch.toString());
+        await _secureStorage.write('last_location_check_at',
+            DateTime.now().millisecondsSinceEpoch.toString());
       }
 
       debugPrint('[Auth] Background location detection result: $country');
@@ -586,7 +596,7 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<void> deleteAccount() async {
     final session = _supabase.auth.currentSession;
     final user = session?.user;
-    
+
     if (user == null) return;
 
     // 1. Call backend to delete remote account (works for both guest + registered)
@@ -598,16 +608,18 @@ class AuthRepositoryImpl implements AuthRepository {
             'Authorization': 'Bearer ${session.accessToken}',
           },
         );
-        
+
         final response = await _dio.delete(url, options: options);
         if (response.statusCode != 200) {
-          throw ServerException('Failed to delete account: ${response.data['detail'] ?? 'Unknown error'}');
+          throw ServerException(
+              'Failed to delete account: ${response.data['detail'] ?? 'Unknown error'}');
         }
       } on DioException catch (e) {
         final message = e.response?.data?['detail'] ?? e.message;
         throw ServerException('Cloud deletion failed: $message');
       } catch (e) {
-        throw ServerException('An unexpected error occurred during account deletion: $e');
+        throw ServerException(
+            'An unexpected error occurred during account deletion: $e');
       }
     }
 
