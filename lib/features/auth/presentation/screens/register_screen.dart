@@ -82,7 +82,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           AppSnackbar.showError(context, next.error!);
         }
       }
-      if (next.isAuthenticated && !next.isLoading) {
+      if (next.needsOtp && next.pendingEmail != null && previous?.needsOtp != true) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              email: next.pendingEmail!,
+              type: 'signup',
+            ),
+          ),
+        );
+      } else if (next.isAuthenticated && !next.isLoading && !next.needsOtp) {
         if (next.needsConflictResolution && next.conflictData != null) {
           debugPrint(
               '[Register] Conflict detected! Showing resolution dialog...');
@@ -122,17 +132,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           // Pop back to login then hopefully back to feed
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
-      } else if (next.needsOtp && next.pendingEmail != null) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => OtpVerificationScreen(
-              email: next.pendingEmail!,
-              type: 'signup',
-            ),
-          ),
-        );
-        ref.read(authNotifierProvider.notifier).resetOtpState();
       }
     });
 

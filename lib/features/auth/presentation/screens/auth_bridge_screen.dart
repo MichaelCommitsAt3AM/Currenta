@@ -24,6 +24,12 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // If already authenticated, start in loading mode immediately
+    if (ref.read(authNotifierProvider).isAuthenticated) {
+      _isLoading = true;
+    }
+
     // If the user is already signed in (e.g. they came from LoginScreen -> Onboarding -> here),
     // we should immediately finalize the flow instead of asking them to sign in again.
     WidgetsBinding.instance.addPostFrameCallback((_) {

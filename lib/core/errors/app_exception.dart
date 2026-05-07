@@ -10,7 +10,7 @@ sealed class AppException implements Exception {
   /// In release mode, technical details are hidden.
   String get displayMessage {
     if (kReleaseMode) {
-      if (this is NetworkException) {
+      if (this is NetworkException || this is AuthActionException) {
         return message;
       }
       return 'Something went wrong. Please try again.';
@@ -52,6 +52,11 @@ class NotFoundException extends AppException {
   const NotFoundException([
     super.message = 'The requested resource was not found.',
   ]);
+}
+
+/// Authentication related errors that are safe to show to the user.
+class AuthActionException extends AppException {
+  const AuthActionException(super.message);
 }
 
 /// Extension to provide consistent user-friendly error messages across the app.

@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/auth_notifier.dart';
 import 'reset_password_screen.dart';
+import 'onboarding_screen.dart';
+import '../../../news/presentation/screens/feed_screen.dart';
+import '../../../../core/providers/providers.dart';
 import '../../../../core/utils/snackbar_utils.dart';
 
 class OtpVerificationScreen extends ConsumerStatefulWidget {
@@ -18,13 +21,15 @@ class OtpVerificationScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
+  ConsumerState<OtpVerificationScreen> createState() =>
+      _OtpVerificationScreenState();
 }
 
 class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
-  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _controllers =
+      List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
-  
+
   Timer? _timer;
   int _secondsRemaining = 0;
   bool _canResend = true;
@@ -38,6 +43,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     for (var node in _focusNodes) {
       node.dispose();
     }
+    // Ensure state is cleared when leaving the screen
+    Future.microtask(() {
+      if (mounted) ref.read(authNotifierProvider.notifier).resetOtpState();
+    });
     super.dispose();
   }
 
@@ -74,15 +83,16 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     if (!_canResend) return;
 
     setState(() => _canResend = false);
-    
+
     try {
       await ref.read(authNotifierProvider.notifier).resendOtp(
-        widget.email,
-        widget.type,
-      );
-      
+            widget.email,
+            widget.type,
+          );
+
       if (mounted) {
-        AppSnackbar.showSuccess(context, 'Verification code resent successfully!');
+        AppSnackbar.showSuccess(
+            context, 'Verification code resent successfully!');
         _startTimer(60);
       }
     } catch (e) {
@@ -109,7 +119,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       // Move focus to the next empty field or the last one
       final nextIndex = (index + pasteData.length).clamp(0, 5);
       _focusNodes[nextIndex].requestFocus();
-      
+
       // If we filled all 6, auto-verify
       if (_controllers.every((c) => c.text.isNotEmpty)) {
         _onVerifyPressed();
@@ -125,9 +135,11 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       if (next.error != null && previous?.error != next.error) {
         // Detect specific errors for timer logic if they come through the state
         final errorStr = next.error!.toLowerCase();
-        if (errorStr.contains('429') || errorStr.contains('too many requests')) {
+        if (errorStr.contains('429') ||
+            errorStr.contains('too many requests')) {
           _startTimer(900);
-        } else if (errorStr.contains('network') || errorStr.contains('socket')) {
+        } else if (errorStr.contains('network') ||
+            errorStr.contains('socket')) {
           _startTimer(5);
         }
         AppSnackbar.showError(context, next.error!);
@@ -138,8 +150,31 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
             context,
             MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
           );
+        } else if (widget.type == 'password_update') {
+          // Simply pop back to ChangePasswordScreen which handles the success message
+          Navigator.of(context).pop();
         } else {
-          Navigator.of(context).popUntil((route) => route.isFirst);
+          if (next.selectedInterests.isEmpty) {
+            debugPrint(
+                '[OTP] New user detected (no interests)! Redirecting to Onboarding...');
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+              (route) => false,
+            );
+          } else {
+            debugPrint('[OTP] Authenticated! Redirecting to Feed...');
+
+            // Mark onboarding as complete
+            ref.read(onboardingRepositoryProvider).completeOnboarding();
+
+            // Clear news cache
+            ref.read(newsRepositoryProvider).clearCache();
+
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const FeedScreen()),
+              (route) => false,
+            );
+          }
         }
       }
     });
@@ -150,8 +185,12 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          icon:
+              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+          onPressed: () {
+            ref.read(authNotifierProvider.notifier).resetOtpState();
+            Navigator.pop(context);
+          },
         ),
       ),
       body: SafeArea(
@@ -207,8 +246,8 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                         }
                       },
                       style: const TextStyle(
-                        color: Colors.white, 
-                        fontSize: 24, 
+                        color: Colors.white,
+                        fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                       textAlign: TextAlign.center,
@@ -227,7 +266,8 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF6C63FF), width: 2),
+                          borderSide: const BorderSide(
+                              color: Color(0xFF6C63FF), width: 2),
                         ),
                       ),
                       textCapitalization: TextCapitalization.none,
@@ -255,7 +295,8 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                         width: 24,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
                     : const Text(
@@ -272,15 +313,17 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
 
               Center(
                 child: TextButton(
-                  onPressed: (authState.isLoading || !_canResend) 
-                    ? null 
-                    : _handleResend,
+                  onPressed: (authState.isLoading || !_canResend)
+                      ? null
+                      : _handleResend,
                   child: Text(
-                    _canResend 
-                      ? 'Resend Code' 
-                      : 'Resend in ${_secondsRemaining}s',
+                    _canResend
+                        ? 'Resend Code'
+                        : 'Resend in ${_secondsRemaining}s',
                     style: TextStyle(
-                      color: _canResend ? const Color(0xFF6C63FF) : const Color(0xFF8890B5),
+                      color: _canResend
+                          ? const Color(0xFF6C63FF)
+                          : const Color(0xFF8890B5),
                       fontWeight: FontWeight.w600,
                     ),
                   ),

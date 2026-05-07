@@ -95,7 +95,7 @@ class AuthRepositoryImpl implements AuthRepository {
         password: password,
       );
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -114,7 +114,7 @@ class AuthRepositoryImpl implements AuthRepository {
         data: {'full_name': name},
       );
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -123,7 +123,7 @@ class AuthRepositoryImpl implements AuthRepository {
   bool _isGoogleSignInInitialized = false;
 
   @override
-  Future<void> signInWithGoogle() async {
+  Future<void> signInWithGoogle({String? expectedEmail}) async {
     try {
       final googleSignIn = GoogleSignIn.instance;
 
@@ -138,7 +138,15 @@ class AuthRepositoryImpl implements AuthRepository {
       // 2. Trigger native picker
       final googleUser = await googleSignIn.authenticate();
 
-      // 3. Get tokens
+      // 3. Verify email if expectedEmail is provided (Linking case)
+      if (expectedEmail != null && googleUser.email != expectedEmail) {
+        debugPrint('[Auth] Google email mismatch: expected $expectedEmail, got ${googleUser.email}');
+        throw const AuthActionException(
+          'This Google account uses a different email address from your current account. Please select the correct Google account.',
+        );
+      }
+
+      // 4. Get tokens
       final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
 
@@ -223,7 +231,7 @@ class AuthRepositoryImpl implements AuthRepository {
         await _supabase.auth.signInAnonymously();
       }
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -432,7 +440,7 @@ class AuthRepositoryImpl implements AuthRepository {
         UserAttributes(password: newPassword),
       );
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -451,6 +459,7 @@ class AuthRepositoryImpl implements AuthRepository {
           otpType = OtpType.signup;
           break;
         case 'recovery':
+        case 'password_update':
           otpType = OtpType.recovery;
           break;
         case 'email':
@@ -466,7 +475,7 @@ class AuthRepositoryImpl implements AuthRepository {
         type: otpType,
       );
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -477,7 +486,7 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       await _supabase.auth.resetPasswordForEmail(email);
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }
@@ -637,7 +646,7 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
       );
     } on AuthException catch (e) {
-      throw ServerException(e.message);
+      throw AuthActionException(e.message);
     } catch (e) {
       throw ServerException('An unexpected error occurred: $e');
     }

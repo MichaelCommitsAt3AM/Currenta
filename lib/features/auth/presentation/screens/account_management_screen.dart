@@ -25,6 +25,12 @@ class AccountManagementScreen extends ConsumerWidget {
     final isGoogleOnly = user?.appMetadata['provider'] == 'google' && 
         !(user?.identities?.any((id) => id.provider == 'email') ?? false);
 
+    ref.listen(authNotifierProvider, (previous, next) {
+      if (next.error != null && previous?.error != next.error) {
+        AppSnackbar.showError(context, next.error!);
+      }
+    });
+
     if (authState.isLoading) {
       return const Scaffold(
         backgroundColor: Color(0xFF0A0C14),

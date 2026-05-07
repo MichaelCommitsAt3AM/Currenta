@@ -26,6 +26,7 @@ class AuthState {
     this.showLocationUpdatePopup = false,
     this.hasCheckedLocation = false,
     this.email,
+    this.pendingPassword,
   });
 
   final bool isLoading;
@@ -46,6 +47,7 @@ class AuthState {
   final bool showLocationUpdatePopup;
   final bool hasCheckedLocation;
   final String? email;
+  final String? pendingPassword;
 
   AuthState copyWith({
     bool? isLoading,
@@ -66,6 +68,7 @@ class AuthState {
     bool? showLocationUpdatePopup,
     bool? hasCheckedLocation,
     String? Function()? email,
+    String? pendingPassword,
   }) {
     return AuthState(
       isLoading: isLoading ?? this.isLoading,
@@ -86,6 +89,7 @@ class AuthState {
       showLocationUpdatePopup: showLocationUpdatePopup ?? this.showLocationUpdatePopup,
       hasCheckedLocation: hasCheckedLocation ?? this.hasCheckedLocation,
       email: email != null ? email() : this.email,
+      pendingPassword: pendingPassword ?? this.pendingPassword,
     );
   }
 
@@ -110,7 +114,8 @@ class AuthState {
         other.detectedCountry == detectedCountry &&
         other.showLocationUpdatePopup == showLocationUpdatePopup &&
         other.hasCheckedLocation == hasCheckedLocation &&
-        other.email == email;
+        other.email == email &&
+        other.pendingPassword == pendingPassword;
   }
 
   @override
@@ -134,6 +139,7 @@ class AuthState {
       showLocationUpdatePopup,
       hasCheckedLocation,
       email,
+      pendingPassword,
     ]);
   }
 }
@@ -175,6 +181,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         displayName: () => name,
         avatarUrl: () => avatar,
         email: () => email,
+        error: state.error,
       );
 
       // ── Strategic Location Re-check ──
@@ -233,10 +240,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> signInWithGoogle() async {
+    final currentUserEmail = state.email;
+    final wasAuthenticated = state.isAuthenticated && !state.isAnonymous;
+    final oldGuestUid = state.isAnonymous ? _repository.getGuestId() : null;
+
     state = state.copyWith(isLoading: true, error: null);
-    final oldGuestUid = _repository.isAnonymous ? _repository.getGuestId() : null;
     try {
-      await _repository.signInWithGoogle();
+      // If the user is already authenticated, enforce that the Google account
+      // must match their current email to allow linking.
+      await _repository.signInWithGoogle(
+        expectedEmail: wasAuthenticated ? currentUserEmail : null,
+      );
+
       await _handleSignInResult(oldGuestUid);
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
@@ -295,7 +310,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       await _repository.verifyOtp(email: email, token: token, type: type);
-      state = state.copyWith(isLoading: false, needsOtp: false, pendingEmail: null);
+      
+      // If we were waiting for a password update, commit it now
+      if (state.pendingPassword != null) {
+        await _repository.updatePassword(state.pendingPassword!);
+      }
+      
+      state = state.copyWith(
+        isLoading: false, 
+        needsOtp: false, 
+        pendingEmail: null,
+        pendingPassword: null,
+      );
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
@@ -315,8 +341,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> requestPasswordUpdateOtp(String newPassword) async {
+    final userEmail = state.email;
+    if (userEmail == null) {
+      state = state.copyWith(error: 'User email not found');
+      return;
+    }
+
+    state = state.copyWith(isLoading: true, error: null, pendingPassword: newPassword);
+    try {
+      await _repository.sendPasswordResetEmail(userEmail);
+      state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: userEmail);
+    } on AppException catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage(), pendingPassword: null);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toDisplayMessage(), pendingPassword: null);
+    }
+  }
+
   void resetOtpState() {
-     state = state.copyWith(needsOtp: false, pendingEmail: null);
+     state = state.copyWith(needsOtp: false, pendingEmail: null, pendingPassword: null);
   }
 
   Future<void> resendOtp(String email, String type) async {

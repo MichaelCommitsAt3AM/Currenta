@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/auth_notifier.dart';
+import 'otp_verification_screen.dart';
 import '../widgets/auth_text_field.dart';
 import '../../../../core/utils/snackbar_utils.dart';
 
@@ -31,23 +32,35 @@ class _ChangePasswordScreenState extends ConsumerState<ChangePasswordScreen> {
 
   void _onUpdatePressed() async {
     if (_formKey.currentState!.validate()) {
-      await ref.read(authNotifierProvider.notifier).updatePassword(_passwordController.text.trim());
-      
-      if (mounted) {
-        final error = ref.read(authNotifierProvider).error;
-        if (error == null) {
-          AppSnackbar.showSuccess(context, 'Password updated successfully');
-          Navigator.pop(context);
-        } else {
-          AppSnackbar.showError(context, error);
-        }
-      }
+      await ref.read(authNotifierProvider.notifier).requestPasswordUpdateOtp(_passwordController.text.trim());
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
+
+    ref.listen(authNotifierProvider, (previous, next) {
+      if (next.error != null && previous?.error != next.error) {
+        AppSnackbar.showError(context, next.error!);
+      }
+      if (next.needsOtp && next.pendingEmail != null && previous?.needsOtp != true) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(
+              email: next.pendingEmail!,
+              type: 'password_update',
+            ),
+          ),
+        );
+      }
+      if (!next.needsOtp && previous?.needsOtp == true && next.error == null) {
+        // Password updated successfully after OTP
+        AppSnackbar.showSuccess(context, 'Password updated successfully');
+        Navigator.pop(context);
+      }
+    });
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),

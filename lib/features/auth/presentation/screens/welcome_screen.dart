@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
 import '../../application/auth_notifier.dart';
+import '../../../../core/utils/snackbar_utils.dart';
 
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key});
@@ -29,6 +30,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    ref.listen(authNotifierProvider, (previous, next) {
+      if (next.error != null && previous?.error != next.error) {
+        AppSnackbar.showError(context, next.error!);
+      }
+    });
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0C14),

@@ -42,7 +42,7 @@ abstract class AuthRepository {
   });
 
   /// Initiates the Google OAuth sign-in flow.
-  Future<void> signInWithGoogle();
+  Future<void> signInWithGoogle({String? expectedEmail});
 
   /// Signs in anonymously to track guest preferences.
   Future<void> signInAnonymously();
