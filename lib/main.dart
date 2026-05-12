@@ -18,6 +18,7 @@ import 'core/providers/providers.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/storage/secure_auth_storage.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'theme/theme.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
@@ -168,6 +169,15 @@ Future<void> main() async {
       }));
     }
 
+    // ── Pre-Warm AdMob SDK ───────────────────────────────────────────────────
+    // Await initialization synchronously so the first feed card preloader is fully authorized.
+    await MobileAds.instance.initialize();
+    await MobileAds.instance.updateRequestConfiguration(
+      RequestConfiguration(
+        testDeviceIds: ['B5BA899FC742C00FC339B57C62EB9624'],
+      ),
+    );
+
     // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
     // These tasks don't need to block the first frame.
     unawaited(_initializeDeferredTasks());
@@ -225,6 +235,7 @@ Future<void> main() async {
 /// to improve the 'Time to Interactive'.
 Future<void> _initializeDeferredTasks() async {
   try {
+
     // Sign in anonymously if no session exists to track 'seen' state
     final supabase = Supabase.instance.client;
     if (supabase.auth.currentSession == null) {

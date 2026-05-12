@@ -7,7 +7,7 @@ part of 'sidebar_trending_notifier.dart';
 // **************************************************************************
 
 String _$sidebarTrendingNotifierHash() =>
-    r'4e431bc1bc11f31853e302144476e05f2292c49a';
+    r'89a88563f8de70846bf6adb00a529a09190ad36b';
 
 /// See also [SidebarTrendingNotifier].
 @ProviderFor(SidebarTrendingNotifier)

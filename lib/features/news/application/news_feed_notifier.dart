@@ -309,7 +309,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     const int initialIndex = 0;
 
     final finalState = FeedState(
-      articles: articles,
+      articles: _interleaveAds(articles),
       hasMore: hasMore,
       selectedCategory: savedCategoryId,
       currentIndex: initialIndex,
@@ -532,7 +532,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       final nextState = baseState.copyWith(
-        articles: nextArticles,
+        articles: _interleaveAds(nextArticles),
         isLoadingMore: false,
         hasMore: response.hasMore,
         nextCursor: () => response.nextCursor,
@@ -644,7 +644,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (localArticles.isNotEmpty) {
         final newState = FeedState(
-          articles: localArticles,
+          articles: _interleaveAds(localArticles),
           selectedCategory: category,
           currentIndex: initialIndex,
           hasMore: true,
@@ -751,7 +751,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
 
       final newState = FeedState(
-        articles: response.articles,
+        articles: _interleaveAds(response.articles),
         selectedCategory: currentCategory,
         sessionId: response.sessionId,
         nextCursor: response.nextCursor,
@@ -884,17 +884,18 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
   }
 
-  void updateCurrentIndex(int index) {
+  void updateCurrentIndex(int index, {String? articleId}) {
     final current = state.valueOrNull;
     if (current == null) return;
     state = AsyncData(current.copyWith(currentIndex: index));
-    if (index < current.articles.length) {
-      final articleId = current.articles[index].id;
-      _persistence.saveCurrentArticleId(articleId);
+    
+    final targetArticleId = articleId ?? (index < current.articles.length ? current.articles[index].id : null);
+    if (targetArticleId != null) {
+      _persistence.saveCurrentArticleId(targetArticleId);
 
       // Specialized tracking for 'For You' feed to support reset-to-main on startup
       if (current.selectedCategory == null) {
-        _persistence.saveLastForYouArticleId(articleId);
+        _persistence.saveLastForYouArticleId(targetArticleId);
       }
     }
   }
@@ -958,7 +959,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // Patch the state with session metadata AND the new articles
       final patched = base.copyWith(
-        articles: combinedArticles,
+        articles: _interleaveAds(combinedArticles),
         sessionId: response.sessionId,
         nextCursor: () => response.nextCursor,
         hasMore: response.hasMore,
@@ -1018,7 +1019,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           secondaryArticles.where((a) => !existingIds.contains(a.id)).toList();
 
       final nextState = current.copyWith(
-        articles: [...current.articles, ...uniqueNew],
+        articles: _interleaveAds([...current.articles, ...uniqueNew]),
         isLoadingMore: false,
         hasMore: uniqueNew.length >=
             _kPageSize, // If we got less than requested, we're done
@@ -1054,11 +1055,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     List<String> interests,
     NewsCategory? category,
   ) {
+    List<NewsArticle> filtered;
     if (category != null) {
       // HARD GATEKEEPER: Ensure every article in a category feed actually
       // belongs to that category. This prevents "leaks" from broader backend
       // buckets or local cache pollution.
-      return articles.where((article) {
+      filtered = articles.where((article) {
         if (category == NewsCategory.local) {
           return article.categories.contains(NewsCategory.local);
         }
@@ -1075,15 +1077,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
         return effectivePrimary.name == category.name;
       }).toList();
+    } else if (interests.isEmpty) {
+      filtered = articles; // No interests selected yet, show everything
+    } else {
+      filtered = articles.where((article) {
+        // Defensive filter for 'For You' feed: Ensure at least one category matches the user's current interests.
+        return article.categories.any((cat) => interests.contains(cat.name));
+      }).toList();
     }
 
-    if (interests.isEmpty)
-      return articles; // No interests selected yet, show everything
-
-    return articles.where((article) {
-      // Defensive filter for 'For You' feed: Ensure at least one category matches the user's current interests.
-      return article.categories.any((cat) => interests.contains(cat.name));
-    }).toList();
+    return _interleaveAds(filtered);
   }
 
   void _triggerReset(
@@ -1110,5 +1113,29 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     _updateCache(category, resetState);
     if (isCategoryActive) state = AsyncData(resetState);
+  }
+
+  /// Transparently interleaves ad markers into a list of articles.
+  /// Idempotent: preserves existing ad markers and spacing across multi-pass operations.
+  List<NewsArticle> _interleaveAds(List<NewsArticle> source) {
+    final result = <NewsArticle>[];
+    int regularCount = 0;
+
+    for (final article in source) {
+      if (article.itemType == 'ad') {
+        result.add(article);
+        regularCount = 0;
+      } else {
+        result.add(article);
+        if (article.itemType == 'article') {
+          regularCount++;
+          if (regularCount >= 6) {
+            result.add(NewsArticle.adMarker(id: 'ad_${article.id}'));
+            regularCount = 0;
+          }
+        }
+      }
+    }
+    return result;
   }
 }

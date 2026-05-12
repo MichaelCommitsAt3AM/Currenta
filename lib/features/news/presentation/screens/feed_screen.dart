@@ -4,15 +4,17 @@
 // Loads the next batch of 10 articles when the user is within 5 pages of the end.
 
 import 'dart:async';
+import 'package:currenta/features/news/domain/entities/news_article.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/news_feed_notifier.dart';
 import '../../domain/entities/news_category.dart';
 import '../widgets/news_card.dart';
+import '../widgets/native_ad_card.dart';
+import '../../application/ad_manager.dart';
 import '../widgets/shimmer_feed.dart';
 import '../widgets/sidebar.dart';
 import '../../../auth/application/auth_notifier.dart';
@@ -66,6 +68,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _trackPageView(0);
     });
+
+    // Eagerly trigger ad preloading pool
+    ref.read(adManagerProvider.notifier);
   }
 
   @override
@@ -86,7 +91,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     final notifier = ref.read(onboardingNotifierProvider.notifier);
     if (!notifier.hasSeenFeedOnboarding) {
       debugPrint('[FeedScreen] Triggering onboarding');
-      // Mark as seen immediately to prevent it from re-triggering 
+      // Mark as seen immediately to prevent it from re-triggering
       // on next app start even if they don't finish the steps.
       notifier.markFeedOnboardingSeen();
       _runScrollNudge();
@@ -96,17 +101,20 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   void _runScrollNudge() async {
     // Initial wait before first nudge
     await Future.delayed(const Duration(milliseconds: 2500));
-    
+
     // Cycle the nudge every 3 seconds
     while (mounted && !_hasScrolledOnce) {
       final currentStep = ref.read(onboardingNotifierProvider);
-      
+
       // If we've moved past the scroll step or onboarding is hidden, stop the loop
-      if (currentStep != OnboardingStep.none && currentStep != OnboardingStep.scroll) break;
+      if (currentStep != OnboardingStep.none &&
+          currentStep != OnboardingStep.scroll) break;
 
       // Ensure step is set to scroll
       if (currentStep == OnboardingStep.none) {
-        ref.read(onboardingNotifierProvider.notifier).setStep(OnboardingStep.scroll);
+        ref
+            .read(onboardingNotifierProvider.notifier)
+            .setStep(OnboardingStep.scroll);
       }
 
       if (!_pageController.hasClients || _hasScrolledOnce) break;
@@ -129,16 +137,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
       // 3. Wait 3 seconds before starting the next animation cycle
       await Future.delayed(const Duration(seconds: 3));
-      
+
       // Stop if user dismissed via "Got it" or scrolled
-      if (ref.read(onboardingNotifierProvider) != OnboardingStep.scroll || _hasScrolledOnce) break;
+      if (ref.read(onboardingNotifierProvider) != OnboardingStep.scroll ||
+          _hasScrolledOnce) break;
     }
   }
 
   void _dismissOnboarding() {
     final step = ref.read(onboardingNotifierProvider);
     if (step == OnboardingStep.none) return;
-    
+
     ref.read(onboardingNotifierProvider.notifier).dismiss();
   }
 
@@ -217,13 +226,21 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     }
   }
 
+  List<NewsArticle> _getDisplayArticles(FeedState feed) {
+    final adsAvailable = ref.read(adManagerProvider).adsAvailable;
+    return adsAvailable
+        ? feed.articles
+        : feed.articles.where((a) => a.itemType != 'ad').toList();
+  }
+
   int _lastTriggeredPage = -1;
 
   void _maybeLoadMore({int? pageHint}) {
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null || feed.isLoadingMore || !feed.hasMore) return;
 
-    final totalPages = feed.articles.length;
+    final displayArticles = _getDisplayArticles(feed);
+    final totalPages = displayArticles.length;
     if (totalPages <= 0) return;
 
     final currentPage = pageHint ??
@@ -253,16 +270,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       // If scroll onboarding was visible, hide it
       final notifier = ref.read(onboardingNotifierProvider.notifier);
       final step = ref.read(onboardingNotifierProvider);
-      
+
       if (step == OnboardingStep.scroll) {
         notifier.dismiss();
       }
-      
+
       // Wait 1 second before showing category hint if they haven't seen it yet
       if (!notifier.hasSeenExploreTopics) {
         // Mark as seen immediately so it doesn't re-trigger
         notifier.markExploreTopicsSeen();
-        
+
         Timer(const Duration(seconds: 1), () {
           if (mounted) {
             notifier.setStep(OnboardingStep.categories);
@@ -274,23 +291,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     setState(() {
       _currentIndex = index;
     });
-    ref.read(newsFeedNotifierProvider.notifier).updateCurrentIndex(index);
 
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
     if (feed == null) return;
+
+    final displayArticles = _getDisplayArticles(feed);
+    final targetArticleId =
+        index < displayArticles.length ? displayArticles[index].id : null;
+    ref
+        .read(newsFeedNotifierProvider.notifier)
+        .updateCurrentIndex(index, articleId: targetArticleId);
 
     // 1. Preload images for next 2 articles to ensure smooth scrolling
     // Defer pre-caching slightly to allow the swipe animation to finish smoothly
     Future.delayed(const Duration(milliseconds: 250), () {
       if (!mounted) return;
-      
+
       final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
       if (feed == null) return;
 
+      final displayArticles = _getDisplayArticles(feed);
       for (var ahead = 1; ahead <= 2; ahead++) {
         final nextIndex = index + ahead;
-        if (nextIndex < feed.articles.length) {
-          final article = feed.articles[nextIndex];
+        if (nextIndex < displayArticles.length) {
+          final article = displayArticles[nextIndex];
 
           // Image preloading
           final imageUrl = article.imageUrl;
@@ -299,7 +323,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               CachedNetworkImageProvider(imageUrl),
               context,
               onError: (error, stackTrace) {
-                debugPrint('[FeedScreen] Precache failed for $imageUrl: $error');
+                debugPrint(
+                    '[FeedScreen] Precache failed for $imageUrl: $error');
               },
             );
           }
@@ -319,17 +344,21 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   void _trackPageView(int index) {
     _viewTimer?.cancel();
     final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
-    if (feed != null && index < feed.articles.length) {
-      final article = feed.articles[index];
-      // Only track if we haven't tracked it this session
-      if (!_viewedIdsInSession.contains(article.id)) {
-        _viewTimer = Timer(const Duration(seconds: 2), () {
-          if (!mounted) return;
-          _viewedIdsInSession.add(article.id);
-          ref
-              .read(newsFeedNotifierProvider.notifier)
-              .markArticleAsViewed(article.id);
-        });
+    if (feed != null) {
+      final displayArticles = _getDisplayArticles(feed);
+      if (index < displayArticles.length) {
+        final article = displayArticles[index];
+        // Only track real articles if we haven't tracked them this session
+        if (article.itemType == 'article' &&
+            !_viewedIdsInSession.contains(article.id)) {
+          _viewTimer = Timer(const Duration(seconds: 2), () {
+            if (!mounted) return;
+            _viewedIdsInSession.add(article.id);
+            ref
+                .read(newsFeedNotifierProvider.notifier)
+                .markArticleAsViewed(article.id);
+          });
+        }
       }
     }
   }
@@ -533,8 +562,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
       // 3. Trigger onboarding when feed is first loaded
       final onboardingStep = ref.read(onboardingNotifierProvider);
-      if (nextFeed.articles.isNotEmpty && onboardingStep == OnboardingStep.none && !_hasScrolledOnce) {
-        final hasSeen = ref.read(onboardingNotifierProvider.notifier).hasSeenFeedOnboarding;
+      if (nextFeed.articles.isNotEmpty &&
+          onboardingStep == OnboardingStep.none &&
+          !_hasScrolledOnce) {
+        final hasSeen =
+            ref.read(onboardingNotifierProvider.notifier).hasSeenFeedOnboarding;
         if (!hasSeen) {
           _checkOnboarding();
         }
@@ -603,7 +635,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                     data: (feed) {
                       // Category Mismatch Guard: Only shimmer if the category is GENUINELY different.
                       // If we are in transition (isLoading), we trust the notifier's intended category.
-                      if (feed.selectedCategory != _selectedCategory && !feedAsync.isLoading) {
+                      if (feed.selectedCategory != _selectedCategory &&
+                          !feedAsync.isLoading) {
                         return const ShimmerFeed();
                       }
 
@@ -635,7 +668,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                   return;
                 }
 
-                // Trigger feed loading immediately. The Notifier will update its state 
+                // Trigger feed loading immediately. The Notifier will update its state
                 // synchronously to reflect the new category, which will update our UI.
                 ref
                     .read(newsFeedNotifierProvider.notifier)
@@ -681,30 +714,40 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       });
     }
 
-    final itemCount = feed.articles.length + (feed.isLoadingMore ? 1 : 0);
+    // Reactively trigger rebuild when ads become available for the first time
+    ref.watch(adManagerProvider.select((s) => s.adsAvailable));
+    final displayArticles = _getDisplayArticles(feed);
+
+    final itemCount = displayArticles.length + (feed.isLoadingMore ? 1 : 0);
 
     return PageView.builder(
       controller: _pageController,
       scrollDirection: Axis.vertical,
       physics: const BouncingScrollPhysics(),
+      allowImplicitScrolling:
+          true, // Pre-warms adjacent pages (native ad views) silently before touch drag
       itemCount: itemCount,
       onPageChanged: _onPageChanged,
       itemBuilder: (context, i) {
-        if (i >= feed.articles.length) {
+        if (i >= displayArticles.length) {
           return const _LoadingMorePage();
         }
 
-        final article = feed.articles[i];
+        final article = displayArticles[i];
 
         if (article.itemType == 'exhaustion_marker') {
           return const ExhaustionMarkerCard();
+        }
+
+        if (article.itemType == 'ad') {
+          return const RepaintBoundary(child: NativeAdCard());
         }
 
         return RepaintBoundary(
           child: NewsCard(
             article: article,
             index: i,
-            total: feed.articles.length,
+            total: displayArticles.length,
           ),
         );
       },
@@ -799,7 +842,8 @@ class _RefreshBadgeState extends State<_RefreshBadge> {
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top + 64;
     // Keep the refreshing look if we are currently refreshing OR if we are in the middle of hiding after a refresh
-    final effectivelyRefreshing = widget.isRefreshing || (!widget.isVisible && _wasRefreshing);
+    final effectivelyRefreshing =
+        widget.isRefreshing || (!widget.isVisible && _wasRefreshing);
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 600),
@@ -812,7 +856,8 @@ class _RefreshBadgeState extends State<_RefreshBadge> {
         opacity: widget.isVisible ? 1.0 : 0.0,
         child: Center(
           child: GestureDetector(
-            onTap: widget.isVisible && !widget.isRefreshing ? widget.onTap : null,
+            onTap:
+                widget.isVisible && !widget.isRefreshing ? widget.onTap : null,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               padding: EdgeInsets.symmetric(

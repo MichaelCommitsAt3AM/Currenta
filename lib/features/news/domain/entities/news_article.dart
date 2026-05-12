@@ -123,4 +123,15 @@ abstract class NewsArticle with _$NewsArticle {
 
   factory NewsArticle.fromJson(Map<String, dynamic> json) =>
       _$NewsArticleFromJson(json);
+
+  factory NewsArticle.adMarker({required String id}) => NewsArticle(
+        id: id,
+        title: 'Sponsored',
+        summary: '',
+        originalUrl: '',
+        sourceName: 'Sponsored',
+        publishedAt: DateTime.now().toUtc(),
+        createdAt: DateTime.now().toUtc(),
+        itemType: 'ad',
+      );
 }

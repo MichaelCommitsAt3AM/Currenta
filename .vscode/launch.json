@@ -6,48 +6,52 @@
       "request": "launch",
       "type": "dart",
       "flutterMode": "debug",
-      "args": [
-        "--flavor",
-        "dev",
-        "--dart-define-from-file",
-        "config/dev.json"
-      ]
+        "args": [
+          "--flavor",
+          "dev",
+          "--dart-define-from-file",
+          "config/dev.json",
+          "--enable-impeller"
+        ]
     },
     {
       "name": "Currenta (Profile/Dev)",
       "request": "launch",
       "type": "dart",
       "flutterMode": "profile",
-      "args": [
-        "--flavor",
-        "dev",
-        "--dart-define-from-file",
-        "config/dev.json"
-      ]
+        "args": [
+          "--flavor",
+          "dev",
+          "--dart-define-from-file",
+          "config/dev.json",
+          "--enable-impeller"
+        ]
     },
     {
       "name": "Currenta (Profile/Prod)",
       "request": "launch",
       "type": "dart",
       "flutterMode": "profile",
-      "args": [
-        "--flavor",
-        "prod",
-        "--dart-define-from-file",
-        "config/prod.json"
-      ]
+        "args": [
+          "--flavor",
+          "prod",
+          "--dart-define-from-file",
+          "config/prod.json",
+          "--enable-impeller"
+        ]
     },
     {
       "name": "Currenta (Release/Prod)",
       "request": "launch",
       "type": "dart",
       "flutterMode": "release",
-      "args": [
-        "--flavor",
-        "prod",
-        "--dart-define-from-file",
-        "config/prod.json"
-      ]
+        "args": [
+          "--flavor",
+          "prod",
+          "--dart-define-from-file",
+          "config/prod.json",
+          "--enable-impeller"
+        ]
     }
   ]
 }

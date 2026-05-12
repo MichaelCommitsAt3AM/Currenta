@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.gms.ads.nativead.NativeAdView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0C14">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingTop="100dp"
+        android:paddingBottom="32dp"
+        android:paddingLeft="24dp"
+        android:paddingRight="24dp">
+
+        <!-- Top Right Header: Sponsored Tag -->
+        <TextView
+            android:id="@+id/sponsored_tag"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentTop="true"
+            android:text="Sponsored"
+            android:textColor="#8890B5"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="#1A1E2E"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp" />
+
+        <!-- Center Media View -->
+        <com.google.android.gms.ads.nativead.MediaView
+            android:id="@+id/ad_media"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:layout_below="@id/sponsored_tag"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Headline -->
+        <TextView
+            android:id="@+id/ad_headline"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/ad_media"
+            android:textColor="#FFFFFF"
+            android:textSize="19sp"
+            android:textStyle="bold"
+            android:maxLines="2"
+            android:ellipsize="end" />
+
+        <!-- Body / Summary -->
+        <TextView
+            android:id="@+id/ad_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/ad_headline"
+            android:layout_marginTop="8dp"
+            android:textColor="#BFBFC0"
+            android:textSize="15sp"
+            android:lineSpacingExtra="4dp"
+            android:maxLines="5"
+            android:ellipsize="end" />
+
+        <!-- Bottom container containing Branding on left, CTA on right/bottom -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_marginTop="16dp">
+
+            <!-- Bottom Left AD Branding Badge -->
+            <TextView
+                android:id="@+id/ad_branding_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentLeft="true"
+                android:layout_centerVertical="true"
+                android:text="AD"
+                android:textColor="#FFD700"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:background="#33FFD700"
+                android:paddingLeft="6dp"
+                android:paddingRight="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp" />
+
+            <!-- Call to Action Button -->
+            <Button
+                android:id="@+id/ad_call_to_action"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_alignParentRight="true"
+                android:layout_centerVertical="true"
+                android:backgroundTint="#6C63FF"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingLeft="24dp"
+                android:paddingRight="24dp" />
+
+        </RelativeLayout>
+
+    </RelativeLayout>
+
+</com.google.android.gms.ads.nativead.NativeAdView>

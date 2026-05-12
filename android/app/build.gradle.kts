@@ -65,11 +65,13 @@ android {
             versionNameSuffix = "-dev"
             resValue("string", "app_name", "Currenta Dev")
             signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["admobAppId"] = "ca-app-pub-3940256099942544~3347511713"
         }
         create("prod") {
             dimension = "environment"
             resValue("string", "app_name", "Currenta")
             signingConfig = signingConfigs.getByName("release")
+            manifestPlaceholders["admobAppId"] = "ca-app-pub-8795852141624819~7289686863"
         }
     }
 
