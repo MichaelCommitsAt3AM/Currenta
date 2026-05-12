@@ -70,3 +70,7 @@ devtools_options.yaml
 # GeoIP database binaries
 backend/core/*.mmdb
 android/key.properties
+
+
+# Screenshot testing
+/screenshots

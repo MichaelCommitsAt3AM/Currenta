@@ -18,6 +18,9 @@ import '../../../../core/utils/browser_service.dart';
 import 'ai_quick_chat_sheet.dart';
 import '../../application/pending_activity_provider.dart';
 
+const bool _hideFeedIndicators =
+    bool.fromEnvironment('CURRENTA_HIDE_FEED_INDICATORS', defaultValue: false);
+
 class NewsCard extends ConsumerStatefulWidget {
   final NewsArticle article;
   final int index;
@@ -282,6 +285,8 @@ class _NewsCardState extends ConsumerState<NewsCard>
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableHeight = constraints.maxHeight;
+        final bool isWideScreen =
+            constraints.maxWidth >= 600 && size.width > size.height;
 
         return Container(
           width: size.width,
@@ -323,269 +328,69 @@ class _NewsCardState extends ConsumerState<NewsCard>
                     24,
                     24 + MediaQuery.paddingOf(context).bottom,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // ── Top Row (Page Indicator + Category) ─────────────
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _PageIndicator(
-                            index: widget.index,
-                            total: widget.total,
-                            color: catColor,
-                          ),
-                          _CategoryChip(
-                            label:
-                                '${displayCategory.emoji} ${displayCategory.displayName}',
-                            color: catColor,
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ── Feature Image ──────────────────────────────────
-                      if (widget.article.imageUrl != null)
-                        Flexible(
-                          flex: 0,
-                          fit: FlexFit.loose,
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              child: Container(
-                                width: double.infinity,
-                                height: availableHeight * 0.25,
-                                color: Colors.white.withValues(alpha: 0.05),
-                                child: CachedNetworkImage(
-                                  imageUrl: widget.article.imageUrl!,
-                                  fit: BoxFit.cover,
-                                  memCacheWidth: (size.width *
-                                          MediaQuery.devicePixelRatioOf(
-                                              context))
-                                      .toInt(),
-                                  memCacheHeight: (availableHeight *
-                                          0.25 *
-                                          MediaQuery.devicePixelRatioOf(
-                                              context))
-                                      .toInt(),
-                                  filterQuality: FilterQuality.low,
-                                  placeholder: (context, url) =>
-                                      Shimmer.fromColors(
-                                    baseColor:
-                                        Colors.white.withValues(alpha: 0.05),
-                                    highlightColor:
-                                        Colors.white.withValues(alpha: 0.1),
-                                    child: Container(color: Colors.white),
-                                  ),
-                                  errorWidget: (context, url, error) => Center(
-                                    child: Icon(
-                                        Icons.image_not_supported_rounded,
-                                        color: Colors.white
-                                            .withValues(alpha: 0.2)),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      // ── Title ──────────────────────────────────────────
-                      Text(
-                        widget.article.title,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          height: 1.3,
-                          letterSpacing: -0.3,
-                        ),
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      // ── AI Summary ─────────────────────────────────────
-                      Expanded(
-                        child: SingleChildScrollView(
-                          physics: const BouncingScrollPhysics(),
-                          child: Text(
-                            widget.article.summary,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              fontSize: 15,
-                              height: 1.5,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      // ── Source Row (tap to open article in default browser) ──
-                      GestureDetector(
-                        onTap: () =>
-                            _openOriginal(context, widget.article.originalUrl),
-                        behavior: HitTestBehavior.opaque,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            children: [
-                              if (widget.article.sourceFaviconUrl != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: CachedNetworkImage(
-                                      imageUrl:
-                                          widget.article.sourceFaviconUrl!,
-                                      width: 20,
-                                      height: 20,
-                                      placeholder: (context, url) => Container(
-                                        width: 20,
-                                        height: 20,
-                                        color: Colors.white
-                                            .withValues(alpha: 0.05),
-                                      ),
-                                      errorWidget: (context, url, _) =>
-                                          const SizedBox.shrink(),
+                  child: isWideScreen
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildTopRow(catColor, displayCategory),
+                            const SizedBox(height: 16),
+                            Expanded(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (widget.article.imageUrl != null) ...[
+                                    Expanded(
+                                      flex: 1,
+                                      child: _buildImage(
+                                          availableHeight, size, true),
+                                    ),
+                                    const SizedBox(width: 24),
+                                  ],
+                                  Expanded(
+                                    flex: 1,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _buildTitle(),
+                                        const SizedBox(height: 8),
+                                        _buildSummary(),
+                                        const SizedBox(height: 2),
+                                        _buildSourceRow(catColor),
+                                        const SizedBox(height: 4),
+                                        _buildFooterActions(catColor),
+                                      ],
                                     ),
                                   ),
-                                )
-                              else
-                                Container(
-                                  width: 20,
-                                  height: 20,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: catColor.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      widget.article.sourceName
-                                              .trim()
-                                              .isNotEmpty
-                                          ? widget.article.sourceName.trim()[0]
-                                          : '?',
-                                      style: TextStyle(
-                                          color: catColor,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ),
-                              Expanded(
-                                child: Text(
-                                  widget.article.sourceName.trim(),
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.6),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildTopRow(catColor, displayCategory),
+                            const SizedBox(height: 16),
+                            if (widget.article.imageUrl != null)
+                              Flexible(
+                                flex: 0,
+                                fit: FlexFit.loose,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child:
+                                      _buildImage(availableHeight, size, false),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Icon(Icons.open_in_new_rounded,
-                                  size: 14,
-                                  color: catColor.withValues(alpha: 0.6)),
-                            ],
-                          ),
+                            _buildTitle(),
+                            const SizedBox(height: 8),
+                            _buildSummary(),
+                            const SizedBox(height: 2),
+                            _buildSourceRow(catColor),
+                            const SizedBox(height: 4),
+                            _buildFooterActions(catColor),
+                          ],
                         ),
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      // ── Footer Actions ───────────────────────────────
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: _handleIconPress,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: Icon(
-                              _isLiked
-                                  ? Icons.favorite_rounded
-                                  : Icons.favorite_border_rounded,
-                              color: _isLiked
-                                  ? Colors.redAccent
-                                  : Colors.white.withValues(alpha: 0.6),
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(_likesCount.toString(),
-                              style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.6))),
-                          const SizedBox(width: 24),
-                          ScaleTransition(
-                            scale: Tween<double>(begin: 1.0, end: 1.3).animate(
-                              CurvedAnimation(
-                                parent: _bookmarkController,
-                                curve: Curves.easeOutBack,
-                              ),
-                            ),
-                            child: IconButton(
-                              onPressed: _handleFavoritePress,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              icon: Icon(
-                                _isFavorited
-                                    ? Icons.bookmark_rounded
-                                    : Icons.bookmark_border_rounded,
-                                color: _isFavorited
-                                    ? const Color(
-                                        0xFFFFD700) // Vibrant Gold/Yellow
-                                    : Colors.white.withValues(alpha: 0.6),
-                                size: 24,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 24),
-                          IconButton(
-                            onPressed: () {
-                              HapticFeedback.lightImpact();
-                              final isAuth = ref
-                                  .read(authNotifierProvider)
-                                  .isAuthenticated;
-                              if (!isAuth) {
-                                ref
-                                    .read(pendingActivityNotifierProvider
-                                        .notifier)
-                                    .set(PendingAction.chat, widget.article.id);
-                                _showAuthSheet();
-                                return;
-                              }
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: Colors.transparent,
-                                builder: (context) =>
-                                    AiQuickChatSheet(article: widget.article),
-                              );
-                            },
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            icon: Icon(
-                              Icons.auto_awesome,
-                              color: Colors.white.withValues(alpha: 0.6),
-                              size: 22,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (widget.index < widget.total - 1)
-                            Icon(Icons.keyboard_double_arrow_up_rounded,
-                                color: catColor.withValues(alpha: 0.4),
-                                size: 20),
-                        ],
-                      ),
-                    ],
-                  ),
                 ),
 
                 // ── Heart Shower Particles ─────────────────────
@@ -599,6 +404,261 @@ class _NewsCardState extends ConsumerState<NewsCard>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTopRow(Color catColor, NewsCategory displayCategory) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        _PageIndicator(
+          index: widget.index,
+          total: widget.total,
+          color: catColor,
+        ),
+        _CategoryChip(
+          label: '${displayCategory.emoji} ${displayCategory.displayName}',
+          color: catColor,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImage(double availableHeight, Size size, bool isWideScreen) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheWidth = (size.width * (isWideScreen ? 0.5 : 1.0) * dpr).toInt();
+    final cacheHeight =
+        (availableHeight * (isWideScreen ? 1.0 : 0.25) * dpr).toInt();
+
+    final imageWidget = ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: isWideScreen ? null : double.infinity,
+        height: isWideScreen ? null : availableHeight * 0.25,
+        constraints: isWideScreen
+            ? BoxConstraints(
+                maxWidth: size.width * 0.5,
+                maxHeight: availableHeight,
+              )
+            : null,
+        color: Colors.white.withValues(alpha: 0.05),
+        child: CachedNetworkImage(
+          imageUrl: widget.article.imageUrl!,
+          fit: isWideScreen ? BoxFit.contain : BoxFit.cover,
+          memCacheWidth: cacheWidth,
+          memCacheHeight: cacheHeight,
+          filterQuality: FilterQuality.low,
+          placeholder: (context, url) => Shimmer.fromColors(
+            baseColor: Colors.white.withValues(alpha: 0.05),
+            highlightColor: Colors.white.withValues(alpha: 0.1),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Container(color: Colors.white),
+            ),
+          ),
+          errorWidget: (context, url, error) => Center(
+            child: Icon(
+              Icons.image_not_supported_rounded,
+              color: Colors.white.withValues(alpha: 0.2),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (isWideScreen) {
+      return Container(
+        height: double.infinity,
+        alignment: Alignment.center,
+        child: imageWidget,
+      );
+    }
+
+    return imageWidget;
+  }
+
+  Widget _buildTitle() {
+    return Text(
+      widget.article.title,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 19,
+        fontWeight: FontWeight.w800,
+        height: 1.3,
+        letterSpacing: -0.3,
+      ),
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _buildSummary() {
+    return Expanded(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Text(
+          widget.article.summary,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.75),
+            fontSize: 15,
+            height: 1.5,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSourceRow(Color catColor) {
+    return GestureDetector(
+      onTap: () => _openOriginal(context, widget.article.originalUrl),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            if (widget.article.sourceFaviconUrl != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: CachedNetworkImage(
+                    imageUrl: widget.article.sourceFaviconUrl!,
+                    width: 20,
+                    height: 20,
+                    placeholder: (context, url) => Container(
+                      width: 20,
+                      height: 20,
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
+                    errorWidget: (context, url, _) => const SizedBox.shrink(),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: 20,
+                height: 20,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: catColor.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Center(
+                  child: Text(
+                    widget.article.sourceName.trim().isNotEmpty
+                        ? widget.article.sourceName.trim()[0]
+                        : '?',
+                    style: TextStyle(
+                      color: catColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            Expanded(
+              child: Text(
+                widget.article.sourceName.trim(),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.open_in_new_rounded,
+              size: 14,
+              color: catColor.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooterActions(Color catColor) {
+    return Row(
+      children: [
+        IconButton(
+          onPressed: _handleIconPress,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          icon: Icon(
+            _isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            color: _isLiked
+                ? Colors.redAccent
+                : Colors.white.withValues(alpha: 0.6),
+            size: 24,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _likesCount.toString(),
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+        ),
+        const SizedBox(width: 24),
+        ScaleTransition(
+          scale: Tween<double>(begin: 1.0, end: 1.3).animate(
+            CurvedAnimation(
+              parent: _bookmarkController,
+              curve: Curves.easeOutBack,
+            ),
+          ),
+          child: IconButton(
+            onPressed: _handleFavoritePress,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Icon(
+              _isFavorited
+                  ? Icons.bookmark_rounded
+                  : Icons.bookmark_border_rounded,
+              color: _isFavorited
+                  ? const Color(0xFFFFD700)
+                  : Colors.white.withValues(alpha: 0.6),
+              size: 24,
+            ),
+          ),
+        ),
+        const SizedBox(width: 24),
+        IconButton(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+            if (!isAuth) {
+              ref
+                  .read(pendingActivityNotifierProvider.notifier)
+                  .set(PendingAction.chat, widget.article.id);
+              _showAuthSheet();
+              return;
+            }
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (context) => AiQuickChatSheet(article: widget.article),
+            );
+          },
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          icon: Icon(
+            Icons.auto_awesome,
+            color: Colors.white.withValues(alpha: 0.6),
+            size: 22,
+          ),
+        ),
+        const Spacer(),
+        if (widget.index < widget.total - 1)
+          Icon(
+            Icons.keyboard_double_arrow_up_rounded,
+            color: catColor.withValues(alpha: 0.4),
+            size: 20,
+          ),
+      ],
     );
   }
 
@@ -645,7 +705,10 @@ class _PageIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (kReleaseMode) return const SizedBox.shrink();
+    if (_hideFeedIndicators) return const SizedBox.shrink();
+    // Hidden in Profile/Release so screenshots match Play Store builds.
+    // Still available in Debug for development.
+    if (!kDebugMode) return const SizedBox.shrink();
 
     return Row(
       children: [
