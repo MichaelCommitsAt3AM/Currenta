@@ -37,7 +37,9 @@ void _reportError(Object error, StackTrace stack, {bool fatal = false}) {
       error is DioException ||
       errorStr.contains('AuthRetryableFetchException') ||
       errorStr.contains('Failed host lookup') ||
-      errorStr.contains('ClientException with SocketException')) {
+      errorStr.contains('ClientException with SocketException') ||
+      errorStr.contains('firebase_app_check') ||
+      errorStr.contains('Integrity API error')) {
     isNonFatal = true;
   }
 
@@ -115,22 +117,24 @@ Future<void> main() async {
   String errorMessage = '';
 
   try {
-    // 1. Initialize Firebase with a safety guard
-    try {
-      await Firebase.initializeApp(
-        options: AppConfig.isProd
-            ? prod.DefaultFirebaseOptions.currentPlatform
-            : dev.DefaultFirebaseOptions.currentPlatform,
-      );
-    } catch (e) {
-      // If the app is already initialized, we can safely ignore this error
-      if (!e.toString().contains('duplicate-app')) {
-        rethrow;
-      }
-    }
-
-    // 2. Initialize other services in parallel
+    // Initialize core heavy-hitters concurrently to minimize blocking time
     final initResults = await Future.wait([
+      // 1. Initialize Firebase with a safety guard
+      (() async {
+        try {
+          await Firebase.initializeApp(
+            options: AppConfig.isProd
+                ? prod.DefaultFirebaseOptions.currentPlatform
+                : dev.DefaultFirebaseOptions.currentPlatform,
+          );
+        } catch (e) {
+          // If the app is already initialized, we can safely ignore this error
+          if (!e.toString().contains('duplicate-app')) {
+            rethrow;
+          }
+        }
+      })(),
+      // 2. Initialize Supabase
       Supabase.initialize(
         url: AppConfig.supabaseUrl,
         anonKey: AppConfig.supabaseAnonKey,
@@ -138,10 +142,11 @@ Future<void> main() async {
           localStorage: SecureAuthStorage(),
         ),
       ),
+      // 3. Initialize SharedPreferences
       SharedPreferences.getInstance(),
     ]);
 
-    prefs = initResults[1] as SharedPreferences;
+    prefs = initResults[2] as SharedPreferences;
     hasCompletedOnboarding =
         prefs.getBool('has_completed_onboarding') ?? false;
 
@@ -165,18 +170,22 @@ Future<void> main() async {
         appleProvider: AppleProvider.deviceCheck,
       ).then((_) {
         // Pre-warm the token so the first feed request finds it in cache.
-        FirebaseAppCheck.instance.getToken();
+        return FirebaseAppCheck.instance.getToken();
+      }).catchError((e) {
+        debugPrint('[AppCheck] Activation or pre-warming failed: $e');
+        return null;
       }));
     }
 
     // ── Pre-Warm AdMob SDK ───────────────────────────────────────────────────
-    // Await initialization synchronously so the first feed card preloader is fully authorized.
-    await MobileAds.instance.initialize();
-    await MobileAds.instance.updateRequestConfiguration(
-      RequestConfiguration(
-        testDeviceIds: ['B5BA899FC742C00FC339B57C62EB9624'],
-      ),
-    );
+    // Initialize asynchronously without awaiting to prevent blocking splash screen removal.
+    unawaited(MobileAds.instance.initialize().then((_) {
+      // return MobileAds.instance.updateRequestConfiguration(
+      //   RequestConfiguration(
+      //     testDeviceIds: ['B5BA899FC742C00FC339B57C62EB9624'],
+      //   ),
+      // );
+    }));
 
     // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
     // These tasks don't need to block the first frame.

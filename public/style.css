@@ -205,82 +205,134 @@ img {
     z-index: -1;
 }
 
-.hero-content {
-    display: grid;
-    grid-template-columns: 1.2fr 1fr;
-    gap: 40px;
+.hero-centered {
+    display: flex;
     align-items: center;
-    padding: 0 20px;
+    justify-content: center;
+    min-height: 100vh;
+    padding-top: 120px;
+    position: relative;
+    text-align: center;
+    overflow: hidden;
 }
 
-.hero-title {
-    font-size: clamp(40px, 8vw, 72px);
+.hero-bg-glow {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(108, 99, 255, 0.2) 0%, rgba(160, 118, 255, 0.05) 50%, transparent 100%);
+    filter: blur(60px);
+    z-index: 0;
+    pointer-events: none;
+    animation: slowPulse 8s ease-in-out infinite alternate;
+}
+
+@keyframes slowPulse {
+    0% { transform: translateX(-50%) scale(0.9); opacity: 0.7; }
+    100% { transform: translateX(-50%) scale(1.1); opacity: 1; }
+}
+
+.hero-content-centered {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    padding: 0 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+    backdrop-filter: blur(10px);
+}
+
+.badge-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--primary);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--primary);
+}
+
+.hero-centered .hero-title {
+    font-size: clamp(44px, 8vw, 80px);
     font-weight: 800;
-    line-height: 1.1;
-    margin-bottom: 24px;
+    line-height: 1.05;
+    margin-bottom: 28px;
     letter-spacing: -2px;
 }
 
-.hero-description {
-    font-size: clamp(16px, 2vw, 20px);
+.hero-centered .hero-description {
+    font-size: clamp(17px, 2.5vw, 21px);
     color: var(--text-dim);
-    margin-bottom: 40px;
-    max-width: 540px;
+    margin-bottom: 48px;
+    max-width: 640px;
+    line-height: 1.6;
 }
 
-.hero-ctas {
+.hero-centered .hero-ctas {
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 32px;
+    margin-bottom: 60px;
+    width: 100%;
 }
 
-.store-placeholder {
+.hero-metrics {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 24px 48px;
+    border-radius: 24px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    width: 100%;
+    max-width: 720px;
+}
+
+.metric-item {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    gap: 4px;
 }
 
-.coming-soon {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
+.metric-val {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.metric-label {
+    font-size: 13px;
     color: var(--text-dim);
-    font-weight: 600;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
-.badges {
-    display: flex;
-    gap: 16px;
-}
-
-.badge {
+.metric-divider {
+    width: 1px;
     height: 40px;
-    opacity: 0.5;
-    filter: grayscale(1);
-    transition: 0.3s;
-}
-
-.badge:hover {
-    opacity: 1;
-    filter: grayscale(0);
-}
-
-.mockup-container {
-    width: 100%;
-    max-width: 500px;
-    margin: 0 auto;
-    position: relative;
-}
-
-.main-mockup {
-    width: 100%;
-    filter: drop-shadow(0 20px 50px rgba(0,0,0,0.5));
-    animation: float 6s ease-in-out infinite;
-}
-
-@keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-20px); }
+    background: rgba(255, 255, 255, 0.08);
 }
 
 #scroll-indicator {
@@ -528,28 +580,22 @@ footer {
     .container { padding: 0 20px; }
     
     #hero {
-        padding-top: 120px;
-        text-align: center;
-    }
-    
-    .hero-content {
-        grid-template-columns: 1fr;
-    }
-    
-    .hero-description {
-        margin: 0 auto 40px;
-    }
-    
-    .hero-ctas {
-        align-items: center;
+        padding-top: 100px;
     }
     
     .badges {
         justify-content: center;
     }
     
-    .mockup-container {
-        margin-top: 60px;
+    .hero-metrics {
+        flex-direction: column;
+        gap: 20px;
+        padding: 24px;
+    }
+    
+    .metric-divider {
+        width: 80px;
+        height: 1px;
     }
 }
 

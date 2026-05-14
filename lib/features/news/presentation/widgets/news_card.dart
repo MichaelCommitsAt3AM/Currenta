@@ -706,9 +706,9 @@ class _PageIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (_hideFeedIndicators) return const SizedBox.shrink();
-    // Hidden in Profile/Release so screenshots match Play Store builds.
-    // Still available in Debug for development.
-    if (!kDebugMode) return const SizedBox.shrink();
+    // Hidden in Release build so production UI matches intended store look.
+    // Enabled in Debug and Profile builds for testing and profiling.
+    if (kReleaseMode) return const SizedBox.shrink();
 
     return Row(
       children: [
