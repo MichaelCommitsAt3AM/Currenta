@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "703509294568-chlm1kbo6k4ppq7etae9q70kecs18nb8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.currenta.dev",
+            "certificate_hash": "32f008d9e568ee22d5aed1f637c7176a2a52cf41"
+          }
+        },
+        {
           "client_id": "703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com",
           "client_type": 3
         }

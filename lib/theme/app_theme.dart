@@ -16,84 +16,96 @@ class AppTheme {
   static const Color _textSecondary = Color(0xFF8890B5);
   static const Color _border = Color(0xFF262A3E);
 
-  static ThemeData get dark => ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: _bgDeep,
-        colorScheme: const ColorScheme.dark(
-          primary: _accent,
-          secondary: _accentAlt,
-          surface: _bgSurface,
-          onPrimary: Colors.white,
-          onSurface: _textPrimary,
+  static ThemeData get dark {
+    // 1. Create a base dark text theme mapped to Inter to prevent fallback distortions
+    final baseTextTheme = ThemeData.dark().textTheme.apply(
+          fontFamily: 'Inter',
+          bodyColor: _textSecondary,
+          displayColor: _textPrimary,
+        );
+
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      fontFamily: 'Inter',
+      scaffoldBackgroundColor: _bgDeep,
+      colorScheme: const ColorScheme.dark(
+        primary: _accent,
+        secondary: _accentAlt,
+        surface: _bgSurface,
+        onPrimary: Colors.white,
+        onSurface: _textPrimary,
+      ),
+
+      // 2. Optimized TextTheme using precise Variable Font weights
+      textTheme: baseTextTheme.copyWith(
+        displayLarge: baseTextTheme.displayLarge?.copyWith(
+          color: _textPrimary,
+          fontWeight: FontWeight.w600, // Reduced from w700 (Bold -> Semi-Bold)
+          fontSize: 28,
         ),
-        textTheme:
-            ThemeData.dark().textTheme.apply(fontFamily: 'Inter').copyWith(
-          displayLarge: const TextStyle(
-            fontFamily: 'Inter',
-            color: _textPrimary,
-            fontWeight: FontWeight.w700,
-            fontSize: 28,
-          ),
-          titleLarge: const TextStyle(
-            fontFamily: 'Inter',
-            color: _textPrimary,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-            height: 1.3,
-          ),
-          bodyMedium: const TextStyle(
-            fontFamily: 'Inter',
-            color: _textSecondary,
-            fontWeight: FontWeight.w400,
-            fontSize: 14,
-            height: 1.6,
-          ),
-          labelSmall: const TextStyle(
-            fontFamily: 'Inter',
-            color: _textSecondary,
-            fontWeight: FontWeight.w500,
-            fontSize: 11,
-            letterSpacing: 0.5,
-          ),
+        titleLarge: baseTextTheme.titleLarge?.copyWith(
+          color: _textPrimary,
+          fontWeight:
+              FontWeight.w500, // Reduced from w600 (Semi-Bold -> Medium)
+          fontSize: 18,
+          height: 1.3,
         ),
-        cardTheme: CardThemeData(
-          color: _bgCard,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: _border, width: 1),
-          ),
-          margin: EdgeInsets.zero,
+        bodyMedium: baseTextTheme.bodyMedium?.copyWith(
+          color: _textSecondary,
+          fontWeight: FontWeight.w400, // Regular
+          fontSize: 14,
+          height: 1.6,
         ),
-        dividerColor: _border,
-        appBarTheme: AppBarTheme(
-          backgroundColor: _bgDeep,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          titleTextStyle: const TextStyle(
-            fontFamily: 'Inter',
-            color: _textPrimary,
-            fontWeight: FontWeight.w700,
-            fontSize: 22,
-          ),
-          iconTheme: const IconThemeData(color: _textPrimary),
+        labelSmall: baseTextTheme.labelSmall?.copyWith(
+          color: _textSecondary,
+          fontWeight: FontWeight.w500, // Medium
+          fontSize: 11,
+          letterSpacing: 0.5,
         ),
-        chipTheme: ChipThemeData(
-          backgroundColor: _bgSurface,
-          selectedColor: _accent.withValues(alpha: 0.2),
-          labelStyle: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(100),
-            side: const BorderSide(color: _border),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      ),
+
+      cardTheme: CardThemeData(
+        color: _bgCard,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: _border, width: 1),
         ),
-      );
+        margin: EdgeInsets.zero,
+      ),
+      dividerColor: _border,
+
+      appBarTheme: AppBarTheme(
+        backgroundColor: _bgDeep,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleTextStyle: const TextStyle(
+          fontFamily: 'Inter', // Explicit family for safety
+          color: _textPrimary,
+          fontWeight:
+              FontWeight.w600, // Reduced from w700 to match premium look
+          fontSize: 22,
+        ),
+        iconTheme: const IconThemeData(color: _textPrimary),
+      ),
+
+      chipTheme: ChipThemeData(
+        backgroundColor: _bgSurface,
+        selectedColor: _accent.withValues(alpha: 0.2),
+        labelStyle: const TextStyle(
+          fontFamily: 'Inter', // Explicit family for safety
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(100),
+          side: const BorderSide(color: _border),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      ),
+    );
+  }
 
   // ── Category Colors ────────────────────────────────────────────
   static const Map<String, Color> categoryColors = {

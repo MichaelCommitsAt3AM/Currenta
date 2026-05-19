@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
 import '../screens/trending_screen.dart';
-import '../../application/trending_notifier.dart';
 import '../../application/sidebar_trending_notifier.dart';
 import '../../domain/entities/news_article.dart';
 import '../../../../theme/theme.dart';
@@ -102,7 +101,6 @@ class Sidebar extends ConsumerWidget {
                     Text(
                       'Currenta',
                       style: const TextStyle(
-                        fontFamily: 'Outfit',
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -386,9 +384,10 @@ class _TrendingTile extends ConsumerWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
+                      fontFamily: 'Google Sans',
                       color: Colors.white,
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                       height: 1.3,
                     ),
                   ),

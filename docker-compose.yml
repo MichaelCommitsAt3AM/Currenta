@@ -9,6 +9,7 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - REDIS_URL=redis://redis:6379
       - LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1
       - LOCAL_LLM_MODEL=${OLLAMA_MODEL:-llama3.1}
@@ -40,6 +41,7 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - REDIS_URL=redis://redis:6379
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-4-lite}

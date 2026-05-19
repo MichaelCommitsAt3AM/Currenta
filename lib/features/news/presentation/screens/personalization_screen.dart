@@ -776,7 +776,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
-                                    fontFamily: 'Outfit',
                                   ),
                                 ),
                         ),

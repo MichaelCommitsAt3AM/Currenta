@@ -124,10 +124,12 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> signInWithGoogle({String? expectedEmail}) async {
     try {
+      debugPrint('[Auth] Google sign-in started (expectedEmail=${expectedEmail ?? "none"})');
       final googleSignIn = GoogleSignIn.instance;
 
       // 1. Initialize once
       if (!_isGoogleSignInInitialized) {
+        debugPrint('[Auth] Initializing GoogleSignIn (serverClientId set=${AppConfig.googleWebClientId.isNotEmpty})');
         await googleSignIn.initialize(
           serverClientId: AppConfig.googleWebClientId,
         );
@@ -136,6 +138,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
       // 2. Trigger native picker
       final googleUser = await googleSignIn.authenticate();
+      debugPrint('[Auth] Google user selected: ${googleUser.email}');
 
       // 3. Verify email if expectedEmail is provided (Linking case)
       if (expectedEmail != null && googleUser.email != expectedEmail) {
@@ -149,6 +152,7 @@ class AuthRepositoryImpl implements AuthRepository {
       // 4. Get tokens
       final googleAuth = googleUser.authentication;
       final idToken = googleAuth.idToken;
+      debugPrint('[Auth] Google tokens received: idToken=${idToken != null}');
 
       if (idToken == null) {
         throw const ServerException('No ID Token found. Please try again.');
@@ -160,20 +164,25 @@ class AuthRepositoryImpl implements AuthRepository {
       final isAnonymous = currentSession?.user.isAnonymous ?? false;
 
       if (isAnonymous) {
+        debugPrint('[Auth] Anonymous session detected. Signing out locally before Google sign-in.');
         await _supabase.auth.signOut(scope: SignOutScope.local);
       }
 
       // 5. Sign in to Supabase
+      debugPrint('[Auth] Signing in to Supabase with Google ID token...');
       await _supabase.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
       );
+
+      debugPrint('[Auth] Supabase sign-in completed. userId=${_supabase.auth.currentUser?.id} isAnonymous=${_supabase.auth.currentUser?.isAnonymous}');
 
       // 6. Migration is now handled selectively by the caller via checkPersonalizationConflict
       // and selectiveMigrateUserData. Auto-migration removed.
     } on GoogleSignInException catch (e) {
       debugPrint('[Auth] GoogleSignInException: ${e.code}, $e');
       if (e.code == GoogleSignInExceptionCode.canceled) {
+        debugPrint('[Auth] Google sign-in canceled by user.');
         return;
       }
       throw ServerException(

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "local")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini").lower()
 RAW_LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
 LOCAL_LLM_BASE_URL = RAW_LOCAL_LLM_BASE_URL.rstrip("/")
 if not LOCAL_LLM_BASE_URL.endswith("/v1"):
@@ -936,7 +936,7 @@ async def summarize_article(
             if not gen_client:
                 raise ValueError(f"Provider '{provider}' is not configured.")
 
-            max_retries = 3
+            max_retries = 5
             base_delay = 2.0  # seconds
             
             for attempt in range(max_retries + 1):
@@ -945,7 +945,6 @@ async def summarize_article(
                         model="gemini-2.5-flash-lite",
                         contents=full_prompt,
                         config=genai_types.GenerateContentConfig(
-                            max_output_tokens=500,
                             temperature=0.1,
                             response_mime_type="application/json"
                         )
@@ -953,11 +952,15 @@ async def summarize_article(
                     raw_content = response.text.strip()
                     break
                 except Exception as e:
-                    err_msg = str(e)
-                    # Handle "503 UNAVAILABLE" or "high demand" which is usually transient
-                    if attempt < max_retries and ("503" in err_msg or "UNAVAILABLE" in err_msg or "high demand" in err_msg.lower()):
-                        delay = base_delay * (2 ** attempt)
-                        logger.warning(f"[summarize_article] Gemini API {provider} busy (attempt {attempt+1}/{max_retries}). Retrying in {delay}s...")
+                    err_msg = str(e).lower()
+                    is_transient = any(
+                        err in err_msg 
+                        for err in ("503", "unavailable", "busy", "429", "rate limit", "exhausted", "500", "internal", "timeout", "connect", "connection", "http")
+                    )
+                    if attempt < max_retries and is_transient:
+                        import random
+                        delay = (base_delay * (2 ** attempt)) + random.uniform(0.1, 1.0)
+                        logger.warning(f"[summarize_article] Gemini API {provider} error (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
                         await asyncio.sleep(delay)
                         continue
                     # Re-raise if we're out of retries or it's a different error

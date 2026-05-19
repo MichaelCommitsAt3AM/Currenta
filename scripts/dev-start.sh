@@ -53,7 +53,9 @@ echo ""
 # ── 1. Dependency checks ──────────────────────────────────────────────────────
 info "Checking dependencies..."
 
-command -v ollama >/dev/null 2>&1 || die "ollama not found. Install from https://ollama.com/"
+if [[ "${EMBEDDING_PROVIDER:-}" == "local" || "${LLM_PROVIDER:-}" == "local" ]]; then
+  command -v ollama >/dev/null 2>&1 || die "ollama not found. Install from https://ollama.com/"
+fi
 command -v ngrok  >/dev/null 2>&1 || die "ngrok not found. Install from https://ngrok.com/download"
 command -v curl   >/dev/null 2>&1 || die "curl not found. Please install curl."
 command -v jq     >/dev/null 2>&1 || warn "jq not found — ngrok URL extraction may fall back to grep. (sudo apt install jq)"
@@ -70,47 +72,51 @@ ok "All dependencies found"
 echo ""
 
 # ── 2. Ollama ─────────────────────────────────────────────────────────────────
-hr
-echo -e "${BOLD}  Step 1 · Ollama${RESET}"
-hr
+if [[ "${EMBEDDING_PROVIDER:-}" == "local" || "${LLM_PROVIDER:-}" == "local" ]]; then
+  hr
+  echo -e "${BOLD}  Step 1 · Ollama${RESET}"
+  hr
 
-OLLAMA_READY=false
+  OLLAMA_READY=false
 
-# Check if Ollama is already responding
-if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-  ok "Ollama is already running on port ${OLLAMA_PORT}"
-  OLLAMA_READY=true
-else
-  # Try to start via systemd (preferred — ensures OLLAMA_ORIGINS=* is set)
-  if systemctl is-active --quiet ollama 2>/dev/null; then
-    info "Restarting Ollama service..."
-    sudo systemctl restart ollama
-  elif systemctl list-unit-files ollama.service >/dev/null 2>&1; then
-    info "Starting Ollama service..."
-    sudo systemctl start ollama
+  # Check if Ollama is already responding
+  if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
+    ok "Ollama is already running on port ${OLLAMA_PORT}"
+    OLLAMA_READY=true
   else
-    # Fallback: start ollama serve in the background
-    warn "Ollama systemd service not found — starting 'ollama serve' in background."
-    warn "OLLAMA_ORIGINS may not be set. Run 'sudo bash scripts/setup-ollama.sh' if you see CORS errors."
-    OLLAMA_ORIGINS="*" OLLAMA_KEEP_ALIVE="-1" nohup ollama serve \
-      >"${PROJECT_ROOT}/.ollama.log" 2>&1 &
-    echo $! >"${PROJECT_ROOT}/.ollama.pid"
-    info "Ollama PID $(cat "${PROJECT_ROOT}/.ollama.pid") — logs: .ollama.log"
+    # Try to start via systemd (preferred — ensures OLLAMA_ORIGINS=* is set)
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+      info "Restarting Ollama service..."
+      sudo systemctl restart ollama
+    elif systemctl list-unit-files ollama.service >/dev/null 2>&1; then
+      info "Starting Ollama service..."
+      sudo systemctl start ollama
+    else
+      # Fallback: start ollama serve in the background
+      warn "Ollama systemd service not found — starting 'ollama serve' in background."
+      warn "OLLAMA_ORIGINS may not be set. Run 'sudo bash scripts/setup-ollama.sh' if you see CORS errors."
+      OLLAMA_ORIGINS="*" OLLAMA_KEEP_ALIVE="-1" nohup ollama serve \
+        >"${PROJECT_ROOT}/.ollama.log" 2>&1 &
+      echo $! >"${PROJECT_ROOT}/.ollama.pid"
+      info "Ollama PID $(cat "${PROJECT_ROOT}/.ollama.pid") — logs: .ollama.log"
+    fi
+
+    # Wait up to 20 s for Ollama to respond
+    info "Waiting for Ollama to be ready..."
+    for i in $(seq 1 20); do
+      if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
+        OLLAMA_READY=true
+        break
+      fi
+      sleep 1
+    done
   fi
 
-  # Wait up to 20 s for Ollama to respond
-  info "Waiting for Ollama to be ready..."
-  for i in $(seq 1 20); do
-    if curl -sf "http://localhost:${OLLAMA_PORT}/api/tags" >/dev/null 2>&1; then
-      OLLAMA_READY=true
-      break
-    fi
-    sleep 1
-  done
-fi
-
-if [[ "${OLLAMA_READY}" != "true" ]]; then
-  die "Ollama did not become ready within 20 seconds. Check 'journalctl -u ollama -n 50' or .ollama.log"
+  if [[ "${OLLAMA_READY}" != "true" ]]; then
+    die "Ollama did not become ready within 20 seconds. Check 'journalctl -u ollama -n 50' or .ollama.log"
+  fi
+else
+  info "Skipping local Ollama setup (EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-voyage} & LLM_PROVIDER=${LLM_PROVIDER:-gemini})"
 fi
 
 # Verify Embedding model is available (if local)
@@ -196,8 +202,14 @@ fi
 
 # Start ngrok in the background for the backend
 info "Starting ngrok tunnel for backend (port ${BACKEND_PORT})..."
-nohup ngrok start --config "/home/linux/.config/ngrok/ngrok.yml" --config "${NGROK_CONFIG}" backend \
-  >"${PROJECT_ROOT}/.ngrok.log" 2>&1 &
+NGROK_DEFAULT_CONFIG="${HOME}/.config/ngrok/ngrok.yml"
+if [[ -f "${NGROK_DEFAULT_CONFIG}" ]]; then
+  nohup ngrok start --config "${NGROK_DEFAULT_CONFIG}" --config "${NGROK_CONFIG}" backend \
+    >"${PROJECT_ROOT}/.ngrok.log" 2>&1 &
+else
+  nohup ngrok start --config "${NGROK_CONFIG}" backend \
+    >"${PROJECT_ROOT}/.ngrok.log" 2>&1 &
+fi
 NGROK_PID=$!
 echo "${NGROK_PID}" >"${PROJECT_ROOT}/.ngrok.pid"
 info "ngrok PID ${NGROK_PID} — logs: .ngrok.log"

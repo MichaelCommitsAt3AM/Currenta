@@ -7,7 +7,7 @@ part of 'trending_filters_notifier.dart';
 // **************************************************************************
 
 String _$trendingFiltersNotifierHash() =>
-    r'fba8756372fadf1b912d6b982d401cc83df58159';
+    r'a49c86fc39e2ec2bb97c42110bcf4f8b2a40e6b6';
 
 /// See also [TrendingFiltersNotifier].
 @ProviderFor(TrendingFiltersNotifier)

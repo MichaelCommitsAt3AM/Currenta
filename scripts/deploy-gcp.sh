@@ -33,7 +33,13 @@ if [[ ! -f "${ROOT_DIR}/cloudbuild.yaml" ]]; then
 fi
 
 if [[ "${SKIP_PRECHECKS}" != "true" ]]; then
-  if [[ -x "${ROOT_DIR}/venv/bin/python" ]]; then
+  if [[ -x "${ROOT_DIR}/backend/.venv/bin/python" ]]; then
+    PYTHON_BIN="${ROOT_DIR}/backend/.venv/bin/python"
+  elif [[ -x "${ROOT_DIR}/backend/venv/bin/python" ]]; then
+    PYTHON_BIN="${ROOT_DIR}/backend/venv/bin/python"
+  elif [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+    PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
+  elif [[ -x "${ROOT_DIR}/venv/bin/python" ]]; then
     PYTHON_BIN="${ROOT_DIR}/venv/bin/python"
   elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3)"

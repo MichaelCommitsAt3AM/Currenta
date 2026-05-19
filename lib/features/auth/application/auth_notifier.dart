@@ -159,6 +159,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         )) {
     // Listen to Supabase auth state changes
     _authSubscription = _repository.authStateChanges.listen((isAuthenticated) async {
+      debugPrint('[Auth] authStateChanges: isAuthenticated=$isAuthenticated isAnonymous=${_repository.isAnonymous}');
       String? country;
       String? name;
       String? avatar;
@@ -246,6 +247,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     state = state.copyWith(isLoading: true, error: null);
     try {
+      debugPrint('[Auth] signInWithGoogle started (wasAuthenticated=$wasAuthenticated, oldGuestUid=${oldGuestUid ?? "none"})');
       // If the user is already authenticated, enforce that the Google account
       // must match their current email to allow linking.
       await _repository.signInWithGoogle(
@@ -253,6 +255,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
 
       await _handleSignInResult(oldGuestUid);
+      debugPrint('[Auth] signInWithGoogle completed (isAuthenticated=${state.isAuthenticated}, isAnonymous=${state.isAnonymous})');
       state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());

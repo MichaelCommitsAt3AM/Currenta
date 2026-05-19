@@ -3,7 +3,6 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/trending_filters.dart';
 import '../../../core/providers/providers.dart';
-import '../../auth/application/auth_notifier.dart';
 
 part 'trending_filters_notifier.g.dart';
 
@@ -16,11 +15,8 @@ class TrendingFiltersNotifier extends _$TrendingFiltersNotifier {
     
     if (saved != null) return saved;
 
-    // Default to user's detected country if no filters saved yet
-    final authState = ref.watch(authNotifierProvider);
-    final userCountry = authState.preferredCountry;
-    
-    return TrendingFilters(countryCode: userCountry);
+    // Default to global if no filters saved yet
+    return const TrendingFilters(countryCode: null);
   }
 
   Future<void> updateFilters(TrendingFilters filters) async {

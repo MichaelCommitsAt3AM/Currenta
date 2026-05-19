@@ -208,7 +208,6 @@ async def chat_with_article(
             config=genai_types.GenerateContentConfig(
                 system_instruction=_build_system_instruction(article),
                 tools=[_GOOGLE_SEARCH_TOOL],
-                max_output_tokens=1024,
                 temperature=0.7,
             ),
             history=history,
@@ -217,8 +216,32 @@ async def chat_with_article(
         # 6. Stream the response
         async def generate():
             received_any_text = False
+            max_retries = 3
+            base_delay = 1.0  # seconds
+            
+            stream = None
+            for attempt in range(max_retries + 1):
+                try:
+                    stream = await chat_session.send_message_stream(last_message)
+                    break
+                except Exception as e:
+                    err_msg = str(e).lower()
+                    is_transient = any(
+                        err in err_msg 
+                        for err in ("503", "unavailable", "busy", "429", "rate limit", "exhausted", "500", "internal", "timeout", "connect", "connection", "http")
+                    )
+                    if attempt < max_retries and is_transient:
+                        import random
+                        delay = (base_delay * (2 ** attempt)) + random.uniform(0.1, 0.5)
+                        logger.warning(f"[chat] Gemini API error (attempt {attempt+1}/{max_retries}): {e}. Retrying in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+                        continue
+                    logger.error("Chat stream initiation failed: %s", e)
+                    yield json.dumps({"error": f"Failed to connect to AI service: {str(e)}"}) + "\n"
+                    return
+
             try:
-                async for chunk in await chat_session.send_message_stream(last_message):
+                async for chunk in stream:
                     try:
                         # Check safety finish reason
                         if chunk.candidates:

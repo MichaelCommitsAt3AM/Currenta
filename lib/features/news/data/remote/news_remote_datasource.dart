@@ -17,6 +17,29 @@ class NewsRemoteDataSource {
 
   final Dio _dio;
 
+  Future<Session?> _getValidSession() async {
+    final auth = Supabase.instance.client.auth;
+    final session = auth.currentSession;
+    if (session == null) return null;
+
+    final expiresAt = session.expiresAt;
+    if (expiresAt == null) return session;
+
+    final expiry =
+        DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000, isUtc: true);
+    final now = DateTime.now().toUtc();
+
+    if (now.isAfter(expiry.subtract(const Duration(minutes: 1)))) {
+      try {
+        await auth.refreshSession();
+      } catch (e) {
+        debugPrint('[Remote] Session refresh failed: $e');
+      }
+    }
+
+    return auth.currentSession;
+  }
+
   /// Fetches articles from the FastAPI backend using session-based pagination.
   Future<FeedResponse> fetchArticles({
     NewsCategory? category,
@@ -46,7 +69,7 @@ class NewsRemoteDataSource {
       }
 
       // Pass the Supabase JWT to authenticate the feed request asymmetrically
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       String? appCheckToken;
       if (AppConfig.isProd && kReleaseMode) {
@@ -118,7 +141,7 @@ class NewsRemoteDataSource {
   Future<void> trackArticleView(String articleId) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/view';
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       final options = Options(
         headers: {
@@ -138,7 +161,7 @@ class NewsRemoteDataSource {
   Future<void> toggleArticleFavorite(String articleId) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/favorite';
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       final options = Options(
         headers: {
@@ -157,7 +180,7 @@ class NewsRemoteDataSource {
   Future<void> toggleArticleLike(String articleId) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/like';
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       final options = Options(
         headers: {
@@ -180,7 +203,7 @@ class NewsRemoteDataSource {
   }) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/liked';
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       final options = Options(
         headers: {
@@ -214,7 +237,7 @@ class NewsRemoteDataSource {
         if (hours != null) 'hours': hours,
       };
 
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
       final options = Options(
         headers: {
           if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
@@ -236,7 +259,7 @@ class NewsRemoteDataSource {
   Future<void> clearUserState() async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/user-state';
-      final session = Supabase.instance.client.auth.currentSession;
+      final session = await _getValidSession();
 
       final options = Options(
         headers: {

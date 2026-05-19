@@ -62,7 +62,6 @@ class LocationUpdatePopup extends ConsumerWidget {
               color: Colors.white,
               fontSize: 24,
               fontWeight: FontWeight.w800,
-              fontFamily: 'Outfit',
               letterSpacing: -0.5,
             ),
           ),
@@ -75,7 +74,6 @@ class LocationUpdatePopup extends ConsumerWidget {
                 color: Colors.white.withValues(alpha: 0.7),
                 fontSize: 16,
                 height: 1.5,
-                fontFamily: 'Inter',
               ),
               children: [
                 const TextSpan(text: 'It looks like you\'re in '),
