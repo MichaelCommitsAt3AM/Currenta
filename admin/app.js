@@ -4,8 +4,8 @@ const CONFIG = {
     // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
     API_BASE_URL: 'https://currenta-backend-etzmdxn4fa-ey.a.run.app', // PRODUCTION
     
-    SUPABASE_URL: 'https://trfqhobnkgtfccrdsexa.supabase.co',
-    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODI1NzMsImV4cCI6MjA4Nzg1ODU3M30.CkbozQuTUm5v9X_eQoVdceI41QVXau9pivfqLDJOjfk',
+    SUPABASE_URL: 'https://cilocxpvkcbqepzqywtr.supabase.co',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpbG9jeHB2a2NicWVwenF5d3RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MDg1NDQsImV4cCI6MjA5NTE4NDU0NH0.cVlzaMfkISrE8m47RE1d5WV7mexlKeegy9SEELm1HPs',
     
     // --- Session Security Config ---
     SESSION_LIMIT_MS: 12 * 60 * 60 * 1000, // 12 hours

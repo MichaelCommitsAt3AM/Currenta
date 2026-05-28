@@ -41,13 +41,13 @@ class AppTheme {
       textTheme: baseTextTheme.copyWith(
         displayLarge: baseTextTheme.displayLarge?.copyWith(
           color: _textPrimary,
-          fontWeight: FontWeight.w600, // Reduced from w700 (Bold -> Semi-Bold)
+          fontWeight: FontWeight.w700, // Restored to w700
           fontSize: 28,
         ),
         titleLarge: baseTextTheme.titleLarge?.copyWith(
           color: _textPrimary,
           fontWeight:
-              FontWeight.w500, // Reduced from w600 (Semi-Bold -> Medium)
+              FontWeight.w600, // Restored to w600
           fontSize: 18,
           height: 1.3,
         ),
@@ -84,7 +84,7 @@ class AppTheme {
           fontFamily: 'Inter', // Explicit family for safety
           color: _textPrimary,
           fontWeight:
-              FontWeight.w600, // Reduced from w700 to match premium look
+              FontWeight.w700, // Restored to w700
           fontSize: 22,
         ),
         iconTheme: const IconThemeData(color: _textPrimary),

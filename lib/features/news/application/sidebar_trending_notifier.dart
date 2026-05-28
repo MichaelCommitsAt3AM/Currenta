@@ -17,7 +17,10 @@ class SidebarTrendingNotifier extends _$SidebarTrendingNotifier {
   @override
   Future<List<NewsArticle>> build() async {
     final authState = ref.watch(authNotifierProvider);
-    final userCountry = authState.preferredCountry;
+    final deviceCountry = PlatformDispatcher.instance.locale.countryCode;
+    final userCountry = authState.preferredCountry ??
+        authState.detectedCountry ??
+        (deviceCountry != null && deviceCountry.isNotEmpty ? deviceCountry : null);
 
     return _fetch(userCountry);
   }
@@ -92,7 +95,12 @@ class SidebarTrendingNotifier extends _$SidebarTrendingNotifier {
   }
 
   Future<void> refresh() async {
-    final userCountry = ref.read(authNotifierProvider).preferredCountry;
+    final authState = ref.read(authNotifierProvider);
+    final deviceCountry = PlatformDispatcher.instance.locale.countryCode;
+    final userCountry = authState.preferredCountry ??
+        authState.detectedCountry ??
+        (deviceCountry != null && deviceCountry.isNotEmpty ? deviceCountry : null);
+
     state = const AsyncLoading();
     state = await AsyncValue.guard(() => _fetch(userCountry));
   }

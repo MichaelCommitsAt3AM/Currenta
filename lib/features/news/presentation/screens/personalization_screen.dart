@@ -771,11 +771,12 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                   ),
                                 )
-                              : const Text(
+                               : const Text(
                                   'Save Preferences',
                                   style: TextStyle(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w300,
+                                    fontFamily: 'Outfit',
                                   ),
                                 ),
                         ),

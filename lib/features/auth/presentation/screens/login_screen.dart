@@ -63,7 +63,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (next.error != null) {
         AppSnackbar.showError(context, next.error!);
       }
-      if (next.isAuthenticated && !next.isLoading && !next.needsOtp) {
+      if (next.isAuthenticated && !next.isLoading && !next.needsOtp && next.error == null) {
         if (next.needsConflictResolution && next.conflictData != null) {
           debugPrint('[Login] Conflict detected! Showing resolution dialog...');
           Navigator.of(context).push(
@@ -107,16 +107,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             debugPrint('[Login] Cannot pop! Maybe we are at the root?');
           }
         }
-      } else if (next.needsOtp && next.pendingEmail != null && previous?.needsOtp != true) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => OtpVerificationScreen(
-              email: next.pendingEmail!,
-              type: 'recovery',
-            ),
-          ),
-        );
       }
     });
 

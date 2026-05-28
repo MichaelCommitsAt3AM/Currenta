@@ -74,3 +74,9 @@ android/key.properties
 
 # Screenshot testing
 /screenshots
+scratch/public_user_data.sql
+scratch/only_user_data.sql
+scratch/old_schema.sql
+scratch/auth_data.sql
+scratch/filtered_auth_data.sql
+scratch/filtered_public_user_data.sql

@@ -35,6 +35,35 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   bool _canResend = true;
 
   @override
+  void initState() {
+    super.initState();
+    final key = '${widget.email}-${widget.type}';
+    final cooldowns = ref.read(otpResendCooldownsProvider);
+    final endTime = cooldowns[key];
+    
+    int initialSeconds = 0;
+    if (endTime != null) {
+      initialSeconds = endTime.difference(DateTime.now()).inSeconds;
+    } else {
+      // First time entering the screen: set a default 60-second cooldown
+      initialSeconds = 60;
+    }
+    
+    if (initialSeconds > 0) {
+      _secondsRemaining = initialSeconds;
+      _canResend = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _startTimer(initialSeconds);
+        }
+      });
+    } else {
+      _secondsRemaining = 0;
+      _canResend = true;
+    }
+  }
+
+  @override
   void dispose() {
     _timer?.cancel();
     for (var controller in _controllers) {
@@ -52,11 +81,19 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
 
   void _startTimer(int seconds) {
     _timer?.cancel();
+    
+    // Save the cooldown end time globally
+    final key = '${widget.email}-${widget.type}';
+    ref.read(otpResendCooldownsProvider.notifier).update((state) {
+      return {...state, key: DateTime.now().add(Duration(seconds: seconds))};
+    });
+
     setState(() {
       _secondsRemaining = seconds;
       _canResend = false;
     });
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
       setState(() {
         if (_secondsRemaining > 0) {
           _secondsRemaining--;
@@ -144,7 +181,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
         }
         AppSnackbar.showError(context, next.error!);
       }
-      if (next.isAuthenticated && !next.needsOtp) {
+      if (next.isAuthenticated && !next.needsOtp && next.error == null) {
         if (widget.type == 'recovery') {
           Navigator.pushReplacement(
             context,

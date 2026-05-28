@@ -71,7 +71,7 @@ echo "🧪  Testing CORS with Supabase origin..."
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -X POST http://localhost:11434/v1/embeddings \
   -H "Content-Type: application/json" \
-  -H "Origin: https://trfqhobnkgtfccrdsexa.supabase.co" \
+  -H "Origin: https://cilocxpvkcbqepzqywtr.supabase.co" \
   -d "{\"model\":\"${OLLAMA_MODEL}\",\"input\":\"test\"}")
 
 if [[ "${STATUS}" == "200" ]]; then

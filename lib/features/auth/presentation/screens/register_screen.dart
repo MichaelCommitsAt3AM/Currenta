@@ -92,7 +92,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
           ),
         );
-      } else if (next.isAuthenticated && !next.isLoading && !next.needsOtp) {
+      } else if (next.isAuthenticated && !next.isLoading && !next.needsOtp && next.error == null) {
         if (next.needsConflictResolution && next.conflictData != null) {
           debugPrint(
               '[Register] Conflict detected! Showing resolution dialog...');

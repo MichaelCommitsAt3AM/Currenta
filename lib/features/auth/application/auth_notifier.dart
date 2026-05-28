@@ -165,12 +165,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
       String? avatar;
       String? email;
       List<String> interests = [];
-      if (isAuthenticated || _repository.isAnonymous) {
-        country = await _repository.getPreferredCountry();
-        interests = await _repository.getUserInterests();
-        name = _repository.displayName;
-        avatar = _repository.avatarUrl;
-        email = _repository.email;
+      try {
+        if (isAuthenticated || _repository.isAnonymous) {
+          country = await _repository.getPreferredCountry();
+          interests = await _repository.getUserInterests();
+          name = _repository.displayName;
+          avatar = _repository.avatarUrl;
+          email = _repository.email;
+        }
+      } catch (e) {
+        debugPrint('[Auth] Error fetching profile details: $e');
       }
       debugPrint('[Auth] Profile loaded: country=$country, interestsCount=${interests.length}');
       state = state.copyWith(
@@ -230,9 +234,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
       String name, String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      await _repository.signUpWithEmail(
+      final needsOtp = await _repository.signUpWithEmail(
           email: email, password: password, name: name);
-      state = state.copyWith(isLoading: false, needsOtp: true, pendingEmail: email);
+      state = state.copyWith(
+        isLoading: false,
+        needsOtp: needsOtp,
+        pendingEmail: needsOtp ? email : null,
+      );
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
@@ -269,7 +277,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       await _repository.signOut();
       await _newsRepository.wipeLocalData();
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(
+        isLoading: false,
+        isAuthenticated: false,
+        isAnonymous: true,
+        isProfileLoaded: true,
+        preferredCountry: () => null,
+        selectedInterests: const [],
+        displayName: () => null,
+        avatarUrl: () => null,
+        email: () => null,
+      );
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {
@@ -289,7 +307,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // 3. Reset onboarding status for brand new user experience
       await _repository.clearOnboardingStatus();
       
-      state = state.copyWith(isLoading: false);
+      state = state.copyWith(
+        isLoading: false,
+        isAuthenticated: false,
+        isAnonymous: true,
+        isProfileLoaded: true,
+        preferredCountry: () => null,
+        selectedInterests: const [],
+        displayName: () => null,
+        avatarUrl: () => null,
+        email: () => null,
+      );
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {

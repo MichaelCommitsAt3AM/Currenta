@@ -39,7 +39,7 @@ if [[ $? -eq 0 ]]; then
     echo -e "Response: ${BOLD}${RESPONSE}${RESET}"
     echo ""
     echo -e "Trend analysis is now running in the background on the server."
-    echo -e "You can monitor progress with: ${BOLD}docker compose logs -f api${RESET}"
+    echo -e "You can monitor progress with: ${BOLD}docker compose logs -f worker${RESET}"
 else
     echo -e "❌ Failed to reach the backend at ${BACKEND_URL}"
     exit 1

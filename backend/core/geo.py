@@ -23,20 +23,35 @@ def get_reader():
             logger.warning(f"GeoIP database NOT FOUND at {MMDB_PATH}. Automatic detection will fail.")
     return _reader
 
+async def _get_public_ip_country_fallback() -> Optional[str]:
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get("https://ipapi.co/json/")
+            if response.status_code == 200:
+                data = response.json()
+                country = data.get("country_code")
+                if country and len(country) == 2:
+                    logger.info("Fallback GeoIP lookup resolved country: %s", country)
+                    return country.upper()
+    except Exception as e:
+        logger.warning("Fallback GeoIP lookup failed: %s", e)
+    return None
+
 async def get_country_from_ip(ip: str) -> Optional[str]:
     """
     Looks up the country code for an IP address using a local GeoLite2-Country database.
     Returns 2-letter ISO country code (e.g. 'KE', 'US') or None on failure.
     """
     if not ip or ip in ("127.0.0.1", "localhost", "::1"):
-        logger.debug("GeoIP lookup: Skipping loopback IP %s", ip)
-        return None
+        logger.debug("GeoIP lookup: Skipping loopback IP %s, triggering public IP fallback", ip)
+        return await _get_public_ip_country_fallback()
 
     try:
         ip_obj = ipaddress.ip_address(ip)
         if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
-            logger.info("GeoIP lookup: IP %s is private/reserved, detection skipping.", ip)
-            return None
+            logger.info("GeoIP lookup: IP %s is private/reserved, triggering public IP fallback.", ip)
+            return await _get_public_ip_country_fallback()
     except ValueError:
         logger.warning("GeoIP lookup skipped for invalid IP value: %s", ip)
         return None

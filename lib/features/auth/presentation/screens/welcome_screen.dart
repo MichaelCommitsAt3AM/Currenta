@@ -110,8 +110,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                   const Text(
                     'Currenta',
                     style: TextStyle(
+                      fontFamily: 'Outfit',
                       fontSize: 44,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w300,
                       color: Colors.white,
                       letterSpacing: -1.5,
                       height: 1,
@@ -125,6 +126,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                     'Modern news, simplified.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
+                      fontFamily: 'Inter',
                       fontSize: 18,
                       color: Color(0xFF8890B5),
                       letterSpacing: 0.2,
@@ -165,8 +167,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                       child: const Text(
                         'Get Started',
                         style: TextStyle(
+                          fontFamily: 'Outfit',
                           fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w300,
                         ),
                       ),
                     ),
@@ -187,6 +190,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                     child: RichText(
                       text: TextSpan(
                         style: const TextStyle(
+                          fontFamily: 'Inter',
                           fontSize: 15,
                           color: Color(0xFF8890B5),
                         ),

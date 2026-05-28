@@ -10,10 +10,10 @@ SELECT cron.schedule(
   '0 0 * * *', -- Every day at midnight
   $$
     SELECT net.http_post(
-      url     := 'https://trfqhobnkgtfccrdsexa.supabase.co/functions/v1/cleanup-ingestion-logs',
+      url     := 'https://cilocxpvkcbqepzqywtr.supabase.co/functions/v1/cleanup-ingestion-logs',
       headers := jsonb_build_object(
         'Content-Type',  'application/json',
-        'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyZnFob2Jua2d0ZmNjcmRzZXhhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjI4MjU3MywiZXhwIjoyMDg3ODU4NTczfQ.0ofHRzMPda84oLLCGkQJtMHJNtRg54udZGXE9I-paeA'
+        'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpbG9jeHB2a2NicWVwenF5d3RyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTYwODU0NCwiZXhwIjoyMDk1MTg0NTQ0fQ.irkHCIDRvZgeGlynNUD-7BjKgm-lRSDWskqKJQOwueQ'
       ),
       body    := '{}'::jsonb
     );

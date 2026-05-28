@@ -101,17 +101,20 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> signUpWithEmail({
+  Future<bool> signUpWithEmail({
     required String email,
     required String password,
     required String name,
   }) async {
     try {
-      await _supabase.auth.signUp(
+      final response = await _supabase.auth.signUp(
         email: email,
         password: password,
         data: {'full_name': name},
       );
+      // If a session is returned, the user is confirmed and signed in immediately (confirmations disabled).
+      // If session is null, email confirmation is enabled and OTP verification is required.
+      return response.session == null;
     } on AuthException catch (e) {
       throw AuthActionException(e.message);
     } catch (e) {

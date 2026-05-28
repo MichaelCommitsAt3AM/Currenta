@@ -1,5 +1,6 @@
 // lib/features/news/presentation/widgets/sidebar.dart
 
+import 'dart:ui';
 import 'package:currenta/features/news/domain/entities/news_category.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -101,9 +102,10 @@ class Sidebar extends ConsumerWidget {
                     Text(
                       'Currenta',
                       style: const TextStyle(
+                        fontFamily: 'Outfit',
                         color: Colors.white,
                         fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w300,
                         letterSpacing: -0.5,
                       ),
                     ),
@@ -196,14 +198,7 @@ class Sidebar extends ConsumerWidget {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: InkWell(
-                          onTap: () {
-                            Navigator.pop(context); // Close drawer
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => const TrendingScreen()),
-                            );
-                          },
+                          onTap: () => _navigateFromSidebar(context, const TrendingScreen()),
                           borderRadius: BorderRadius.circular(12),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -269,17 +264,10 @@ class Sidebar extends ConsumerWidget {
                                   final article = articles[index];
                                   return _TrendingTile(
                                     article: article,
-                                    onTap: () {
-                                      Navigator.pop(context); // Close drawer
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => TrendingScreen(
-                                            initialArticle: article,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                                    onTap: () => _navigateFromSidebar(
+                                      context,
+                                      TrendingScreen(initialArticle: article),
+                                    ),
                                   );
                                 },
                               );
@@ -310,14 +298,7 @@ class Sidebar extends ConsumerWidget {
                 icon: Icons.settings_outlined,
                 label: 'Settings',
                 color: Colors.white.withValues(alpha: 0.7),
-                onTap: () {
-                  Navigator.pop(context); // Close drawer first
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const SettingsScreen()),
-                  );
-                },
+                onTap: () => _navigateFromSidebar(context, const SettingsScreen()),
               ),
 
               const SizedBox(height: 12),
@@ -340,7 +321,11 @@ class _TrendingTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userCountry = ref.watch(authNotifierProvider).preferredCountry;
+    final authState = ref.watch(authNotifierProvider);
+    final deviceCountry = PlatformDispatcher.instance.locale.countryCode;
+    final userCountry = authState.preferredCountry ??
+        authState.detectedCountry ??
+        (deviceCountry != null && deviceCountry.isNotEmpty ? deviceCountry : null);
     final isLocal =
         article.countryCode != null && article.countryCode == userCountry;
 
@@ -384,10 +369,9 @@ class _TrendingTile extends ConsumerWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontFamily: 'Google Sans',
                       color: Colors.white,
                       fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
                   ),
@@ -478,4 +462,53 @@ class _SidebarTile extends StatelessWidget {
       ),
     );
   }
+}
+
+void _navigateFromSidebar(BuildContext context, Widget screen) {
+  final navigator = Navigator.of(context);
+  final drawerRoute = ModalRoute.of(context);
+
+  navigator.push(
+    PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => screen,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final slideAnimation = Tween<Offset>(
+          begin: const Offset(0.12, 0.0), // Elegant subtle slide in
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+        final fadeAnimation = Tween<double>(
+          begin: 0.0,
+          end: 1.0,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOut,
+          ),
+        );
+
+        return SlideTransition(
+          position: slideAnimation,
+          child: FadeTransition(
+            opacity: fadeAnimation,
+            child: child,
+          ),
+        );
+      },
+      transitionDuration: const Duration(milliseconds: 320),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+    ),
+  );
+
+  // Remove the drawer route silently once the new page is pushed
+  Future.delayed(const Duration(milliseconds: 350), () {
+    if (drawerRoute != null && drawerRoute.isActive && !drawerRoute.isCurrent) {
+      navigator.removeRoute(drawerRoute);
+    }
+  });
 }

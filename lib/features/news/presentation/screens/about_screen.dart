@@ -65,9 +65,10 @@ class AboutScreen extends StatelessWidget {
                 const Text(
                   'Currenta',
                   style: TextStyle(
+                    fontFamily: 'Outfit',
                     color: Colors.white,
                     fontSize: 32,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w300,
                     letterSpacing: -1,
                   ),
                 ),

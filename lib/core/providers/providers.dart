@@ -91,3 +91,6 @@ final localPersistenceRepositoryProvider = Provider<LocalPersistenceRepository>(
 
 /// Set to true to signal the FeedScreen to perform a visible hard refresh.
 final needsFeedRefreshProvider = StateProvider<bool>((ref) => false);
+
+/// Tracks OTP resend cooldown timestamps mapped by email-type key.
+final otpResendCooldownsProvider = StateProvider<Map<String, DateTime>>((ref) => {});

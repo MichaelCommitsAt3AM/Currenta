@@ -331,7 +331,8 @@ class _OnboardingPopup extends StatelessWidget {
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w300,
+                    fontFamily: 'Outfit',
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -341,6 +342,7 @@ class _OnboardingPopup extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.6),
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
+                    fontFamily: 'Inter',
                   ),
                 ),
               ],
@@ -381,7 +383,8 @@ class _GotItButton extends StatelessWidget {
           style: TextStyle(
             color: Colors.white,
             fontSize: 13,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w300,
+            fontFamily: 'Outfit',
           ),
         ),
       ),

@@ -111,15 +111,19 @@ async def get_trending_feed(
 ):
     """
     Returns the top trending articles.
-    If 'country' is specified, results are strictly filtered to that country.
-    'hours' determines how far back to look (default 72h).
+    If 'country' is specified, results are strictly filtered to that country,
+    with a fallback to global articles to ensure the feed is not empty or under-filled.
+    'hours' determines how far back to look, with automatic time-window expansion if content is sparse.
     """
     try:
         async with db_pool.acquire() as conn:
             candidate_limit = min(max(limit * 6, 40), 200)
+            current_hours = hours
+            records = []
 
             # Build query based on whether a country filter is active
             if country and country.lower() != 'global':
+                # First fetch local articles
                 query = f"""
                     SELECT {ARTICLE_COLUMNS}
                     FROM articles
@@ -129,8 +133,31 @@ async def get_trending_feed(
                     ORDER BY trend_score DESC, published_at DESC
                     LIMIT $1
                 """
-                records = await conn.fetch(query, candidate_limit, country.upper(), hours)
+                records = await conn.fetch(query, candidate_limit, country.upper(), current_hours)
+                
+                # If we don't have enough candidates, try expanding the time window
+                if len(records) < limit and current_hours < 168:
+                    current_hours = max(72, current_hours * 3)
+                    records = await conn.fetch(query, candidate_limit, country.upper(), current_hours)
+                
+                # If we still don't have enough local articles, fill with global/world articles
+                local_records = [dict(r) for r in records]
+                if len(local_records) < limit:
+                    needed = candidate_limit - len(local_records)
+                    query_global = f"""
+                        SELECT {ARTICLE_COLUMNS}
+                        FROM articles
+                        WHERE trend_score > 0
+                        AND (country_code IS NULL OR country_code != $2)
+                        AND published_at > NOW() - (INTERVAL '1 hour' * $3)
+                        ORDER BY trend_score DESC, published_at DESC
+                        LIMIT $1
+                    """
+                    global_records = await conn.fetch(query_global, needed, country.upper(), current_hours)
+                    local_records.extend([dict(r) for r in global_records])
+                records = local_records
             else:
+                # Global feed query
                 query = f"""
                     SELECT {ARTICLE_COLUMNS}
                     FROM articles
@@ -139,17 +166,28 @@ async def get_trending_feed(
                     ORDER BY trend_score DESC, published_at DESC
                     LIMIT $1
                 """
-                records = await conn.fetch(query, candidate_limit, hours)
+                records = await conn.fetch(query, candidate_limit, current_hours)
+                
+                # If we don't have enough, expand time window
+                if len(records) < limit and current_hours < 168:
+                    current_hours = max(72, current_hours * 3)
+                    records = await conn.fetch(query, candidate_limit, current_hours)
+                
+                # If we still don't have enough, expand to max 168 hours
+                if len(records) < limit and current_hours < 168:
+                    records = await conn.fetch(query, candidate_limit, 168)
+                
+                records = [dict(r) for r in records]
 
             now = datetime.now(timezone.utc)
             candidates: List[dict] = []
-            for record in records:
-                r = dict(record)
-                r["ranking_score"] = _effective_trending_score(r, now)
+            for r in records:
+                base_score = _effective_trending_score(r, now)
+                # Boost local articles when a specific country filter is requested
+                is_local = country and country.lower() != 'global' and r.get("country_code") == country.upper()
+                r["ranking_score"] = base_score + (100.0 if is_local else 0.0)
                 candidates.append(r)
 
-            # For global feed, we don't have a specific country boost anymore in the sort
-            # since we handle strict filtering above for specific countries.
             candidates.sort(
                 key=lambda a: (
                     float(a.get("ranking_score") or 0.0),
@@ -189,7 +227,10 @@ async def trigger_trending_update(
     Manually triggers the trending score update process.
     """
     try:
-        background_tasks.add_task(update_trending_scores, db_pool)
+        if request.app.state.redis_client:
+            await request.app.state.redis_client.publish("worker_tasks", "trigger_trending")
+        else:
+            background_tasks.add_task(update_trending_scores, db_pool)
         return {"status": "trending_update_started"}
     except Exception as e:
         logger.error("Error triggering trending update: %s", e)

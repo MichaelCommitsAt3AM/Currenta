@@ -43,8 +43,14 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - REDIS_URL=redis://redis:6379
+      - LOCAL_LLM_BASE_URL=http://host.docker.internal:11434/v1
+      - LOCAL_LLM_MODEL=${OLLAMA_MODEL:-llama3.1}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-voyage}
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-4-lite}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
     command: python -m backend.worker

@@ -409,9 +409,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
             const Text(
               'Exit Currenta?',
               style: TextStyle(
+                fontFamily: 'Outfit',
                 color: Colors.white,
                 fontSize: 22,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w300,
                 letterSpacing: -0.5,
               ),
             ),
@@ -420,6 +421,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               'Are you sure you want to close the app?',
               textAlign: TextAlign.center,
               style: TextStyle(
+                fontFamily: 'Inter',
                 color: Colors.white.withValues(alpha: 0.6),
                 fontSize: 15,
                 height: 1.5,
@@ -912,9 +914,10 @@ class _RefreshBadgeState extends State<_RefreshBadge> {
                           Text(
                             'Refresh',
                             style: TextStyle(
+                              fontFamily: 'Outfit',
                               color: Colors.white,
                               fontSize: 14,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w300,
                               letterSpacing: 0.3,
                             ),
                           ),
@@ -1262,9 +1265,10 @@ class ExhaustionMarkerCard extends StatelessWidget {
                     "You're All Caught Up!",
                     textAlign: TextAlign.center,
                     style: TextStyle(
+                      fontFamily: 'Outfit',
                       color: Colors.white,
                       fontSize: 28,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w300,
                       letterSpacing: -0.5,
                     ),
                   ),
@@ -1273,6 +1277,7 @@ class ExhaustionMarkerCard extends StatelessWidget {
                     "You've seen all the latest stories from your selected categories. Keep scrolling to discover what else is happening in the world.",
                     textAlign: TextAlign.center,
                     style: TextStyle(
+                      fontFamily: 'Inter',
                       color: Colors.white.withValues(alpha: 0.6),
                       fontSize: 16,
                       height: 1.6,
@@ -1367,9 +1372,10 @@ class _ScrollNudgeState extends State<_ScrollNudge>
               Text(
                 "Scroll to discover",
                 style: TextStyle(
+                  fontFamily: 'Outfit',
                   color: const Color(0xFF6C63FF).withValues(alpha: 0.8),
                   fontSize: 14,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w300,
                 ),
               ),
               const SizedBox(height: 8),

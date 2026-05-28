@@ -27,8 +27,17 @@ async def trigger_ingestion(
     Adds a single feed to the ingestion queue and triggers worker.
     """
     try:
-        # Instead of blocking on the entire LLM processing, we add it to schedule/queue
-        background_tasks.add_task(add_source_feed_to_queue, ingest_req.feedUrl, ingest_req.categoryHint)
+        if request.app.state.redis_client:
+            import orjson
+            payload = orjson.dumps({
+                "task": "ingest_feed",
+                "feed_url": ingest_req.feedUrl,
+                "category_hint": ingest_req.categoryHint
+            }).decode('utf-8')
+            await request.app.state.redis_client.publish("worker_tasks", payload)
+        else:
+            # Instead of blocking on the entire LLM processing, we add it to schedule/queue
+            background_tasks.add_task(add_source_feed_to_queue, ingest_req.feedUrl, ingest_req.categoryHint)
         return {"status": "queued", "feedUrl": ingest_req.feedUrl}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -44,8 +53,11 @@ async def trigger_orchestrator(
     Manually triggers the ingestion of all configured RSS feeds.
     """
     try:
-        # Orchestrate function loads the complete registry and adds all sources
-        background_tasks.add_task(orchestrate)
+        if request.app.state.redis_client:
+            await request.app.state.redis_client.publish("worker_tasks", "trigger_ingestion")
+        else:
+            # Orchestrate function loads the complete registry and adds all sources
+            background_tasks.add_task(orchestrate)
         return {"status": "orchestration_started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -59,6 +71,9 @@ async def trigger_cancel(
     """
     Stops any ongoing full orchestration.
     """
-    from ..services.ingestion import cancel_ingestion
-    cancel_ingestion()
+    if request.app.state.redis_client:
+        await request.app.state.redis_client.publish("worker_tasks", "cancel_ingestion")
+    else:
+        from ..services.ingestion import cancel_ingestion
+        cancel_ingestion()
     return {"status": "cancellation_signaled"}

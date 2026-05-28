@@ -35,7 +35,8 @@ abstract class AuthRepository {
   Future<void> clearOnboardingStatus();
 
   /// Signs up a new user with an email and password.
-  Future<void> signUpWithEmail({
+  /// Returns true if email confirmation/OTP verification is required.
+  Future<bool> signUpWithEmail({
     required String email,
     required String password,
     required String name,

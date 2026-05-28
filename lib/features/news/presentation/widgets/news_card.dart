@@ -481,10 +481,9 @@ class _NewsCardState extends ConsumerState<NewsCard>
     return Text(
       widget.article.title,
       style: const TextStyle(
-        fontFamily: 'Google Sans',
         color: Colors.white,
         fontSize: 19,
-        fontWeight: FontWeight.w700,
+        fontWeight: FontWeight.w800,
         height: 1.3,
         letterSpacing: -0.3,
       ),
