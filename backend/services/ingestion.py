@@ -110,17 +110,7 @@ def cancel_ingestion():
 # Feed registry — mirrors lib/core/config/news_sources.dart
 # ---------------------------------------------------------------------------
 FEEDS = [
-    # World
-    { "feedUrl": "http://feeds.bbci.co.uk/news/rss.xml", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "http://feeds.bbci.co.uk/news/world/rss.xml", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://www.reutersagency.com/feed/?best-topics=political-general&post_type=best", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://www.aljazeera.com/xml/rss/all.xml", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://www.theguardian.com/world/rss", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://apnews.com/hub/world-news.rss", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://www.dw.com/xml/rss-en-all", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://www.france24.com/en/rss", "defaultCategory": "world", "categoryBias": "neutral" },
-    # Tech
+    # Tech Exceptions (manual ingestion retained)
     { "feedUrl": "https://www.techmeme.com/feed.xml", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.theverge.com/rss/index.xml", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://techcrunch.com/latest/", "defaultCategory": "tech", "categoryBias": "strong", "method": "site_tc" },
@@ -131,51 +121,19 @@ FEEDS = [
     { "feedUrl": "https://www.gizmodo.com/rss", "defaultCategory": "tech", "categoryBias": "neutral" },
     { "feedUrl": "https://venturebeat.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://www.technologyreview.com/feed/", "defaultCategory": "tech", "categoryBias": "strong" },
-    # Politics
-    { "feedUrl": "https://www.politico.com/rss/politicopicks.xml", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://thehill.com/homenews/feed/", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://api.axios.com/feed/politics", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://apnews.com/hub/politics.rss", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://www.theguardian.com/politics/rss", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://www.cnbc.com/id/10000113/device/rss/rss.html", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://feeds.npr.org/1014/rss.xml", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://www.vox.com/rss/policy-and-politics/index.xml", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://feeds.nbcnews.com/nbcnews/public/politics", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://www.huffpost.com/section/politics/feed", "defaultCategory": "politics", "categoryBias": "strong" },
-    # Science
+    
+    # Science/Academic Exceptions (manual ingestion retained)
     { "feedUrl": "https://www.sciencedaily.com/rss/all.xml", "defaultCategory": "science", "categoryBias": "strong" },
     { "feedUrl": "https://www.sciencedaily.com/rss/top/science.xml", "defaultCategory": "science", "categoryBias": "strong" },
     { "feedUrl": "https://www.nature.com/nature.rss", "defaultCategory": "science", "categoryBias": "strong" },
     { "feedUrl": "https://www.nasa.gov/rss/dyn/breaking_news.rss", "defaultCategory": "science", "categoryBias": "strong" },
     { "feedUrl": "https://www.scientificamerican.com/section/all/feed/", "defaultCategory": "science", "categoryBias": "strong" },
     { "feedUrl": "https://www.newscientist.com/feed/home/", "defaultCategory": "science", "categoryBias": "strong" },
-    # Sports
-    { "feedUrl": "https://www.skysports.com/rss/12040", "defaultCategory": "sports", "categoryBias": "strong" },
-    { "feedUrl": "https://feeds.bbci.co.uk/sport/rss.xml", "defaultCategory": "sports", "categoryBias": "strong" },
-    { "feedUrl": "https://www.espn.com/espn/rss/news", "defaultCategory": "sports", "categoryBias": "strong" },
-    { "feedUrl": "https://www.cbssports.com/rss/headlines/", "defaultCategory": "sports", "categoryBias": "strong" },
-    # Entertainment
-    { "feedUrl": "https://variety.com/feed/", "defaultCategory": "entertainment", "categoryBias": "strong" },
-    { "feedUrl": "https://www.hollywoodreporter.com/feed/", "defaultCategory": "entertainment", "categoryBias": "strong" },
-    { "feedUrl": "https://www.billboard.com/feed/", "defaultCategory": "entertainment", "categoryBias": "strong" },
-    { "feedUrl": "https://www.rollingstone.com/feed/", "defaultCategory": "entertainment", "categoryBias": "strong" },
-    # Business
-    { "feedUrl": "https://www.ft.com/news-feed.rss", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=40&id=100011491", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://finance.yahoo.com/news/rssindex", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://fortune.com/feed/", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://www.investing.com/rss/news_11.rss", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://www.businessinsider.com/rss", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://www.fastcompany.com/latest/rss", "defaultCategory": "business", "categoryBias": "strong" },
-    # Health
-    { "feedUrl": "https://www.who.int/rss-feeds/news-english.xml", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://medicalxpress.com/feeds/health/", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://kffhealthnews.org/feed/", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://www.mayoclinic.org/rss/all-news-topics.xml", "defaultCategory": "health", "categoryBias": "strong" },
-    # Google News
+
+    # Google News Topic Feeds
     { "feedUrl": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/WORLD", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/NATION", "defaultCategory": "world", "categoryBias": "neutral" },
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY", "defaultCategory": "tech", "categoryBias": "strong" },
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/BUSINESS", "defaultCategory": "business", "categoryBias": "strong" },
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SCIENCE", "defaultCategory": "science", "categoryBias": "strong" },
@@ -183,6 +141,10 @@ FEEDS = [
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT", "defaultCategory": "entertainment", "categoryBias": "strong" },
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/POLITICS", "defaultCategory": "politics", "categoryBias": "strong" },
     { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SPORTS", "defaultCategory": "sports", "categoryBias": "strong" },
+
+    # Google News Custom Search Feeds (for high specificity topics)
+    { "feedUrl": "https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/rss/search?q=climate+change&hl=en-US&gl=US&ceid=US:en", "defaultCategory": "science", "categoryBias": "strong" },
 ]
 
 # Supported regions for localized news ingestion
@@ -1951,13 +1913,14 @@ async def orchestrate():
 
     async def safe_process(url, cat, bias, country=None, method="rss", client=None):
         if SHOULD_STOP_INGESTION:
-            return
+            return None
         async with semaphore:
             logger.info(f"Orchestrator: Processing: {url} (Method: {method})")
             try:
-                await process_feed(url, cat, bias, db_pool, country_code=country, method=method, http_client=client)
+                return await process_feed(url, cat, bias, db_pool, country_code=country, method=method, http_client=client)
             except Exception as e:
                 logger.error(f"Orchestrator: Error processing feed {url}: {e}")
+                return None
 
     # Recommendation 3: Use a single shared client for the entire run
     async with httpx.AsyncClient(timeout=90.0) as shared_client:
@@ -1972,9 +1935,10 @@ async def orchestrate():
                 rss_url = build_google_news_rss_url(region["code"], lang, location=loc)
                 tasks.append(safe_process(rss_url, "local", "strong", country=region["code"], client=shared_client))
         
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
+        total_ingested = sum(r.get("ingested", 0) for r in results if r)
 
-    logger.info("Orchestrator: Orchestration complete")
+    logger.info(f"Orchestrator: Orchestration complete. Total articles ingested: {total_ingested}")
 
 # Used by the scheduler which runs run_coroutine_threadsafe. 
 async def orchestrate_sync_wrapper():

@@ -1,4 +1,6 @@
 import os
+import pytest
+from fastapi import HTTPException
 
 os.environ.setdefault("ADMIN_API_KEY", "test-admin-key")
 
@@ -66,3 +68,32 @@ def test_get_client_ip_parses_forwarded_header(monkeypatch):
         headers={"Forwarded": 'for=172.20.0.1;proto=http, for=8.8.4.4;proto=https'},
     )
     assert get_client_ip(request) == "8.8.4.4"
+
+
+@pytest.mark.anyio
+async def test_verify_app_check_disable(monkeypatch):
+    monkeypatch.setenv("DISABLE_APP_CHECK", "true")
+    from backend.core.security import verify_app_check
+    request = _request("127.0.0.1")
+    assert await verify_app_check(request) is True
+
+
+@pytest.mark.anyio
+async def test_verify_app_check_bypass_token(monkeypatch):
+    monkeypatch.setenv("DISABLE_APP_CHECK", "false")
+    monkeypatch.setenv("APP_CHECK_BYPASS_TOKEN", "super-secret-bypass")
+    from backend.core.security import verify_app_check
+    request = _request("127.0.0.1", headers={"X-AppCheck-Bypass": "super-secret-bypass"})
+    assert await verify_app_check(request) is True
+
+
+@pytest.mark.anyio
+async def test_verify_app_check_bypass_token_mismatch(monkeypatch):
+    monkeypatch.setenv("DISABLE_APP_CHECK", "false")
+    monkeypatch.setenv("APP_CHECK_BYPASS_TOKEN", "super-secret-bypass")
+    from backend.core.security import verify_app_check
+    request = _request("127.0.0.1", headers={"X-AppCheck-Bypass": "wrong-bypass"})
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_app_check(request)
+    assert exc_info.value.status_code == 401
+

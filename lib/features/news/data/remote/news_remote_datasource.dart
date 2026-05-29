@@ -72,7 +72,7 @@ class NewsRemoteDataSource {
       final session = await _getValidSession();
 
       String? appCheckToken;
-      if (AppConfig.isProd && kReleaseMode) {
+      if (AppConfig.isProd) {
         try {
           // Explicitly prefer cached token to avoid blocking article fetches
           // with sequential network calls for App Check.
@@ -91,6 +91,8 @@ class NewsRemoteDataSource {
         headers: {
           if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
           if (appCheckToken != null) 'X-Firebase-AppCheck': appCheckToken,
+          if (!kReleaseMode && AppConfig.appCheckBypassToken.isNotEmpty)
+            'X-AppCheck-Bypass': AppConfig.appCheckBypassToken,
         },
       );
 

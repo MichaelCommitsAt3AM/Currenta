@@ -466,7 +466,6 @@ class _SidebarTile extends StatelessWidget {
 
 void _navigateFromSidebar(BuildContext context, Widget screen) {
   final navigator = Navigator.of(context);
-  final drawerRoute = ModalRoute.of(context);
 
   navigator.push(
     PageRouteBuilder(
@@ -505,10 +504,10 @@ void _navigateFromSidebar(BuildContext context, Widget screen) {
     ),
   );
 
-  // Remove the drawer route silently once the new page is pushed
+  // Close the drawer silently once the new page is pushed
   Future.delayed(const Duration(milliseconds: 350), () {
-    if (drawerRoute != null && drawerRoute.isActive && !drawerRoute.isCurrent) {
-      navigator.removeRoute(drawerRoute);
+    if (context.mounted) {
+      Scaffold.maybeOf(context)?.closeDrawer();
     }
   });
 }

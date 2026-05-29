@@ -32,6 +32,40 @@ if [[ ! -f "${ROOT_DIR}/cloudbuild.yaml" ]]; then
   exit 1
 fi
 
+# ── Ensure local GeoIP database is present and up-to-date ──
+GEOIP_DB="${ROOT_DIR}/backend/core/GeoLite2-Country.mmdb"
+SHOULD_DOWNLOAD=false
+
+if [[ ! -f "${GEOIP_DB}" ]]; then
+  echo "[deploy] Local GeoIP database not found. Will download."
+  SHOULD_DOWNLOAD=true
+else
+  # Check if the file is older than 7 days (604800 seconds)
+  FILE_AGE=$(($(date +%s) - $(date -r "${GEOIP_DB}" +%s)))
+  if [[ ${FILE_AGE} -gt 604800 ]]; then
+    echo "[deploy] Local GeoIP database is older than 7 days. Will update."
+    SHOULD_DOWNLOAD=true
+  fi
+fi
+
+if [[ "${SHOULD_DOWNLOAD}" == "true" ]]; then
+  echo "[deploy] Downloading latest GeoLite2-Country database..."
+  TEMP_GZ="${ROOT_DIR}/backend/core/GeoLite2-Country.mmdb.gz"
+  
+  if ! curl -L -o "${TEMP_GZ}" "https://cdn.jsdelivr.net/npm/geolite2-country/GeoLite2-Country.mmdb.gz"; then
+    echo "[deploy] ❌ Failed to download GeoIP database mirror. Deploy aborting."
+    exit 1
+  fi
+  
+  if ! gunzip -f "${TEMP_GZ}"; then
+    echo "[deploy] ❌ Failed to extract GeoIP database. Deploy aborting."
+    exit 1
+  fi
+  echo "[deploy] ✅ GeoLite2-Country database successfully updated."
+else
+  echo "[deploy] GeoLite2-Country database is up-to-date."
+fi
+
 if [[ "${SKIP_PRECHECKS}" != "true" ]]; then
   if [[ -x "${ROOT_DIR}/backend/.venv/bin/python" ]]; then
     PYTHON_BIN="${ROOT_DIR}/backend/.venv/bin/python"

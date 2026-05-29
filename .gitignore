@@ -69,6 +69,7 @@ devtools_options.yaml
 
 # GeoIP database binaries
 backend/core/*.mmdb
+backend/core/*.mmdb.gz
 android/key.properties
 
 
@@ -80,3 +81,7 @@ scratch/old_schema.sql
 scratch/auth_data.sql
 scratch/filtered_auth_data.sql
 scratch/filtered_public_user_data.sql
+
+# Local/temp files
+high_ranking_articles.pdf
+test/db_local_test.dart

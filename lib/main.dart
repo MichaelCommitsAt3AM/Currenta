@@ -163,11 +163,11 @@ Future<void> main() async {
     }
 
     // ── Firebase App Check ─────────────────────────────────────────────────────
-    if (AppConfig.isProd && kReleaseMode) {
+    if (AppConfig.isProd) {
       // Defer activation and token warming to avoid blocking splash screen removal.
       unawaited(FirebaseAppCheck.instance.activate(
-        androidProvider: AndroidProvider.playIntegrity,
-        appleProvider: AppleProvider.deviceCheck,
+        androidProvider: kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+        appleProvider: kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
       ).then((_) {
         // Pre-warm the token so the first feed request finds it in cache.
         return FirebaseAppCheck.instance.getToken();

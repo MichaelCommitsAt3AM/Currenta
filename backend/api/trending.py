@@ -157,11 +157,12 @@ async def get_trending_feed(
                     local_records.extend([dict(r) for r in global_records])
                 records = local_records
             else:
-                # Global feed query
+                # Global feed query (news with country code as null)
                 query = f"""
                     SELECT {ARTICLE_COLUMNS}
                     FROM articles
                     WHERE trend_score > 0
+                    AND country_code IS NULL
                     AND published_at > NOW() - (INTERVAL '1 hour' * $2)
                     ORDER BY trend_score DESC, published_at DESC
                     LIMIT $1

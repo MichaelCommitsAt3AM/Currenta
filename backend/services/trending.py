@@ -230,9 +230,9 @@ async def update_trending_scores(db_pool, redis_client=None):
                         
                         await conn.execute("""
                             UPDATE articles 
-                            SET trend_score = COALESCE(trend_score, 0) + $1,
+                            SET trend_score = LEAST(COALESCE(trend_score, 0) + $1, 12.0),
                                 last_trend_update = NOW(),
-                                ranking_score = ((1.0 + (COALESCE(trend_score, 0) + $1)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
+                                ranking_score = ((1.0 + LEAST(COALESCE(trend_score, 0) + $1, 12.0)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
                             WHERE id = ANY($2::uuid[])
                             OR (cluster_id IS NOT NULL AND cluster_id = ANY($3::uuid[]))
                         """, trend_weight, list(article_ids_to_boost), list(cluster_ids_to_boost))
@@ -242,11 +242,23 @@ async def update_trending_scores(db_pool, redis_client=None):
                     logger.error(f"[{region}] Error processing trend '{trend.get('query')}': {e}")
                     try:
                         await log_trending_event(conn, region, trend.get('query', 'Unknown'), "ERROR", 
-                                                error_message=str(e))
+                                                 error_message=str(e))
                     except Exception:
                         pass
 
     # Process all regions in parallel
     await asyncio.gather(*[process_region(r) for r in all_regions])
     
-    logger.info("Trending score update complete (DB-side decay scheduled separately).")
+    # Decay all active articles' ranking_score in the database
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE articles 
+                SET ranking_score = ((1.0 + COALESCE(trend_score, 0)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
+                WHERE published_at > NOW() - INTERVAL '7 days'
+            """)
+            logger.info("Decayed ranking scores for all articles from the last 7 days.")
+    except Exception as e:
+        logger.error(f"Failed to decay ranking scores: {e}")
+
+    logger.info("Trending score update complete.")

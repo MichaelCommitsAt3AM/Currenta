@@ -172,6 +172,7 @@ if SUPABASE_URL:
 # --- Firebase App Check JWKS Setup ---
 APP_CHECK_JWKS_URL = "https://firebaseappcheck.googleapis.com/v1/jwks"
 FIREBASE_PROJECT_NUMBER = os.getenv("FIREBASE_PROJECT_NUMBER")
+APP_CHECK_BYPASS_TOKEN = os.getenv("APP_CHECK_BYPASS_TOKEN")
 
 app_check_jwks_client = jwt.PyJWKClient(
     APP_CHECK_JWKS_URL,
@@ -184,12 +185,17 @@ async def verify_app_check(request: Request):
     """
     token = request.headers.get("X-Firebase-AppCheck")
     
-    # Allow bypass in local dev via flag or Admin API key
+    # Allow bypass in local dev/testing via flag, Admin API key, or custom bypass token
     if not token:
         api_key = request.headers.get("X-API-Key")
         if api_key and api_key == ADMIN_API_KEY:
             return True
             
+        bypass_token = request.headers.get("X-AppCheck-Bypass")
+        expected_bypass_token = os.getenv("APP_CHECK_BYPASS_TOKEN")
+        if bypass_token and expected_bypass_token and bypass_token == expected_bypass_token:
+            return True
+
         if os.getenv("DISABLE_APP_CHECK", "false").lower() == "true":
             return True
 

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:sqlite3/open.dart';
 import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 import 'package:flutter/foundation.dart';
@@ -175,7 +176,7 @@ class ChatMessagesTable extends Table {
   ChatMessagesTable
 ])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  AppDatabase([QueryExecutor? connection]) : super(connection ?? _openConnection());
 
   @override
   int get schemaVersion => 11;
@@ -247,6 +248,28 @@ class AppDatabase extends _$AppDatabase {
         }
       }
       await SecureStorageService.instance.write('db_encrypted_v1', 'true');
+
+      // Verify database integrity/key validity using sqlite3 directly before returning NativeDatabase
+      if (await file.exists()) {
+        try {
+          final db = sqlite3.open(file.path);
+          try {
+            db.execute("PRAGMA key = '$key';");
+            // Running a query that reads from the database schema forces SQLCipher to decrypt
+            // the header. If the key is invalid or the database is corrupted, this throws.
+            db.execute("SELECT count(*) FROM sqlite_schema;");
+          } finally {
+            db.dispose();
+          }
+        } catch (e) {
+          debugPrint('[Database] Encryption key mismatch or database corruption detected: $e. Recreating database.');
+          try {
+            await file.delete();
+          } catch (delError) {
+            debugPrint('[Database] Failed to delete corrupted database file: $delError');
+          }
+        }
+      }
 
       return NativeDatabase.createInBackground(
         file,
