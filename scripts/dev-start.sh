@@ -269,11 +269,60 @@ else
 fi
 echo ""
 
+# ── 4. Admin Portal Server ────────────────────────────────────────────────────
+hr
+echo -e "${BOLD}  Step 4 · Admin Portal Server${RESET}"
+hr
+
+ADMIN_PORT=3000
+ADMIN_PID_FILE="${PROJECT_ROOT}/.admin.pid"
+ADMIN_LOG_FILE="${PROJECT_ROOT}/.admin.log"
+
+# Kill any existing process on port 3000
+if lsof -i :3000 -t >/dev/null 2>&1; then
+  warn "Port 3000 is already in use. Killing the existing process..."
+  fuser -k 3000/tcp || true
+  sleep 1
+fi
+
+if [[ -f "${ADMIN_PID_FILE}" ]]; then
+  ADMIN_PID=$(cat "${ADMIN_PID_FILE}")
+  kill "${ADMIN_PID}" 2>/dev/null || true
+  rm -f "${ADMIN_PID_FILE}"
+fi
+
+info "Starting Admin Portal local server on port ${ADMIN_PORT}..."
+if command -v npx >/dev/null 2>&1; then
+  nohup npx serve -l ${ADMIN_PORT} "${PROJECT_ROOT}/admin" >"${ADMIN_LOG_FILE}" 2>&1 &
+  echo $! >"${ADMIN_PID_FILE}"
+else
+  nohup python3 -m http.server ${ADMIN_PORT} --directory "${PROJECT_ROOT}/admin" >"${ADMIN_LOG_FILE}" 2>&1 &
+  echo $! >"${ADMIN_PID_FILE}"
+fi
+
+# Wait up to 5s to verify it's listening
+ADMIN_READY=false
+for i in $(seq 1 5); do
+  if curl -sf "http://localhost:${ADMIN_PORT}" >/dev/null 2>&1; then
+    ADMIN_READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${ADMIN_READY}" == "true" ]]; then
+  ok "Admin Portal local server is ready on http://localhost:${ADMIN_PORT}"
+else
+  warn "Admin Portal server did not start successfully. Check ${ADMIN_LOG_FILE} for details."
+fi
+echo ""
+
 # ── 5. Summary ────────────────────────────────────────────────────────────────
 hr
 echo -e "${BOLD}  🎉  Currenta Dev setup is live!${RESET}"
 hr
 echo ""
+echo -e "  ${BOLD}Admin Portal${RESET}     http://localhost:3000"
 echo -e "  ${BOLD}Ollama (Local)${RESET}   http://localhost:${OLLAMA_PORT}"
 echo -e "  ${BOLD}Backend (Local)${RESET}  http://localhost:${BACKEND_PORT}"
 echo -e "  ${BOLD}Backend (Public)${RESET} ${BOLD}${BACKEND_NGROK_URL}${RESET}"
@@ -289,3 +338,4 @@ echo -e "  To stop all services:  ${BOLD}bash scripts/dev-stop.sh${RESET}"
 echo ""
 hr
 echo ""
+

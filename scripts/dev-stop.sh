@@ -61,6 +61,22 @@ else
   info "No background ollama PID file found (systemd-managed Ollama is left running)"
 fi
 
+# ── Admin Portal Server ───────────────────────────────────────────────────────
+ADMIN_PID_FILE="${PROJECT_ROOT}/.admin.pid"
+if [[ -f "${ADMIN_PID_FILE}" ]]; then
+  ADMIN_PID=$(cat "${ADMIN_PID_FILE}")
+  if kill "${ADMIN_PID}" 2>/dev/null; then
+    ok "Stopped Admin Portal server (PID ${ADMIN_PID})"
+  else
+    warn "Admin Portal server PID ${ADMIN_PID} was not running"
+  fi
+  rm -f "${ADMIN_PID_FILE}"
+elif lsof -i :3000 -t >/dev/null 2>&1; then
+  fuser -k 3000/tcp && ok "Stopped process running on port 3000" || warn "Could not stop process on port 3000"
+else
+  info "Admin Portal server was not running"
+fi
+
 # ── Backend & Redis (Docker) ──────────────────────────────────────────────────
 info "Stopping Docker services (API, Worker, Redis, Caddy)..."
 if docker compose ps >/dev/null 2>&1; then
@@ -70,7 +86,7 @@ else
 fi
 
 # Cleanup log files
-rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log" "${PROJECT_ROOT}/.backend.log" "${PROJECT_ROOT}/.scraper.log"
+rm -f "${PROJECT_ROOT}/.ngrok.log" "${PROJECT_ROOT}/.ollama.log" "${PROJECT_ROOT}/.backend.log" "${PROJECT_ROOT}/.scraper.log" "${PROJECT_ROOT}/.admin.log"
 
 echo ""
 ok "All done. Have a good one! 👋"
