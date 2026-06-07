@@ -132,15 +132,15 @@ FEEDS = [
 
     # Google News Topic Feeds
     { "feedUrl": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/WORLD", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/NATION", "defaultCategory": "world", "categoryBias": "neutral" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY", "defaultCategory": "tech", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/BUSINESS", "defaultCategory": "business", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SCIENCE", "defaultCategory": "science", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/HEALTH", "defaultCategory": "health", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT", "defaultCategory": "entertainment", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/POLITICS", "defaultCategory": "politics", "categoryBias": "strong" },
-    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SPORTS", "defaultCategory": "sports", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/NATION?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "world", "categoryBias": "neutral" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "tech", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "business", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "science", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/HEALTH?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "health", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "entertainment", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/POLITICS?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "politics", "categoryBias": "strong" },
+    { "feedUrl": "https://news.google.com/news/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en", "defaultCategory": "sports", "categoryBias": "strong" },
 
     # Google News Custom Search Feeds (for high specificity topics)
     { "feedUrl": "https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en", "defaultCategory": "tech", "categoryBias": "strong" },
@@ -153,6 +153,11 @@ SUPPORTED_LOCAL_REGIONS = [
         "code": "KE", 
         "lang": "en", 
         "locations": ["Kenya", "Nairobi"]
+    },
+    {
+        "code": "GB",
+        "lang": "en",
+        "locations": ["United Kingdom", "London", "Manchester", "Edinburgh", "Birmingham"]
     },
 ]
 
@@ -1866,7 +1871,7 @@ async def warm_category_cache(category: str, country_code: Optional[str], db_poo
                     params.append(category)
             
             where_sql = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
-            query = f"SELECT {ARTICLE_COLUMNS} FROM articles {where_sql} ORDER BY ranking_score DESC LIMIT 150"
+            query = f"SELECT {ARTICLE_COLUMNS} FROM articles_feed {where_sql} ORDER BY ranking_score DESC LIMIT 150"
             
             records = await conn.fetch(query, *params)
             result = []
@@ -1939,6 +1944,17 @@ async def orchestrate():
         total_ingested = sum(r.get("ingested", 0) for r in results if r)
 
     logger.info(f"Orchestrator: Orchestration complete. Total articles ingested: {total_ingested}")
+
+    # Prune old ingestion logs (older than 7 days) to manage database storage size
+    try:
+        async with db_pool.acquire() as conn:
+            deleted = await conn.execute(
+                "DELETE FROM ingestion_logs WHERE created_at < NOW() - INTERVAL '7 days'"
+            )
+            logger.info(f"Orchestrator: Pruned old ingestion logs: {deleted}")
+    except Exception as e:
+        logger.warning(f"Orchestrator: Failed to prune old ingestion logs: {e}")
+
 
 # Used by the scheduler which runs run_coroutine_threadsafe. 
 async def orchestrate_sync_wrapper():

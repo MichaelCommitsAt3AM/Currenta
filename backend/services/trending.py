@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 TRENDS_RSS_URLS = {
     "US": "https://trends.google.com/trending/rss?geo=US",
     "KE": "https://trends.google.com/trending/rss?geo=KE",
+    "GB": "https://trends.google.com/trending/rss?geo=GB",
 }
 
 async def fetch_google_trends(region: str = "US") -> List[Dict]:
@@ -99,7 +100,7 @@ async def update_trending_scores(db_pool, redis_client=None):
     Orchestrates the trending score updates across all regions in parallel.
     """
     logger.info("Starting trending score update...")
-    all_regions = ["US", "KE"]
+    all_regions = ["US", "KE", "GB"]
     
     # Track traffic for normalization stats
     regional_traffic_stats = {} 
@@ -231,8 +232,7 @@ async def update_trending_scores(db_pool, redis_client=None):
                         await conn.execute("""
                             UPDATE articles 
                             SET trend_score = LEAST(COALESCE(trend_score, 0) + $1, 12.0),
-                                last_trend_update = NOW(),
-                                ranking_score = ((1.0 + LEAST(COALESCE(trend_score, 0) + $1, 12.0)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
+                                last_trend_update = NOW()
                             WHERE id = ANY($2::uuid[])
                             OR (cluster_id IS NOT NULL AND cluster_id = ANY($3::uuid[]))
                         """, trend_weight, list(article_ids_to_boost), list(cluster_ids_to_boost))
@@ -249,16 +249,4 @@ async def update_trending_scores(db_pool, redis_client=None):
     # Process all regions in parallel
     await asyncio.gather(*[process_region(r) for r in all_regions])
     
-    # Decay all active articles' ranking_score in the database
-    try:
-        async with db_pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE articles 
-                SET ranking_score = ((1.0 + COALESCE(trend_score, 0)) * exp(-0.05 * extract(epoch from (now() - published_at))/3600))
-                WHERE published_at > NOW() - INTERVAL '7 days'
-            """)
-            logger.info("Decayed ranking scores for all articles from the last 7 days.")
-    except Exception as e:
-        logger.error(f"Failed to decay ranking scores: {e}")
-
     logger.info("Trending score update complete.")

@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS articles (
     published_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     is_paywalled      BOOLEAN NOT NULL DEFAULT false,
     cluster_id        UUID,
-    embedding_legacy_768 vector(768),
     image_url         TEXT,
     content_hash      TEXT,
     summary_model     TEXT,
@@ -36,6 +35,9 @@ CREATE TABLE IF NOT EXISTS articles (
     last_trend_update TIMESTAMPTZ,
     ranking_score     DOUBLE PRECISION DEFAULT 0.0,
     embedding         vector(768),
+    locality_score    DOUBLE PRECISION,
+    locality_method   TEXT,
+    locality_evidence TEXT,
     is_major_source   BOOLEAN NOT NULL DEFAULT false
 );
 

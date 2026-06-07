@@ -360,7 +360,7 @@ async def get_feed(
 
                         async with db_pool.acquire() as conn:
                             records = await conn.fetch(
-                                f"SELECT {ARTICLE_COLUMNS} FROM articles WHERE id = ANY($1::uuid[])",
+                                f"SELECT {ARTICLE_COLUMNS} FROM articles_feed WHERE id = ANY($1::uuid[])",
                                 [UUID(aid) for aid in paged_ids]
                             )
 
@@ -492,7 +492,7 @@ async def get_feed(
 
             query = f"""
                 SELECT {ARTICLE_COLUMNS}
-                FROM articles
+                FROM articles_feed
                 WHERE {where_clause}
                 ORDER BY {order_by}
                 LIMIT 150

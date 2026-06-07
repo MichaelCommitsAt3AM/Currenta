@@ -44,11 +44,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
-    final countryBoostExpr = countryCode != null
-        ? CustomExpression<int>(
-            "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END")
-        : const Constant(1);
-
     final trendingTierExpr =
         CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
 
@@ -66,7 +61,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
             if (hasPriority)
               OrderingTerm(expression: priorityExpr, mode: OrderingMode.asc),
             OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
-            OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
             OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
             OrderingTerm.desc(newsArticlesTable.rankingScore),
             OrderingTerm.desc(newsArticlesTable.publishedAt),
@@ -132,11 +126,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       priorityExpr = const Constant(0);
     }
 
-    final countryBoostExpr = countryCode != null
-        ? CustomExpression<int>(
-            "CASE WHEN country_code IS NOT NULL AND country_code = '$countryCode' THEN 0 ELSE 1 END")
-        : const Constant(1);
-
     final trendingTierExpr =
         CustomExpression<int>("CASE WHEN trend_score > 0 THEN 0 ELSE 1 END");
 
@@ -174,7 +163,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
       }
     }
 
-    int lastCountryBoost = 1;
     int lastTrendingTier = 1;
     int lastMajorTier = 1;
     double lastRankingScore = 0.0;
@@ -185,10 +173,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           .getSingleOrNull();
 
       if (lastArticle != null) {
-        lastCountryBoost =
-            (countryCode != null && lastArticle.countryCode == countryCode)
-                ? 0
-                : 1;
         lastTrendingTier = (lastArticle.trendScore > 0) ? 0 : 1;
         lastMajorTier = (lastArticle.isMajorSource) ? 0 : 1;
         lastRankingScore = lastArticle.rankingScore;
@@ -209,7 +193,6 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
             mode: OrderingMode.asc,
           ),
         OrderingTerm(expression: trendingTierExpr, mode: OrderingMode.asc),
-        OrderingTerm(expression: countryBoostExpr, mode: OrderingMode.asc),
         OrderingTerm(expression: majorSourceTierExpr, mode: OrderingMode.asc),
         OrderingTerm.desc(newsArticlesTable.rankingScore),
         OrderingTerm.desc(newsArticlesTable.publishedAt),
@@ -247,13 +230,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
                     sameRankingFilter) |
                 majorSourceTierExpr.isBiggerThanValue(lastMajorTier);
 
-            final sameCountryFilter =
-                (countryBoostExpr.equals(lastCountryBoost) & sameMajorFilter) |
-                    countryBoostExpr.isBiggerThanValue(lastCountryBoost);
-
             final sameTrendingFilter =
                 (trendingTierExpr.equals(lastTrendingTier) &
-                        sameCountryFilter) |
+                        sameMajorFilter) |
                     trendingTierExpr.isBiggerThanValue(lastTrendingTier);
 
             cursorFilter =
