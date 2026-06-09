@@ -281,129 +281,123 @@ class _NewsCardState extends ConsumerState<NewsCard>
 
     final catColor = AppTheme.categoryColor(displayCategory.name);
     final size = MediaQuery.sizeOf(context);
+    final availableHeight = size.height;
+    final bool isWideScreen = size.width >= 600 && size.width > size.height;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final availableHeight = constraints.maxHeight;
-        final bool isWideScreen =
-            constraints.maxWidth >= 600 && size.width > size.height;
+    return Container(
+      width: size.width,
+      height: availableHeight,
+      color: const Color(0xFF0A0C14),
+      child: GestureDetector(
+        onDoubleTap: _handleDoubleTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // ── Background Gradient ─────────────────────
+            _BackgroundGradient(catColor: catColor),
 
-        return Container(
-          width: size.width,
-          height: availableHeight,
-          color: const Color(0xFF0A0C14),
-          child: GestureDetector(
-            onDoubleTap: _handleDoubleTap,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // ── Background Gradient ─────────────────────
-                _BackgroundGradient(catColor: catColor),
-
-                // ── Decorative accent circle ───────────────────────────
-                Positioned(
-                  top: -60,
-                  right: -60,
-                  child: Container(
-                    width: 280,
-                    height: 280,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          catColor.withValues(alpha: 0.15),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
+            // ── Decorative accent circle ───────────────────────────
+            Positioned(
+              top: -60,
+              right: -60,
+              child: Container(
+                width: 280,
+                height: 280,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      catColor.withValues(alpha: 0.15),
+                      Colors.transparent,
+                    ],
                   ),
                 ),
+              ),
+            ),
 
-                // ── Content area ───────────────────────────────────────
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    24,
-                    MediaQuery.paddingOf(context).top +
-                        (widget.topPadding ?? 56),
-                    24,
-                    24 + MediaQuery.paddingOf(context).bottom,
-                  ),
-                  child: isWideScreen
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildTopRow(catColor, displayCategory),
-                            const SizedBox(height: 16),
-                            Expanded(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (widget.article.imageUrl != null) ...[
-                                    Expanded(
-                                      flex: 1,
-                                      child: _buildImage(
-                                          availableHeight, size, true),
-                                    ),
-                                    const SizedBox(width: 24),
+            // ── Content area ───────────────────────────────────────
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                MediaQuery.paddingOf(context).top +
+                    (widget.topPadding ?? 56),
+                24,
+                24 + MediaQuery.paddingOf(context).bottom,
+              ),
+              child: isWideScreen
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTopRow(catColor, displayCategory),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (widget.article.imageUrl != null) ...[
+                                Expanded(
+                                  flex: 1,
+                                  child: _buildImage(
+                                      availableHeight, size, true),
+                                ),
+                                const SizedBox(width: 24),
+                              ],
+                              Expanded(
+                                flex: 1,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    _buildTitle(),
+                                    const SizedBox(height: 8),
+                                    _buildSummary(),
+                                    const SizedBox(height: 2),
+                                    _buildSourceRow(catColor),
+                                    const SizedBox(height: 4),
+                                    _buildFooterActions(catColor),
                                   ],
-                                  Expanded(
-                                    flex: 1,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        _buildTitle(),
-                                        const SizedBox(height: 8),
-                                        _buildSummary(),
-                                        const SizedBox(height: 2),
-                                        _buildSourceRow(catColor),
-                                        const SizedBox(height: 4),
-                                        _buildFooterActions(catColor),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildTopRow(catColor, displayCategory),
-                            const SizedBox(height: 16),
-                            if (widget.article.imageUrl != null)
-                              Flexible(
-                                flex: 0,
-                                fit: FlexFit.loose,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child:
-                                      _buildImage(availableHeight, size, false),
                                 ),
                               ),
-                            _buildTitle(),
-                            const SizedBox(height: 8),
-                            _buildSummary(),
-                            const SizedBox(height: 2),
-                            _buildSourceRow(catColor),
-                            const SizedBox(height: 4),
-                            _buildFooterActions(catColor),
-                          ],
+                            ],
+                          ),
                         ),
-                ),
-
-                // ── Heart Shower Particles ─────────────────────
-                HeartShower(
-                  isAnimating: showShower,
-                  color: _isLiked ? Colors.redAccent : Colors.white70,
-                  onEnd: () => setState(() => showShower = false),
-                ),
-              ],
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTopRow(catColor, displayCategory),
+                        const SizedBox(height: 16),
+                        if (widget.article.imageUrl != null)
+                          Flexible(
+                            flex: 0,
+                            fit: FlexFit.loose,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child:
+                                  _buildImage(availableHeight, size, false),
+                            ),
+                          ),
+                        _buildTitle(),
+                        const SizedBox(height: 8),
+                        _buildSummary(),
+                        const SizedBox(height: 2),
+                        _buildSourceRow(catColor),
+                        const SizedBox(height: 4),
+                        _buildFooterActions(catColor),
+                      ],
+                    ),
             ),
-          ),
-        );
-      },
+
+            // ── Heart Shower Particles ─────────────────────
+            HeartShower(
+              isAnimating: showShower,
+              color: _isLiked ? Colors.redAccent : Colors.white70,
+              onEnd: () => setState(() => showShower = false),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -447,6 +441,8 @@ class _NewsCardState extends ConsumerState<NewsCard>
           fit: isWideScreen ? BoxFit.contain : BoxFit.cover,
           memCacheWidth: cacheWidth,
           memCacheHeight: cacheHeight,
+          maxWidthDiskCache: cacheWidth,
+          maxHeightDiskCache: cacheHeight,
           filterQuality: FilterQuality.low,
           placeholder: (context, url) => Shimmer.fromColors(
             baseColor: Colors.white.withValues(alpha: 0.05),
@@ -526,6 +522,10 @@ class _NewsCardState extends ConsumerState<NewsCard>
                     imageUrl: widget.article.sourceFaviconUrl!,
                     width: 20,
                     height: 20,
+                    memCacheWidth: 40,
+                    memCacheHeight: 40,
+                    maxWidthDiskCache: 40,
+                    maxHeightDiskCache: 40,
                     placeholder: (context, url) => Container(
                       width: 20,
                       height: 20,

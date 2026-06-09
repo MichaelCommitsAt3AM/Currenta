@@ -1784,6 +1784,15 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     categories = llm_res["categories"]
                     subcategory = llm_res["subcategory"]
 
+                    # Determine if we should tag the article with a country code in the database.
+                    # We only do so if it is confidently classified as local to that country.
+                    db_country_code = country_code
+                    if db_country_code:
+                        relevance = str(llm_res.get("local_relevance", "uncertain")).strip().lower()
+                        confidence = _parse_local_confidence(llm_res.get("local_confidence", 0.0))
+                        if relevance != "local" or confidence < LOCALITY_LOCAL_MIN_CONFIDENCE:
+                            db_country_code = None
+
                     await conn.execute(
                     '''
                     INSERT INTO articles (
@@ -1797,7 +1806,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     ''',
                     article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
                     item_pub_date, categories, subcategory, embedding, content_hash, 
-                    get_model_name(LLM_PROVIDER), country_code, is_paywalled, ingestion_method, target_cluster_id, is_major
+                    get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major
                 )
                     
                     # Log successful ingestion with details
@@ -2211,6 +2220,16 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         # Since this might be from a trending signal, use the domain as source if unknown
         source_name = scraper_result.get("source") or (re.search(r'https?://([^/]+)', url).group(1) if re.search(r'https?://([^/]+)', url) else "Unknown")
         content_hash = generate_content_hash(url, llm_res["title"])
+
+        # Determine if we should tag the article with a country code in the database.
+        # We only do so if it is confidently classified as local to that country.
+        db_country_code = country_code
+        if db_country_code:
+            relevance = str(llm_res.get("local_relevance", "uncertain")).strip().lower()
+            confidence = _parse_local_confidence(llm_res.get("local_confidence", 0.0))
+            if relevance != "local" or confidence < LOCALITY_LOCAL_MIN_CONFIDENCE:
+                db_country_code = None
+
         try:
             ranking_score = calculate_ranking_score(datetime.now(timezone.utc), 0.0)
 
@@ -2227,7 +2246,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             ''', 
             article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
             llm_res["categories"], llm_res["subcategory"],
-            embedding, content_hash, get_model_name(LLM_PROVIDER), country_code, 
+            embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code, 
             scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id)
             
             article_id = result["id"] if result else None

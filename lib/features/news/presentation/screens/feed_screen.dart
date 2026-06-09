@@ -52,6 +52,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   bool _isShowingRefreshAck = false;
   final GlobalKey _onboardingCategoryKey = GlobalKey();
 
+  ProviderSubscription? _feedSubscription;
+  ProviderSubscription? _refreshSubscription;
+  ProviderSubscription? _authSubscription;
+
+  List<NewsArticle>? _cachedDisplayArticles;
+  List<NewsArticle>? _cachedFeedArticles;
+  bool? _cachedAdsAvailable;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +79,108 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
     // Eagerly trigger ad preloading pool
     ref.read(adManagerProvider.notifier);
+
+    _feedSubscription = ref.listenManual(newsFeedNotifierProvider, (previous, next) {
+      final prevFeed = previous?.valueOrNull;
+      final nextFeed = next.valueOrNull;
+      if (nextFeed == null) return;
+
+      // Reset pagination trigger when the underlying feed content is rebuilt
+      // (e.g. after personalization changes/invalidation) even if category is unchanged.
+      final prevHeadId = prevFeed?.articles.firstOrNull?.id;
+      final nextHeadId = nextFeed.articles.firstOrNull?.id;
+      final didFeedReset = prevFeed == null ||
+          nextFeed.currentIndex == 0 ||
+          nextFeed.articles.length < (prevFeed.articles.length) ||
+          prevHeadId != nextHeadId;
+      if (didFeedReset) {
+        _lastTriggeredPage = -1;
+      }
+
+      // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
+      final nextCategory = next.valueOrNull?.selectedCategory;
+      if (nextCategory != _selectedCategory && mounted) {
+        setState(() {
+          _selectedCategory = nextCategory;
+        });
+        // Reset pagination trigger marker when feed scope changes.
+        _lastTriggeredPage = -1;
+      }
+
+      // 2. Sync PageController if state changed index independently (e.g., restoration or refresh)
+      final prevIndex = previous?.valueOrNull?.currentIndex;
+      final nextIndex = nextFeed.currentIndex;
+      final controllerPage =
+          _pageController.hasClients ? _pageController.page?.round() : null;
+
+      if (nextIndex != prevIndex && nextIndex != controllerPage) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_pageController.hasClients) {
+            _pageController.jumpToPage(nextIndex);
+            if (_currentIndex != nextIndex) {
+              setState(() => _currentIndex = nextIndex);
+            }
+          }
+        });
+      }
+
+      // 2. Handle AI Chat sheet
+      if (nextFeed.showChatForArticleId != null) {
+        final articleId = nextFeed.showChatForArticleId!;
+        final article =
+            nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
+
+        // Clear immediately so it doesn't re-open on next rebuild
+        ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
+
+        if (article != null) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => AiQuickChatSheet(article: article),
+          );
+        }
+      }
+
+      // 3. Trigger onboarding when feed is first loaded
+      final onboardingStep = ref.read(onboardingNotifierProvider);
+      if (nextFeed.articles.isNotEmpty &&
+          onboardingStep == OnboardingStep.none &&
+          !_hasScrolledOnce) {
+        final hasSeen =
+            ref.read(onboardingNotifierProvider.notifier).hasSeenFeedOnboarding;
+        if (!hasSeen) {
+          _checkOnboarding();
+        }
+      }
+    });
+
+    _refreshSubscription = ref.listenManual<bool>(needsFeedRefreshProvider, (previous, next) {
+      if (!next) return;
+      _maybeShowPendingRefreshAck();
+    });
+
+    // ── Listen for Location Update Popup ──
+    _authSubscription = ref.listenManual(authNotifierProvider, (previous, next) {
+      if (next.showLocationUpdatePopup &&
+          !(previous?.showLocationUpdatePopup ?? false)) {
+        final detected = next.detectedCountry;
+        final current = next.preferredCountry;
+
+        if (detected != null && current != null) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => LocationUpdatePopup(
+              detectedCountry: detected,
+              currentCountry: current,
+            ),
+          );
+        }
+      }
+    });
   }
 
   @override
@@ -153,6 +263,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   @override
   void dispose() {
+    _feedSubscription?.close();
+    _refreshSubscription?.close();
+    _authSubscription?.close();
     if (_didSubscribeRouteAware) {
       appRouteObserver.unsubscribe(this);
     }
@@ -228,9 +341,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   List<NewsArticle> _getDisplayArticles(FeedState feed) {
     final adsAvailable = ref.read(adManagerProvider).adsAvailable;
-    return adsAvailable
+    if (_cachedDisplayArticles != null &&
+        _cachedFeedArticles == feed.articles &&
+        _cachedAdsAvailable == adsAvailable) {
+      return _cachedDisplayArticles!;
+    }
+    _cachedFeedArticles = feed.articles;
+    _cachedAdsAvailable = adsAvailable;
+    _cachedDisplayArticles = adsAvailable
         ? feed.articles
         : feed.articles.where((a) => a.itemType != 'ad').toList();
+    return _cachedDisplayArticles!;
   }
 
   int _lastTriggeredPage = -1;
@@ -307,29 +428,32 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     Future.delayed(const Duration(milliseconds: 250), () {
       if (!mounted) return;
 
-      final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
-      if (feed == null) return;
+      Future.microtask(() {
+        if (!mounted) return;
+        final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+        if (feed == null) return;
 
-      final displayArticles = _getDisplayArticles(feed);
-      for (var ahead = 1; ahead <= 2; ahead++) {
-        final nextIndex = index + ahead;
-        if (nextIndex < displayArticles.length) {
-          final article = displayArticles[nextIndex];
+        final displayArticles = _getDisplayArticles(feed);
+        for (var ahead = 1; ahead <= 2; ahead++) {
+          final nextIndex = index + ahead;
+          if (nextIndex < displayArticles.length) {
+            final article = displayArticles[nextIndex];
 
-          // Image preloading
-          final imageUrl = article.imageUrl;
-          if (imageUrl != null && imageUrl.isNotEmpty) {
-            precacheImage(
-              CachedNetworkImageProvider(imageUrl),
-              context,
-              onError: (error, stackTrace) {
-                debugPrint(
-                    '[FeedScreen] Precache failed for $imageUrl: $error');
-              },
-            );
+            // Image preloading
+            final imageUrl = article.imageUrl;
+            if (imageUrl != null && imageUrl.isNotEmpty) {
+              precacheImage(
+                CachedNetworkImageProvider(imageUrl),
+                context,
+                onError: (error, stackTrace) {
+                  debugPrint(
+                      '[FeedScreen] Precache failed for $imageUrl: $error');
+                },
+              );
+            }
           }
         }
-      }
+      });
     });
 
     // 2. Track view
@@ -354,6 +478,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
           _viewTimer = Timer(const Duration(seconds: 2), () {
             if (!mounted) return;
             _viewedIdsInSession.add(article.id);
+            if (_viewedIdsInSession.length > 200) {
+              _viewedIdsInSession.remove(_viewedIdsInSession.first);
+            }
             ref
                 .read(newsFeedNotifierProvider.notifier)
                 .markArticleAsViewed(article.id);
@@ -497,108 +624,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(newsFeedNotifierProvider, (previous, next) {
-      final prevFeed = previous?.valueOrNull;
-      final nextFeed = next.valueOrNull;
-      if (nextFeed == null) return;
-
-      // Reset pagination trigger when the underlying feed content is rebuilt
-      // (e.g. after personalization changes/invalidation) even if category is unchanged.
-      final prevHeadId = prevFeed?.articles.firstOrNull?.id;
-      final nextHeadId = nextFeed.articles.firstOrNull?.id;
-      final didFeedReset = prevFeed == null ||
-          nextFeed.currentIndex == 0 ||
-          nextFeed.articles.length < (prevFeed.articles.length) ||
-          prevHeadId != nextHeadId;
-      if (didFeedReset) {
-        _lastTriggeredPage = -1;
-      }
-
-      // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
-      final nextCategory = next.valueOrNull?.selectedCategory;
-      if (nextCategory != _selectedCategory && mounted) {
-        setState(() {
-          _selectedCategory = nextCategory;
-        });
-        // Reset pagination trigger marker when feed scope changes.
-        _lastTriggeredPage = -1;
-      }
-
-      // 2. Sync PageController if state changed index independently (e.g., restoration or refresh)
-      final prevIndex = previous?.valueOrNull?.currentIndex;
-      final nextIndex = nextFeed.currentIndex;
-      final controllerPage =
-          _pageController.hasClients ? _pageController.page?.round() : null;
-
-      if (nextIndex != prevIndex && nextIndex != controllerPage) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_pageController.hasClients) {
-            _pageController.jumpToPage(nextIndex);
-            if (_currentIndex != nextIndex) {
-              setState(() => _currentIndex = nextIndex);
-            }
-          }
-        });
-      }
-
-      // 2. Handle AI Chat sheet
-      if (nextFeed.showChatForArticleId != null) {
-        final articleId = nextFeed.showChatForArticleId!;
-        final article =
-            nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
-
-        // Clear immediately so it doesn't re-open on next rebuild
-        ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
-
-        if (article != null) {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) => AiQuickChatSheet(article: article),
-          );
-        }
-      }
-
-      // 3. Trigger onboarding when feed is first loaded
-      final onboardingStep = ref.read(onboardingNotifierProvider);
-      if (nextFeed.articles.isNotEmpty &&
-          onboardingStep == OnboardingStep.none &&
-          !_hasScrolledOnce) {
-        final hasSeen =
-            ref.read(onboardingNotifierProvider.notifier).hasSeenFeedOnboarding;
-        if (!hasSeen) {
-          _checkOnboarding();
-        }
-      }
-    });
-
-    ref.listen<bool>(needsFeedRefreshProvider, (previous, next) {
-      if (!next) return;
-      _maybeShowPendingRefreshAck();
-    });
-
-    // ── Listen for Location Update Popup ──
-    ref.listen(authNotifierProvider, (previous, next) {
-      if (next.showLocationUpdatePopup &&
-          !(previous?.showLocationUpdatePopup ?? false)) {
-        final detected = next.detectedCountry;
-        final current = next.preferredCountry;
-
-        if (detected != null && current != null) {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            builder: (context) => LocationUpdatePopup(
-              detectedCountry: detected,
-              currentCountry: current,
-            ),
-          );
-        }
-      }
-    });
-
     debugPrint(
         '[FeedScreen] Building with _selectedCategory: ${_selectedCategory?.name}');
     final feedAsync = ref.watch(newsFeedNotifierProvider);
@@ -760,20 +785,19 @@ class _ThemedSidebar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentIndex = ref.watch(newsFeedNotifierProvider
-        .select((s) => s.valueOrNull?.currentIndex ?? 0));
-    final articles = ref.watch(
-        newsFeedNotifierProvider.select((s) => s.valueOrNull?.articles ?? []));
+    final categoryColor = ref.watch(newsFeedNotifierProvider.select((s) {
+      final feed = s.valueOrNull;
+      if (feed == null) return const Color(0xFF6C63FF);
+      final idx = feed.currentIndex;
+      if (idx < 0 || idx >= feed.articles.length) return const Color(0xFF6C63FF);
+      final article = feed.articles[idx];
+      final primaryCategory = article.categories.isNotEmpty == true
+          ? article.categories.first
+          : null;
+      return AppTheme.categoryColor(primaryCategory?.name ?? 'world');
+    }));
 
-    final currentArticle = (currentIndex >= 0 && currentIndex < articles.length)
-        ? articles[currentIndex]
-        : null;
-    final primaryCategory = currentArticle?.categories.isNotEmpty == true
-        ? currentArticle!.categories.first
-        : null;
-    final catColor = AppTheme.categoryColor(primaryCategory?.name ?? 'world');
-
-    return Sidebar(catColor: catColor);
+    return Sidebar(catColor: categoryColor);
   }
 }
 
@@ -1035,6 +1059,17 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
       _itemKeys.putIfAbsent(cat, () => GlobalKey());
     }
 
+    final (:interests, :country) = ref.watch(authNotifierProvider.select((s) => (
+          interests: s.selectedInterests,
+          country: s.preferredCountry,
+        )));
+
+    final deviceCountry = country ?? View.of(context).platformDispatcher.locale.countryCode;
+
+    final sortedCats = _getSortedCategories(interests)
+        .where((cat) => cat.isSupported(deviceCountry))
+        .toList();
+
     return Container(
       padding: EdgeInsets.only(top: topPadding),
       decoration: BoxDecoration(
@@ -1088,41 +1123,30 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
                   controller: _scrollController,
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
-                  children: () {
-                    final sortedCats = _getSortedCategories(ref)
-                        .where((cat) => cat.isSupported(
-                            ref.watch(authNotifierProvider).preferredCountry ??
-                                View.of(context)
-                                    .platformDispatcher
-                                    .locale
-                                    .countryCode))
-                        .toList();
-
-                    return [
-                      _FilterChip(
-                        key: _itemKeys[null],
-                        label: '✨ For You',
-                        isSelected: widget.selectedCategory == null,
-                        onTap: () => widget.onCategoryChanged(null),
-                      ),
-                      const SizedBox(width: 8),
-                      ...sortedCats.asMap().entries.map((entry) {
-                        final i = entry.key;
-                        final cat = entry.value;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: _FilterChip(
-                            key: i == 0
-                                ? widget.onboardingCategoryKey
-                                : _itemKeys[cat],
-                            label: '${cat.emoji}  ${cat.displayName}',
-                            isSelected: widget.selectedCategory == cat,
-                            onTap: () => widget.onCategoryChanged(cat),
-                          ),
-                        );
-                      }),
-                    ];
-                  }(),
+                  children: [
+                    _FilterChip(
+                      key: _itemKeys[null],
+                      label: '✨ For You',
+                      isSelected: widget.selectedCategory == null,
+                      onTap: () => widget.onCategoryChanged(null),
+                    ),
+                    const SizedBox(width: 8),
+                    ...sortedCats.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final cat = entry.value;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: _FilterChip(
+                          key: i == 0
+                              ? widget.onboardingCategoryKey
+                              : _itemKeys[cat],
+                          label: '${cat.emoji}  ${cat.displayName}',
+                          isSelected: widget.selectedCategory == cat,
+                          onTap: () => widget.onCategoryChanged(cat),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),
@@ -1132,8 +1156,7 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
     );
   }
 
-  List<NewsCategory> _getSortedCategories(WidgetRef ref) {
-    final selectedInterests = ref.watch(authNotifierProvider).selectedInterests;
+  List<NewsCategory> _getSortedCategories(List<String> selectedInterests) {
     if (selectedInterests.isEmpty) return NewsCategory.values;
 
     final sorted = List<NewsCategory>.from(NewsCategory.values)

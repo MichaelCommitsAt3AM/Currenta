@@ -128,7 +128,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   LocalPersistenceRepository get _persistence =>
       ref.read(localPersistenceRepositoryProvider);
 
-  static const Duration _profileLoadTimeout = Duration(seconds: 8);
+  static const Duration _profileLoadTimeout = Duration(seconds: 3);
 
   /// In-memory cache to preserve feed state (articles, index, pagination status)
   /// for each category durante the session.
@@ -143,6 +143,22 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   final Set<NewsCategory?> _fetchingStates = {};
 
   bool _isDisposed = false;
+  Timer? _persistenceTimer;
+  final Map<String, NewsArticle> _pendingArticleUpdates = {};
+
+  FeedState _applyPendingUpdates(FeedState feedState) {
+    if (_pendingArticleUpdates.isEmpty) return feedState;
+    var articlesChanged = false;
+    final updatedArticles = feedState.articles.map((a) {
+      final pending = _pendingArticleUpdates[a.id];
+      if (pending != null) {
+        articlesChanged = true;
+        return pending;
+      }
+      return a;
+    }).toList();
+    return articlesChanged ? feedState.copyWith(articles: updatedArticles) : feedState;
+  }
 
   /// Tracker for the most recent category switch request to ignore stale results.
   NewsCategory? _lastRequestedCategory;
@@ -151,16 +167,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   DateTime? _lastTtlCheckAt;
 
   FeedState? _getFromCache(NewsCategory? category) {
-    final cachedState = _feedCache[category];
+    var cachedState = _feedCache[category];
     if (cachedState != null) {
       _cacheAccessOrder.remove(category);
       _cacheAccessOrder.add(category);
+      cachedState = _applyPendingUpdates(cachedState);
+      _feedCache[category] = cachedState;
     }
     return cachedState;
   }
 
   void _updateCache(NewsCategory? category, FeedState newState) {
-    _feedCache[category] = newState;
+    final updatedState = _applyPendingUpdates(newState);
+    _feedCache[category] = updatedState;
     _cacheAccessOrder.remove(category);
     _cacheAccessOrder.add(category);
 
@@ -188,6 +207,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   void _clearCache() {
     _feedCache.clear();
     _cacheAccessOrder.clear();
+    _pendingArticleUpdates.clear();
   }
 
   void _log(String message) {
@@ -198,10 +218,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   @override
   Future<FeedState> build() async {
-    ref.onDispose(() => _isDisposed = true);
+    ref.onDispose(() {
+      _isDisposed = true;
+      _persistenceTimer?.cancel();
+    });
 
-    // 0. Trigger cache cleaning on startup.
-    await _repo.clearOldCache();
+    // 0. Trigger cache cleaning on startup in background.
+    unawaited(_repo.clearOldCache().catchError((e) {
+      _log('[Feed] Startup cache clean failed: $e');
+    }));
 
     // 0.1 Initialize TTL check throttle to prevent immediate re-check on resume
     _lastTtlCheckAt = DateTime.now().toUtc();
@@ -527,8 +552,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       var nextArticles = [...baseState.articles, ...uniqueNewArticles];
 
-      if (nextArticles.length > 500) {
-        nextArticles = nextArticles.sublist(0, 500);
+      if (nextArticles.length > 100) {
+        nextArticles = nextArticles.sublist(0, 100);
       }
 
       final nextState = baseState.copyWith(
@@ -867,19 +892,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final index = current.articles.indexWhere((a) => a.id == articleId);
       if (index != -1) {
         final newArticles = [...current.articles];
-        newArticles[index] = update(newArticles[index]);
+        final updated = update(newArticles[index]);
+        newArticles[index] = updated;
         state = AsyncData(current.copyWith(articles: newArticles));
-      }
-    }
-
-    // 2. Update all caches
-    for (final entry in _feedCache.entries) {
-      final cachedState = entry.value;
-      final idx = cachedState.articles.indexWhere((a) => a.id == articleId);
-      if (idx != -1) {
-        final freshArticles = [...cachedState.articles];
-        freshArticles[idx] = update(freshArticles[idx]);
-        _updateCache(entry.key, cachedState.copyWith(articles: freshArticles));
+        _pendingArticleUpdates[articleId] = updated;
       }
     }
   }
@@ -891,12 +907,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     
     final targetArticleId = articleId ?? (index < current.articles.length ? current.articles[index].id : null);
     if (targetArticleId != null) {
-      _persistence.saveCurrentArticleId(targetArticleId);
+      _persistenceTimer?.cancel();
+      _persistenceTimer = Timer(const Duration(milliseconds: 500), () {
+        if (_isDisposed) return;
+        _persistence.saveCurrentArticleId(targetArticleId);
 
-      // Specialized tracking for 'For You' feed to support reset-to-main on startup
-      if (current.selectedCategory == null) {
-        _persistence.saveLastForYouArticleId(targetArticleId);
-      }
+        // Specialized tracking for 'For You' feed to support reset-to-main on startup
+        if (current.selectedCategory == null) {
+          _persistence.saveLastForYouArticleId(targetArticleId);
+        }
+      });
     }
   }
 
@@ -1086,7 +1106,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }).toList();
     }
 
-    return _interleaveAds(filtered);
+    return filtered;
   }
 
   void _triggerReset(

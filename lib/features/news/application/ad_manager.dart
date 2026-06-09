@@ -93,11 +93,18 @@ class AdManager extends _$AdManager {
   /// Returns a preloaded NativeAd if available, and triggers pool replenishment.
   /// If the pool is empty, returns null (caller can show standard content or await).
   NativeAd? getAd() {
-    _evictStaleAds();
-
     if (state.pool.isEmpty) {
       _replenishPool();
       return null;
+    }
+
+    // O(1) Fast Path: Only run full O(N) eviction scan if the oldest ad (the first one) is stale.
+    if (state.pool.first.isStale) {
+      _evictStaleAds();
+      if (state.pool.isEmpty) {
+        _replenishPool();
+        return null;
+      }
     }
 
     final pooled = state.pool.first;

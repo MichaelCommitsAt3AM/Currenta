@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:currenta/features/news/domain/entities/news_category.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../../auth/application/auth_notifier.dart';
 import '../screens/settings_screen.dart';
@@ -136,13 +137,23 @@ class Sidebar extends ConsumerWidget {
                         child: authState.avatarUrl != null
                             ? ClipRRect(
                                 borderRadius: BorderRadius.circular(32),
-                                child: Image.network(
-                                  authState.avatarUrl!,
+                                child: CachedNetworkImage(
+                                  imageUrl: authState.avatarUrl!,
                                   width: 64,
                                   height: 64,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) =>
-                                      Icon(
+                                  memCacheWidth: 128,
+                                  memCacheHeight: 128,
+                                  maxWidthDiskCache: 128,
+                                  maxHeightDiskCache: 128,
+                                  placeholder: (context, url) => const SizedBox(
+                                    width: 64,
+                                    height: 64,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) => Icon(
                                     Icons.person_outline_rounded,
                                     size: 32,
                                     color: accentColor,

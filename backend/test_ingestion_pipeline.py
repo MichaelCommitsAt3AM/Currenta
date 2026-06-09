@@ -233,3 +233,63 @@ def test_ingest_single_google_news_article_skips_high_confidence_non_local(monke
         if "ingestion_logs" in row[0] and row[1][1] == "SKIPPED" and row[1][10] == "LOW_LOCAL_RELEVANCE"
     ]
     assert len(rejected_logs) >= 1
+
+
+def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypatch):
+    """
+    If an article is classified as non_local but with low confidence (< 0.70),
+    it should pass the gate (i.e. not be skipped) but its country_code in the DB
+    should be set to None.
+    """
+    def fake_scrape(url: str):
+        return {
+            "text": (
+                "Kenya technology regulators announced a new framework for AI startups, "
+                "focusing on accountability, safety testing, and transparent disclosures. "
+                "Investors said the policy could accelerate responsible innovation while "
+                "keeping consumer trust high across finance, education, and healthcare sectors. "
+                "The framework introduces pre-deployment risk assessments, mandatory incident reporting, "
+                "and periodic independent audits for high-impact systems. Officials said the approach "
+                "balances growth and public safety while helping startups enter regulated markets faster. "
+                "Industry groups welcomed clearer compliance rules and said the policy may attract regional "
+                "capital for trustworthy AI products."
+            ),
+            "title": "Standard title",
+            "image_url": None,
+            "image_bytes": None,
+            "url": url,
+            "original_url": url,
+            "is_paywalled": False,
+        }
+
+    async def fake_summarize(*args, **kwargs):
+        return {
+            "title": "Standard title",
+            "summary": "Standard summary",
+            "categories": ["tech"],
+            "subcategory": "AI",
+            "type": "hard_news",
+            "local_relevance": "non_local",
+            "local_confidence": 0.60, # low confidence, passes gate when strict mode is off
+            "local_reason": "Low confidence non-local",
+        }
+
+    async def fake_embed(text: str):
+        return [0.01, 0.11, 0.21, 0.31]
+
+    monkeypatch.setattr(ingestion, "scrape_article_sync", fake_scrape)
+    monkeypatch.setattr(ingestion, "summarize_article", fake_summarize)
+    monkeypatch.setattr(ingestion, "embed_text", fake_embed)
+
+    conn = FakeConn()
+    pool = FakePool(conn)
+
+    article_id = asyncio.run(ingestion.ingest_from_url(ARTICLE_URL, pool, country_code="KE"))
+
+    assert article_id == "integration-article-1"
+    assert len(conn.inserted_rows) == 1
+    insert_query, insert_args = conn.inserted_rows[0]
+    assert insert_args[11] is None  # Should be set to None because it's non-local!
+
+
+
