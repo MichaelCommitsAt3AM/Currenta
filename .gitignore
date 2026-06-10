@@ -85,3 +85,9 @@ scratch/filtered_public_user_data.sql
 # Local/temp files
 high_ranking_articles.pdf
 test/db_local_test.dart
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
