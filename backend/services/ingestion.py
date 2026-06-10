@@ -186,6 +186,7 @@ SUMMARIZATION_PROMPT = """You are a factual news summarizer and multi-label clas
 2. Generate a concise 5Ws summary of strictly between 60 and 68 words in exactly 3–4 sentences, each sentence roughly 15–20 words.
 3. Identify ALL applicable categories for this article (an article can belong to more than one).
 4. Determine the content "type" (hard_news, analysis, opinion, review, listicle, sponsored, irrelevant).
+5. Extract/calculate article expiration date if it is an announcement of a future event.
 
 Return the result as a raw JSON object only (no preamble):
 {
@@ -193,7 +194,8 @@ Return the result as a raw JSON object only (no preamble):
   "summary": "...",
   "categories": ["primary_category", "secondary_category"],
   "subcategory": "...",
-  "type": "..."
+  "type": "...",
+  "expires_at": "YYYY-MM-DDTHH:MM:SSZ" or null
 }
 
 Rules:
@@ -209,6 +211,12 @@ Rules:
 6. **Single-Topic Focus**: If the text contains multiple unrelated news stories (e.g., a "daily roundup", "news in brief", "books in brief", "buying guide", or "what happened today"), you MUST classify the article as "type": "irrelevant". DO NOT attempt to summarize multiple unrelated topics into one summary.
 7. **Historical Content**: Historical retrospectives, "today in history", or "chart rewinds" (looking back at old charts/events) MUST be classified as "type": "irrelevant".
 8. **Negative Constraint**: Do NOT open with meta-phrases like "The article reports that...", "According to the article...", "This article covers...", or similar. Start directly with the news.
+9. **expires_at**: Set this to an ISO 8601 UTC timestamp string if the article announces a scheduled future event (e.g., future product launch event, conference, press event, livestream, sports match, etc.). Otherwise, set it to null.
+   To calculate expires_at relative to the provided Reference Time (UTC):
+   - SPECIFIC TIME: If the text specifies a start time (e.g., "June 9 at 10 AM ET"), convert that time to UTC using the correct timezone offset and add 3 hours to cover event duration (e.g., "2026-06-09T17:00:00Z").
+   - DATE ONLY: If only a date is mentioned (e.g., "Coming June 9"), set expiration to 23:59:59 UTC on that day (e.g., "2026-06-09T23:59:59Z").
+   - MULTI-DAY: If it's a multi-day event (e.g., "June 8 - June 12"), set it to 23:59:59 UTC on the final day (e.g., "2026-06-12T23:59:59Z").
+   - If no year is specified in the text, assume it's the year of the Reference Time. If the event is in the past, ongoing, or not a future event announcement, set it to null.
 
 Example of a 64-word summary (Use this density as a template):
 "Following a significant technological breakthrough, researchers at the leading national laboratory successfully demonstrated a new quantum computing architecture. This innovative approach utilizes stable silicon-based qubits, drastically reducing error rates compared to previous superconducting models. The team believes this advancement paves the logical path towards commercially viable quantum systems within five years, potentially revolutionizing cryptography, materials science, and complex financial modeling worldwide starting today."
@@ -885,9 +893,11 @@ async def summarize_article(
         else:
             category_context = f"\nThe source feed is broadly tagged as '{category_hint}'. Include all categories that genuinely apply; '{category_hint}' should be listed first if applicable."
 
-    locality_context = _build_locality_context(country_code)
+    ref_time = published_at or datetime.now(timezone.utc)
+    ref_str = ref_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    ref_context = f"\n\nReference Time (UTC): {ref_str}"
     
-    full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}\n\nArticle:\n{text}"
+    full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}{ref_context}\n\nArticle:\n{text}"
     raw_content = ""
 
     # Recommendation 3: Use shared http_client if provided to reduce connection overhead
@@ -1015,7 +1025,8 @@ def parse_llm_response(raw_str: str) -> dict:
             "summary": str(raw_str)[:300],
             "categories": ["world"],
             "type": "irrelevant",
-            "subcategory": ""
+            "subcategory": "",
+            "expires_at": None,
         }
 
     try:
@@ -1043,6 +1054,15 @@ def parse_llm_response(raw_str: str) -> dict:
         local_confidence = _parse_local_confidence(parsed.get("local_confidence", 0.0))
         local_reason = str(parsed.get("local_reason", "")).replace("**", "").strip('"').strip()
         
+        expires_at_str = parsed.get("expires_at")
+        expires_at = None
+        if expires_at_str:
+            try:
+                expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+            except Exception as parse_e:
+                print(f"[LLM Parser] Failed to parse expires_at '{expires_at_str}': {parse_e}")
+                expires_at = None
+        
         return {
             "title": title,
             "summary": summary,
@@ -1052,6 +1072,7 @@ def parse_llm_response(raw_str: str) -> dict:
             "local_relevance": local_relevance,
             "local_confidence": local_confidence,
             "local_reason": local_reason,
+            "expires_at": expires_at,
         }
     except Exception as e:
         print(f"[LLM Parser] Logic error: {e}")
@@ -1060,7 +1081,8 @@ def parse_llm_response(raw_str: str) -> dict:
             "summary": raw_str[:300],
             "categories": ["world"],
             "type": "irrelevant",
-            "subcategory": ""
+            "subcategory": "",
+            "expires_at": None,
         }
 
 async def embed_text(text: str, http_client: Optional[httpx.AsyncClient] = None) -> list[float]:
@@ -1798,15 +1820,18 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     INSERT INTO articles (
                         id, title, summary, original_url, image_url, source_name, source_favicon_url,
                         published_at, categories, subcategory, embedding, content_hash, 
-                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source
+                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source,
+                        expires_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17, $18)
-                    ON CONFLICT (original_url) DO UPDATE SET is_major_source = EXCLUDED.is_major_source 
-                    WHERE articles.is_major_source = FALSE AND EXCLUDED.is_major_source = TRUE
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17, $18, $19)
+                    ON CONFLICT (original_url) DO UPDATE SET 
+                        is_major_source = CASE WHEN articles.is_major_source = FALSE THEN EXCLUDED.is_major_source ELSE articles.is_major_source END,
+                        expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
                     ''',
                     article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
                     item_pub_date, categories, subcategory, embedding, content_hash, 
-                    get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major
+                    get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major,
+                    llm_res.get("expires_at")
                 )
                     
                     # Log successful ingestion with details
@@ -2239,15 +2264,17 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                     id, title, summary, original_url, image_url, source_name,
                     published_at, categories, subcategory, embedding, content_hash, 
                     summary_model, country_code, is_paywalled, ingestion_method, created_at,
-                    ranking_score, cluster_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15, $16)
-                ON CONFLICT (original_url) DO UPDATE SET last_trend_update = NOW() -- Dummy update to trigger RETURNING
+                    ranking_score, cluster_id, expires_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15, $16, $17)
+                ON CONFLICT (original_url) DO UPDATE SET 
+                    last_trend_update = NOW(), -- Dummy update to trigger RETURNING
+                    expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
                 RETURNING id
             ''', 
             article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
             llm_res["categories"], llm_res["subcategory"],
             embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code, 
-            scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id)
+            scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"))
             
             article_id = result["id"] if result else None
 

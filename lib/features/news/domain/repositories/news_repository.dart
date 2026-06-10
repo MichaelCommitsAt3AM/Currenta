@@ -64,6 +64,9 @@ abstract class NewsRepository {
   /// Toggles the like status of an article.
   Future<void> toggleLike(String articleId);
 
+  /// Synchronously or asynchronously flushes any pending queued likes to the backend.
+  Future<void> flushPendingLikes();
+
   /// Toggles the favorite status of an article.
   Future<void> toggleFavorite(String articleId);
 

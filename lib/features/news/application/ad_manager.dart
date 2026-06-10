@@ -44,6 +44,7 @@ class AdManager extends _$AdManager {
   bool _isLoading = false;
   bool _isDisposed = false;
   Timer? _cleanupTimer;
+  int _failureCount = 0;
 
   @override
   AdManagerState build() {
@@ -60,8 +61,8 @@ class AdManager extends _$AdManager {
       _evictStaleAds();
     });
 
-    // Start preloading ads immediately
-    Future.microtask(_replenishPool);
+    // Start preloading ads after the app has settled (e.g. 4 seconds)
+    Future.delayed(const Duration(seconds: 4), _replenishPool);
     return AdManagerState(pool: [], adsAvailable: false);
   }
 
@@ -114,11 +115,39 @@ class AdManager extends _$AdManager {
     return pooled.ad;
   }
 
-  void _replenishPool() {
-    if (_isDisposed || _isLoading || state.pool.length >= _targetPoolSize)
+  static bool _sdkInitialized = false;
+  static Future<void>? _initFuture;
+
+  Future<void> _ensureSdkInitialized() async {
+    if (_sdkInitialized) return;
+    if (_initFuture != null) return _initFuture;
+
+    _initFuture = MobileAds.instance.initialize().then((_) {
+      _sdkInitialized = true;
+      _initFuture = null;
+    });
+    return _initFuture;
+  }
+
+  Future<void> _replenishPool() async {
+    if (_isDisposed || _isLoading || state.pool.length >= _targetPoolSize) {
       return;
+    }
 
     _isLoading = true;
+
+    try {
+      await _ensureSdkInitialized();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AdManager] MobileAds initialization failed: $e');
+      }
+      _isLoading = false;
+      return;
+    }
+
+    if (_isDisposed) return;
+
     final adUnitId = AdConfig.nativeAdUnitId;
 
     final ad = NativeAd(
@@ -135,6 +164,7 @@ class AdManager extends _$AdManager {
             debugPrint('[AdManager] Native ad loaded successfully.');
           }
           _isLoading = false;
+          _failureCount = 0; // Reset failure count on successful load
           final newPooled =
               PooledAd(ad: ad as NativeAd, loadedAt: DateTime.now());
           state = state.copyWith(
@@ -152,8 +182,22 @@ class AdManager extends _$AdManager {
           if (_isDisposed) return;
 
           _isLoading = false;
-          // Retry after a brief delay to avoid spamming failed requests
-          Future.delayed(const Duration(seconds: 10), () {
+          _failureCount++;
+
+          if (_failureCount >= 3) {
+            if (kDebugMode) {
+              debugPrint(
+                  '[AdManager] Max ad load failures reached ($_failureCount/3). Stopping retry loop.');
+            }
+            return;
+          }
+
+          final delaySeconds = 10 * _failureCount;
+          if (kDebugMode) {
+            debugPrint(
+                '[AdManager] Scheduling ad retry in $delaySeconds seconds (attempt $_failureCount/3)...');
+          }
+          Future.delayed(Duration(seconds: delaySeconds), () {
             if (!_isDisposed) {
               _replenishPool();
             }

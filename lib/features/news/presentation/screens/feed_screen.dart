@@ -44,6 +44,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   final Set<String> _viewedIdsInSession = {};
   bool _hasWarmedUpBrowser = false;
   Timer? _viewTimer;
+  Timer? _browserWarmupTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _hasScrolledOnce = false;
   bool _isManualShimmering = false;
@@ -51,6 +52,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   bool _isRouteVisible = false;
   bool _isShowingRefreshAck = false;
   final GlobalKey _onboardingCategoryKey = GlobalKey();
+  bool _isBottomSwipeLocked = false;
 
   ProviderSubscription? _feedSubscription;
   ProviderSubscription? _refreshSubscription;
@@ -63,12 +65,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   @override
   void initState() {
     super.initState();
+    final initialState = ref.read(newsFeedNotifierProvider);
     final initialIndex =
-        ref.read(newsFeedNotifierProvider).valueOrNull?.currentIndex ?? 0;
+        (initialState.hasValue ? initialState.value : null)?.currentIndex ?? 0;
     _pageController = PageController(initialPage: initialIndex);
     _currentIndex = initialIndex;
     _selectedCategory =
-        ref.read(newsFeedNotifierProvider).valueOrNull?.selectedCategory;
+        (initialState.hasValue ? initialState.value : null)?.selectedCategory;
     _pageController.addListener(_onPageScroll);
     WidgetsBinding.instance.addObserver(this);
 
@@ -77,18 +80,27 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       _trackPageView(0);
     });
 
+    // Defer Custom Tabs browser warmup to avoid blocking launch frame resources
+    _browserWarmupTimer = Timer(const Duration(seconds: 5), () {
+      _warmupBrowser();
+    });
+
     // Eagerly trigger ad preloading pool
     ref.read(adManagerProvider.notifier);
 
     _feedSubscription = ref.listenManual(newsFeedNotifierProvider, (previous, next) {
-      final prevFeed = previous?.valueOrNull;
-      final nextFeed = next.valueOrNull;
+      final prevFeed = (previous != null && previous.hasValue) ? previous.value : null;
+      final nextFeed = next.hasValue ? next.value : null;
       if (nextFeed == null) return;
 
       // Reset pagination trigger when the underlying feed content is rebuilt
       // (e.g. after personalization changes/invalidation) even if category is unchanged.
-      final prevHeadId = prevFeed?.articles.firstOrNull?.id;
-      final nextHeadId = nextFeed.articles.firstOrNull?.id;
+      final prevHeadId = (prevFeed?.articles != null && prevFeed!.articles.isNotEmpty)
+          ? prevFeed.articles.first.id
+          : null;
+      final nextHeadId = nextFeed.articles.isNotEmpty
+          ? nextFeed.articles.first.id
+          : null;
       final didFeedReset = prevFeed == null ||
           nextFeed.currentIndex == 0 ||
           nextFeed.articles.length < (prevFeed.articles.length) ||
@@ -98,7 +110,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
 
       // 1. Keep local chip state aligned with notifier state across relaunch/restoration.
-      final nextCategory = next.valueOrNull?.selectedCategory;
+      final nextCategory = next.hasValue ? next.value.selectedCategory : null;
       if (nextCategory != _selectedCategory && mounted) {
         setState(() {
           _selectedCategory = nextCategory;
@@ -108,7 +120,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
 
       // 2. Sync PageController if state changed index independently (e.g., restoration or refresh)
-      final prevIndex = previous?.valueOrNull?.currentIndex;
+      final prevIndex = (previous != null && previous.hasValue) ? previous.value.currentIndex : null;
       final nextIndex = nextFeed.currentIndex;
       final controllerPage =
           _pageController.hasClients ? _pageController.page?.round() : null;
@@ -127,8 +139,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       // 2. Handle AI Chat sheet
       if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
-        final article =
-            nextFeed.articles.where((a) => a.id == articleId).firstOrNull;
+        final matchedArticles = nextFeed.articles.where((a) => a.id == articleId);
+        final article = matchedArticles.isNotEmpty ? matchedArticles.first : null;
 
         // Clear immediately so it doesn't re-open on next rebuild
         ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
@@ -273,12 +285,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
     _viewTimer?.cancel();
+    _browserWarmupTimer?.cancel();
     super.dispose();
+  }
+
+  void _warmupBrowser() {
+    if (_hasWarmedUpBrowser) return;
+    _hasWarmedUpBrowser = true;
+    _browserWarmupTimer?.cancel();
+    if (mounted) {
+      ref.read(browserServiceProvider).warmup();
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      ref.read(newsRepositoryProvider).flushPendingLikes();
+    } else if (state == AppLifecycleState.resumed) {
       // Check for staleness and refresh if needed when app comes back to foreground
       ref.read(newsFeedNotifierProvider.notifier).refreshIfStale();
       _maybeShowPendingRefreshAck();
@@ -357,7 +381,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   int _lastTriggeredPage = -1;
 
   void _maybeLoadMore({int? pageHint}) {
-    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    final notifierState = ref.read(newsFeedNotifierProvider);
+    final feed = notifierState.hasValue ? notifierState.value : null;
     if (feed == null || feed.isLoadingMore || !feed.hasMore) return;
 
     final displayArticles = _getDisplayArticles(feed);
@@ -386,6 +411,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   }
 
   void _onPageChanged(int index) {
+    if (!_hasWarmedUpBrowser) {
+      _warmupBrowser();
+    }
+
     if (!_hasScrolledOnce && index > 0) {
       _hasScrolledOnce = true;
       // If scroll onboarding was visible, hide it
@@ -413,7 +442,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       _currentIndex = index;
     });
 
-    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    final notifierState = ref.read(newsFeedNotifierProvider);
+    final feed = notifierState.hasValue ? notifierState.value : null;
     if (feed == null) return;
 
     final displayArticles = _getDisplayArticles(feed);
@@ -430,7 +460,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
       Future.microtask(() {
         if (!mounted) return;
-        final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+        final feedState = ref.read(newsFeedNotifierProvider);
+        final feed = feedState.hasValue ? feedState.value : null;
         if (feed == null) return;
 
         final displayArticles = _getDisplayArticles(feed);
@@ -467,7 +498,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   void _trackPageView(int index) {
     _viewTimer?.cancel();
-    final feed = ref.read(newsFeedNotifierProvider).valueOrNull;
+    final feedState = ref.read(newsFeedNotifierProvider);
+    final feed = feedState.hasValue ? feedState.value : null;
     if (feed != null) {
       final displayArticles = _getDisplayArticles(feed);
       if (index < displayArticles.length) {
@@ -627,7 +659,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     debugPrint(
         '[FeedScreen] Building with _selectedCategory: ${_selectedCategory?.name}');
     final feedAsync = ref.watch(newsFeedNotifierProvider);
-    final feed = feedAsync.valueOrNull;
+    final feed = feedAsync.hasValue ? feedAsync.value : null;
 
     return PopScope(
       canPop: false,
@@ -731,13 +763,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     }
 
     // ── Performance: Browser Pre-warming ──
-    if (!_hasWarmedUpBrowser) {
-      _hasWarmedUpBrowser = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final browser = ref.read(browserServiceProvider);
-        browser.warmup();
-      });
-    }
+    // Warmup is handled by _browserWarmupTimer or user scroll event
 
     // Reactively trigger rebuild when ads become available for the first time
     ref.watch(adManagerProvider.select((s) => s.adsAvailable));
@@ -745,37 +771,65 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
     final itemCount = displayArticles.length + (feed.isLoadingMore ? 1 : 0);
 
-    return PageView.builder(
-      controller: _pageController,
-      scrollDirection: Axis.vertical,
-      physics: const BouncingScrollPhysics(),
-      allowImplicitScrolling:
-          true, // Pre-warms adjacent pages (native ad views) silently before touch drag
-      itemCount: itemCount,
-      onPageChanged: _onPageChanged,
-      itemBuilder: (context, i) {
-        if (i >= displayArticles.length) {
-          return const _LoadingMorePage();
+    return Listener(
+      onPointerDown: (event) {
+        final bottomPadding = MediaQuery.paddingOf(context).bottom;
+        final bottomThreshold = bottomPadding + 10.0;
+        final screenHeight = MediaQuery.sizeOf(context).height;
+        if (event.position.dy > screenHeight - bottomThreshold) {
+          setState(() {
+            _isBottomSwipeLocked = true;
+          });
         }
-
-        final article = displayArticles[i];
-
-        if (article.itemType == 'exhaustion_marker') {
-          return const ExhaustionMarkerCard();
-        }
-
-        if (article.itemType == 'ad') {
-          return const RepaintBoundary(child: NativeAdCard());
-        }
-
-        return RepaintBoundary(
-          child: NewsCard(
-            article: article,
-            index: i,
-            total: displayArticles.length,
-          ),
-        );
       },
+      onPointerUp: (event) {
+        if (_isBottomSwipeLocked) {
+          setState(() {
+            _isBottomSwipeLocked = false;
+          });
+        }
+      },
+      onPointerCancel: (event) {
+        if (_isBottomSwipeLocked) {
+          setState(() {
+            _isBottomSwipeLocked = false;
+          });
+        }
+      },
+      child: PageView.builder(
+        controller: _pageController,
+        scrollDirection: Axis.vertical,
+        physics: _isBottomSwipeLocked
+            ? const NeverScrollableScrollPhysics()
+            : const BouncingScrollPhysics(),
+        allowImplicitScrolling:
+            true, // Pre-warms adjacent pages (native ad views) silently before touch drag
+        itemCount: itemCount,
+        onPageChanged: _onPageChanged,
+        itemBuilder: (context, i) {
+          if (i >= displayArticles.length) {
+            return const _LoadingMorePage();
+          }
+
+          final article = displayArticles[i];
+
+          if (article.itemType == 'exhaustion_marker') {
+            return const ExhaustionMarkerCard();
+          }
+
+          if (article.itemType == 'ad') {
+            return const RepaintBoundary(child: NativeAdCard());
+          }
+
+          return RepaintBoundary(
+            child: NewsCard(
+              article: article,
+              index: i,
+              total: displayArticles.length,
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -786,7 +840,7 @@ class _ThemedSidebar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final categoryColor = ref.watch(newsFeedNotifierProvider.select((s) {
-      final feed = s.valueOrNull;
+      final feed = s.hasValue ? s.value : null;
       if (feed == null) return const Color(0xFF6C63FF);
       final idx = feed.currentIndex;
       if (idx < 0 || idx >= feed.articles.length) return const Color(0xFF6C63FF);
@@ -815,7 +869,7 @@ class _ThemedCategoryBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedCategory = ref.watch(newsFeedNotifierProvider
-        .select((s) => s.valueOrNull?.selectedCategory));
+        .select((s) => (s.hasValue ? s.value : null)?.selectedCategory));
 
     return _CategoryBar(
       selectedCategory: selectedCategory,

@@ -59,8 +59,55 @@ def _get_active_client() -> genai.Client | None:
         return _vertex_client
     return _gemini_client
 
+
 # The grounding tool using the new SDK's typed config
 _GOOGLE_SEARCH_TOOL = genai_types.Tool(google_search=genai_types.GoogleSearch())
+
+
+def add_citations_to_text(text: str, grounding_metadata) -> str:
+    if not grounding_metadata:
+        return text
+
+    supports = []
+    if getattr(grounding_metadata, 'grounding_supports', None):
+        for s in grounding_metadata.grounding_supports:
+            if not s.segment or getattr(s.segment, 'end_index', None) is None:
+                continue
+            if not s.grounding_chunk_indices:
+                continue
+            supports.append(s)
+
+    # Sort supports by end_index descending to avoid index shifting
+    supports.sort(key=lambda x: x.segment.end_index, reverse=True)
+
+    modified_text = text
+    for s in supports:
+        end_idx = s.segment.end_index
+        # Adjust end_idx to the end of the word/punctuation if it lands in the middle of a word or before sentence-ending punctuation
+        while end_idx < len(modified_text) and (modified_text[end_idx].isalnum() or modified_text[end_idx] in ".,!?;\"'"):
+            end_idx += 1
+
+        citation_str = ""
+        for chunk_idx in s.grounding_chunk_indices:
+            if chunk_idx < len(grounding_metadata.grounding_chunks):
+                chunk = grounding_metadata.grounding_chunks[chunk_idx]
+                if chunk.web and chunk.web.uri:
+                    citation_str += f" [[{chunk_idx + 1}]]({chunk.web.uri})"
+
+        if citation_str:
+            modified_text = modified_text[:end_idx] + citation_str + modified_text[end_idx:]
+
+    # Now let's append a list of sources at the end if there are grounding chunks
+    if getattr(grounding_metadata, 'grounding_chunks', None):
+        sources = []
+        for idx, chunk in enumerate(grounding_metadata.grounding_chunks):
+            if chunk.web and chunk.web.uri:
+                title = chunk.web.title or "Source"
+                sources.append(f"[{idx + 1}] [{title}]({chunk.web.uri})")
+        if sources:
+            modified_text += "\n\n---\n**Sources:**\n" + "\n".join([f"* {s}" for s in sources])
+
+    return modified_text
 
 
 class ChatMessage(BaseModel):
@@ -216,6 +263,8 @@ async def chat_with_article(
         # 6. Stream the response
         async def generate():
             received_any_text = False
+            full_text = ""
+            grounding_metadata = None
             max_retries = 3
             base_delay = 1.0  # seconds
             
@@ -242,6 +291,10 @@ async def chat_with_article(
 
             try:
                 async for chunk in stream:
+                    # Capture grounding metadata if present
+                    if chunk.candidates and chunk.candidates[0].grounding_metadata:
+                        grounding_metadata = chunk.candidates[0].grounding_metadata
+
                     try:
                         # Check safety finish reason
                         if chunk.candidates:
@@ -254,6 +307,7 @@ async def chat_with_article(
                         text = chunk.text
                         if text:
                             received_any_text = True
+                            full_text += text
                             yield json.dumps({"content": text}) + "\n"
                     except (AttributeError, ValueError):
                         # Chunk may have no text (e.g. grounding metadata only chunk) — skip
@@ -261,6 +315,13 @@ async def chat_with_article(
 
                 if not received_any_text:
                     yield json.dumps({"error": "The assistant was unable to generate a response. Please try rephrasing your question."}) + "\n"
+                elif grounding_metadata:
+                    try:
+                        modified_text = add_citations_to_text(full_text, grounding_metadata)
+                        if modified_text != full_text:
+                            yield json.dumps({"citations_text": modified_text}) + "\n"
+                    except Exception as e:
+                        logger.error("Error formatting citations: %s", e)
 
             except Exception as e:
                 logger.error("Chat stream error: %s", e)

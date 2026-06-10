@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/utils/browser_service.dart';
 import '../../domain/entities/news_article.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../application/ai_chat_notifier.dart';
@@ -461,8 +462,13 @@ class _ChatBubble extends StatelessWidget {
           else
             MarkdownBody(
               data: message.content,
-            selectable: true,
-            styleSheet: MarkdownStyleSheet(
+              selectable: true,
+              onTapLink: (text, href, title) {
+                if (href != null) {
+                  BrowserService.instance.openUrl(context, href);
+                }
+              },
+              styleSheet: MarkdownStyleSheet(
               blockSpacing: 16,
               p: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9),

@@ -2,13 +2,14 @@ import logging
 import asyncio
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, BackgroundTasks
 from uuid import UUID, uuid4
 import asyncpg
 from typing import Optional, List, Dict, Set
 import orjson
+from pydantic import BaseModel
 from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip, verify_app_check, get_feed_rate_limit
 from ..core.geo import get_country_from_ip
 from ..services.ingestion import fetch_local_news_on_demand
@@ -28,6 +29,7 @@ VALID_CATEGORIES = frozenset([
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
     published_at, created_at, categories, subcategory, is_paywalled, country_code, ranking_score, cluster_id, is_major_source,
+    expires_at,
     'article' as item_type
 """
 
@@ -387,7 +389,7 @@ async def get_feed(
                             )
                             final_start_idx += limit
 
-                    expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+                    expires_at = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
 
                     # If no articles were found after all skip attempts, the session is
                     # effectively exhausted (either truly out of IDs, or all remaining
@@ -523,7 +525,7 @@ async def get_feed(
             seen_res = await redis_client.smembers(f"user_seen_v2:{user_id}")
             if seen_res: viewed_ids = set(seen_res)
 
-        common_where = "published_at > NOW() - INTERVAL '72 hours'"
+        common_where = "published_at > NOW() - INTERVAL '72 hours' AND (expires_at IS NULL OR expires_at > NOW())"
         if viewed_ids:
             common_where += f" AND id NOT IN ({','.join([f'${i+1}::uuid' for i in range(len(viewed_ids))])})"
             viewed_params = [UUID(vid) for vid in viewed_ids]
@@ -798,8 +800,8 @@ async def get_feed(
                 "original_url": "https://currenta.tech",
                 "image_url": None,
                 "source_name": "Currenta",
-                "published_at": datetime.now().isoformat(),
-                "created_at": datetime.now().isoformat(),
+                "published_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "categories": ["world"],
                 "item_type": "exhaustion_marker",
                 "ranking_score": 0.0,
@@ -832,7 +834,7 @@ async def get_feed(
         final_result = session_articles[:limit]
         has_more = len(session_articles) > limit
         next_cursor = str(limit) if has_more else None
-        expires_at = (datetime.now() + timedelta(hours=4)).isoformat()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
 
         logger.info(f"New Diversified Feed Session: session={new_session_id} items={len(session_articles)}")
         return {
@@ -1022,6 +1024,53 @@ async def toggle_like(
             # Debounced background update
             schedule_debounced_personalization_update(user.id)
             return {"status": "liked"}
+
+
+class LikeAction(BaseModel):
+    article_id: UUID
+    like: bool
+
+
+class LikeBatchRequest(BaseModel):
+    actions: List[LikeAction]
+
+
+@router.post("/like/batch")
+@limiter.limit("30/minute")
+async def toggle_like_batch(
+    request: Request,
+    batch: LikeBatchRequest,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Batches multiple likes/unlikes for the user.
+    Syncs with Supabase 'article_likes' table and triggers vector recalculation once.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not batch.actions:
+        return {"status": "ignored", "message": "No actions provided"}
+
+    async with db_pool.acquire() as conn:
+        async with conn.transaction():
+            for action in batch.actions:
+                art_id = str(action.article_id)
+                if action.like:
+                    await conn.execute(
+                        "INSERT INTO article_likes (user_id, article_id) VALUES ($1, $2) "
+                        "ON CONFLICT (user_id, article_id) DO NOTHING",
+                        user.id, art_id
+                    )
+                else:
+                    await conn.execute(
+                        "DELETE FROM article_likes WHERE user_id = $1 AND article_id = $2",
+                        user.id, art_id
+                    )
+            # Debounced background update (called once after all updates in the transaction)
+            schedule_debounced_personalization_update(user.id)
+
+    return {"status": "success", "processed": len(batch.actions)}
 
 
 @router.get("/liked")

@@ -51,6 +51,7 @@ class NewsDraft(BaseModel):
     source_name: str
     original_url: str
     image_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
 
 class PublishRequest(BaseModel):
     title: str
@@ -62,6 +63,7 @@ class PublishRequest(BaseModel):
     image_url: Optional[str] = None
     country_code: Optional[str] = None
     is_paywalled: bool = False
+    expires_at: Optional[datetime] = None
 
 class SqlQueryRequest(BaseModel):
     query: str
@@ -192,7 +194,8 @@ async def create_news_draft(
             subcategory=llm_res.get("subcategory", ""),
             source_name=source_name,
             original_url=url,
-            image_url=scraper_result.get("image_url")
+            image_url=scraper_result.get("image_url"),
+            expires_at=llm_res.get("expires_at")
         )
         
     except HTTPException:
@@ -267,7 +270,7 @@ async def publish_manual_news(
                 publish_req.source_name, published_at, publish_req.categories, 
                 publish_req.subcategory, publish_req.country_code, publish_req.image_url, 
                 content_hash, embedding, ranking_score, "manual_admin", 
-                publish_req.is_paywalled, cluster_id, False, "manual_admin"
+                publish_req.is_paywalled, cluster_id, False, "manual_admin", publish_req.expires_at
             ]
             for i, val in enumerate(all_args):
                 logger.debug(f"[admin_publish] Arg ${i+1}: type={type(val)}, value={str(val)[:50]}...")
@@ -279,8 +282,8 @@ async def publish_manual_news(
                     published_at, categories, subcategory, 
                     country_code, image_url, content_hash, 
                     embedding, ranking_score, ingestion_method,
-                    is_paywalled, cluster_id, is_major_source, summary_model
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18)
+                    is_paywalled, cluster_id, is_major_source, summary_model, expires_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19)
                 RETURNING id
                 """,
                 article_id_uuid,
@@ -300,7 +303,8 @@ async def publish_manual_news(
                 publish_req.is_paywalled,
                 cluster_id,
                 False, # is_major_source
-                "manual_admin" # summary_model
+                "manual_admin", # summary_model
+                publish_req.expires_at
             )
             
             await log_ingestion_event(

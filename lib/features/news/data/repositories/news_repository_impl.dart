@@ -1,6 +1,7 @@
 // lib/features/news/data/repositories/news_repository_impl.dart
 // Cache-First strategy: serve local data immediately, then refresh from remote.
 
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import '../../domain/entities/feed_response.dart';
@@ -27,6 +28,9 @@ class NewsRepositoryImpl implements NewsRepository {
   final NewsDao _dao;
   final NewsRemoteDataSource _remote;
   final AuthRepository _auth;
+
+  final Map<String, bool> _pendingLikesSync = {};
+  Timer? _likesDebounceTimer;
 
   // ── Watch (reactive stream from local DB) ──────────────────────
 
@@ -204,11 +208,67 @@ class NewsRepositoryImpl implements NewsRepository {
 
   @override
   Future<void> toggleLike(String articleId) async {
+    debugPrint('[DEBUG-LIKE] toggleLike called for article: $articleId');
     // 1. Toggle locally
     await _dao.toggleLike(articleId);
 
-    // 2. Sync with backend
-    await _remote.toggleArticleLike(articleId);
+    // 2. Query the new state to know if it's liked or not
+    final article = await getArticleById(articleId);
+    if (article == null) {
+      debugPrint('[DEBUG-LIKE] Article not found in database after toggle: $articleId');
+      return;
+    }
+    final isLiked = article.isLiked;
+    debugPrint('[DEBUG-LIKE] Local state updated. New isLiked: $isLiked');
+
+    // 3. Queue the update
+    _pendingLikesSync[articleId] = isLiked;
+    debugPrint('[DEBUG-LIKE] Current pending likes queue: $_pendingLikesSync');
+
+    // 4. Batch/Debounce logic
+    if (_pendingLikesSync.length >= 5) {
+      debugPrint('[DEBUG-LIKE] Queue size reached limit (5). Flushing immediately.');
+      await flushPendingLikes();
+    } else {
+      debugPrint('[DEBUG-LIKE] Scheduling debounce timer (5 seconds)...');
+      _likesDebounceTimer?.cancel();
+      _likesDebounceTimer = Timer(const Duration(seconds: 5), () {
+        debugPrint('[DEBUG-LIKE] Debounce timer expired. Initiating flush.');
+        flushPendingLikes();
+      });
+    }
+  }
+
+  @override
+  Future<void> flushPendingLikes() async {
+    debugPrint('[DEBUG-LIKE] flushPendingLikes invoked.');
+    _likesDebounceTimer?.cancel();
+    _likesDebounceTimer = null;
+
+    if (_pendingLikesSync.isEmpty) {
+      debugPrint('[DEBUG-LIKE] Pending sync queue is empty. Aborting flush.');
+      return;
+    }
+
+    final actionsToSync = Map<String, bool>.from(_pendingLikesSync);
+    _pendingLikesSync.clear();
+    debugPrint('[DEBUG-LIKE] Actions being flushed: $actionsToSync');
+
+    try {
+      final actionsList = actionsToSync.entries.map((e) => {
+        'article_id': e.key,
+        'like': e.value,
+      }).toList();
+
+      await _remote.syncLikesBatch(actionsList);
+      debugPrint('[DEBUG-LIKE] Remote batch sync completed successfully.');
+    } catch (e) {
+      debugPrint('[DEBUG-LIKE] Remote batch sync failed: $e. Re-queueing actions.');
+      // Put back failed items if they weren't updated in the meantime
+      for (final entry in actionsToSync.entries) {
+        _pendingLikesSync.putIfAbsent(entry.key, () => entry.value);
+      }
+    }
   }
 
   @override

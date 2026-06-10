@@ -162,6 +162,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("is_major_source" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _expiresAtMeta =
+      const VerificationMeta('expiresAt');
+  @override
+  late final GeneratedColumn<DateTime> expiresAt = GeneratedColumn<DateTime>(
+      'expires_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -184,7 +190,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         trendScore,
         lastTrendUpdate,
         rankingScore,
-        isMajorSource
+        isMajorSource,
+        expiresAt
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -308,6 +315,10 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           isMajorSource.isAcceptableOrUnknown(
               data['is_major_source']!, _isMajorSourceMeta));
     }
+    if (data.containsKey('expires_at')) {
+      context.handle(_expiresAtMeta,
+          expiresAt.isAcceptableOrUnknown(data['expires_at']!, _expiresAtMeta));
+    }
     return context;
   }
 
@@ -361,6 +372,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.double, data['${effectivePrefix}ranking_score'])!,
       isMajorSource: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_major_source'])!,
+      expiresAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}expires_at']),
     );
   }
 
@@ -402,6 +415,7 @@ class NewsArticlesTableData extends DataClass
   final DateTime? lastTrendUpdate;
   final double rankingScore;
   final bool isMajorSource;
+  final DateTime? expiresAt;
   const NewsArticlesTableData(
       {required this.id,
       required this.title,
@@ -423,7 +437,8 @@ class NewsArticlesTableData extends DataClass
       required this.trendScore,
       this.lastTrendUpdate,
       required this.rankingScore,
-      required this.isMajorSource});
+      required this.isMajorSource,
+      this.expiresAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -464,6 +479,9 @@ class NewsArticlesTableData extends DataClass
     }
     map['ranking_score'] = Variable<double>(rankingScore);
     map['is_major_source'] = Variable<bool>(isMajorSource);
+    if (!nullToAbsent || expiresAt != null) {
+      map['expires_at'] = Variable<DateTime>(expiresAt);
+    }
     return map;
   }
 
@@ -500,6 +518,9 @@ class NewsArticlesTableData extends DataClass
           : Value(lastTrendUpdate),
       rankingScore: Value(rankingScore),
       isMajorSource: Value(isMajorSource),
+      expiresAt: expiresAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expiresAt),
     );
   }
 
@@ -529,6 +550,7 @@ class NewsArticlesTableData extends DataClass
       lastTrendUpdate: serializer.fromJson<DateTime?>(json['lastTrendUpdate']),
       rankingScore: serializer.fromJson<double>(json['rankingScore']),
       isMajorSource: serializer.fromJson<bool>(json['isMajorSource']),
+      expiresAt: serializer.fromJson<DateTime?>(json['expiresAt']),
     );
   }
   @override
@@ -556,6 +578,7 @@ class NewsArticlesTableData extends DataClass
       'lastTrendUpdate': serializer.toJson<DateTime?>(lastTrendUpdate),
       'rankingScore': serializer.toJson<double>(rankingScore),
       'isMajorSource': serializer.toJson<bool>(isMajorSource),
+      'expiresAt': serializer.toJson<DateTime?>(expiresAt),
     };
   }
 
@@ -580,7 +603,8 @@ class NewsArticlesTableData extends DataClass
           double? trendScore,
           Value<DateTime?> lastTrendUpdate = const Value.absent(),
           double? rankingScore,
-          bool? isMajorSource}) =>
+          bool? isMajorSource,
+          Value<DateTime?> expiresAt = const Value.absent()}) =>
       NewsArticlesTableData(
         id: id ?? this.id,
         title: title ?? this.title,
@@ -607,6 +631,7 @@ class NewsArticlesTableData extends DataClass
             : this.lastTrendUpdate,
         rankingScore: rankingScore ?? this.rankingScore,
         isMajorSource: isMajorSource ?? this.isMajorSource,
+        expiresAt: expiresAt.present ? expiresAt.value : this.expiresAt,
       );
   NewsArticlesTableData copyWithCompanion(NewsArticlesTableCompanion data) {
     return NewsArticlesTableData(
@@ -650,6 +675,7 @@ class NewsArticlesTableData extends DataClass
       isMajorSource: data.isMajorSource.present
           ? data.isMajorSource.value
           : this.isMajorSource,
+      expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
     );
   }
 
@@ -676,7 +702,8 @@ class NewsArticlesTableData extends DataClass
           ..write('trendScore: $trendScore, ')
           ..write('lastTrendUpdate: $lastTrendUpdate, ')
           ..write('rankingScore: $rankingScore, ')
-          ..write('isMajorSource: $isMajorSource')
+          ..write('isMajorSource: $isMajorSource, ')
+          ..write('expiresAt: $expiresAt')
           ..write(')'))
         .toString();
   }
@@ -703,7 +730,8 @@ class NewsArticlesTableData extends DataClass
         trendScore,
         lastTrendUpdate,
         rankingScore,
-        isMajorSource
+        isMajorSource,
+        expiresAt
       ]);
   @override
   bool operator ==(Object other) =>
@@ -729,7 +757,8 @@ class NewsArticlesTableData extends DataClass
           other.trendScore == this.trendScore &&
           other.lastTrendUpdate == this.lastTrendUpdate &&
           other.rankingScore == this.rankingScore &&
-          other.isMajorSource == this.isMajorSource);
+          other.isMajorSource == this.isMajorSource &&
+          other.expiresAt == this.expiresAt);
 }
 
 class NewsArticlesTableCompanion
@@ -755,6 +784,7 @@ class NewsArticlesTableCompanion
   final Value<DateTime?> lastTrendUpdate;
   final Value<double> rankingScore;
   final Value<bool> isMajorSource;
+  final Value<DateTime?> expiresAt;
   final Value<int> rowid;
   const NewsArticlesTableCompanion({
     this.id = const Value.absent(),
@@ -778,6 +808,7 @@ class NewsArticlesTableCompanion
     this.lastTrendUpdate = const Value.absent(),
     this.rankingScore = const Value.absent(),
     this.isMajorSource = const Value.absent(),
+    this.expiresAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NewsArticlesTableCompanion.insert({
@@ -802,6 +833,7 @@ class NewsArticlesTableCompanion
     this.lastTrendUpdate = const Value.absent(),
     this.rankingScore = const Value.absent(),
     this.isMajorSource = const Value.absent(),
+    this.expiresAt = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         title = Value(title),
@@ -831,6 +863,7 @@ class NewsArticlesTableCompanion
     Expression<DateTime>? lastTrendUpdate,
     Expression<double>? rankingScore,
     Expression<bool>? isMajorSource,
+    Expression<DateTime>? expiresAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -855,6 +888,7 @@ class NewsArticlesTableCompanion
       if (lastTrendUpdate != null) 'last_trend_update': lastTrendUpdate,
       if (rankingScore != null) 'ranking_score': rankingScore,
       if (isMajorSource != null) 'is_major_source': isMajorSource,
+      if (expiresAt != null) 'expires_at': expiresAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -881,6 +915,7 @@ class NewsArticlesTableCompanion
       Value<DateTime?>? lastTrendUpdate,
       Value<double>? rankingScore,
       Value<bool>? isMajorSource,
+      Value<DateTime?>? expiresAt,
       Value<int>? rowid}) {
     return NewsArticlesTableCompanion(
       id: id ?? this.id,
@@ -904,6 +939,7 @@ class NewsArticlesTableCompanion
       lastTrendUpdate: lastTrendUpdate ?? this.lastTrendUpdate,
       rankingScore: rankingScore ?? this.rankingScore,
       isMajorSource: isMajorSource ?? this.isMajorSource,
+      expiresAt: expiresAt ?? this.expiresAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -977,6 +1013,9 @@ class NewsArticlesTableCompanion
     if (isMajorSource.present) {
       map['is_major_source'] = Variable<bool>(isMajorSource.value);
     }
+    if (expiresAt.present) {
+      map['expires_at'] = Variable<DateTime>(expiresAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1007,6 +1046,7 @@ class NewsArticlesTableCompanion
           ..write('lastTrendUpdate: $lastTrendUpdate, ')
           ..write('rankingScore: $rankingScore, ')
           ..write('isMajorSource: $isMajorSource, ')
+          ..write('expiresAt: $expiresAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1868,6 +1908,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   Value<DateTime?> lastTrendUpdate,
   Value<double> rankingScore,
   Value<bool> isMajorSource,
+  Value<DateTime?> expiresAt,
   Value<int> rowid,
 });
 typedef $$NewsArticlesTableTableUpdateCompanionBuilder
@@ -1893,6 +1934,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<DateTime?> lastTrendUpdate,
   Value<double> rankingScore,
   Value<bool> isMajorSource,
+  Value<DateTime?> expiresAt,
   Value<int> rowid,
 });
 
@@ -1974,6 +2016,9 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<bool> get isMajorSource => $composableBuilder(
       column: $table.isMajorSource, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get expiresAt => $composableBuilder(
+      column: $table.expiresAt, builder: (column) => ColumnFilters(column));
 }
 
 class $$NewsArticlesTableTableOrderingComposer
@@ -2052,6 +2097,9 @@ class $$NewsArticlesTableTableOrderingComposer
   ColumnOrderings<bool> get isMajorSource => $composableBuilder(
       column: $table.isMajorSource,
       builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get expiresAt => $composableBuilder(
+      column: $table.expiresAt, builder: (column) => ColumnOrderings(column));
 }
 
 class $$NewsArticlesTableTableAnnotationComposer
@@ -2127,6 +2175,9 @@ class $$NewsArticlesTableTableAnnotationComposer
 
   GeneratedColumn<bool> get isMajorSource => $composableBuilder(
       column: $table.isMajorSource, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get expiresAt =>
+      $composableBuilder(column: $table.expiresAt, builder: (column) => column);
 }
 
 class $$NewsArticlesTableTableTableManager extends RootTableManager<
@@ -2179,6 +2230,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<DateTime?> lastTrendUpdate = const Value.absent(),
             Value<double> rankingScore = const Value.absent(),
             Value<bool> isMajorSource = const Value.absent(),
+            Value<DateTime?> expiresAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion(
@@ -2203,6 +2255,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             lastTrendUpdate: lastTrendUpdate,
             rankingScore: rankingScore,
             isMajorSource: isMajorSource,
+            expiresAt: expiresAt,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2227,6 +2280,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<DateTime?> lastTrendUpdate = const Value.absent(),
             Value<double> rankingScore = const Value.absent(),
             Value<bool> isMajorSource = const Value.absent(),
+            Value<DateTime?> expiresAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion.insert(
@@ -2251,6 +2305,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             lastTrendUpdate: lastTrendUpdate,
             rankingScore: rankingScore,
             isMajorSource: isMajorSource,
+            expiresAt: expiresAt,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

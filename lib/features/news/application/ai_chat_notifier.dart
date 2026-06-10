@@ -211,6 +211,14 @@ class AiChatNotifier extends _$AiChatNotifier {
               } else {
                 _appendToLastMessage(token);
               }
+            } else if (data.containsKey('citations_text')) {
+              final String citationsText = data['citations_text'];
+              if (citationsText.isNotEmpty) {
+                receivedContent = true;
+                _throttleTimer?.cancel();
+                _chunkBuffer = '';
+                _updateLastMessage(citationsText);
+              }
             }
           } catch (e) {
             // Ignore individual malformed chunks — log only in debug.
@@ -245,6 +253,14 @@ class AiChatNotifier extends _$AiChatNotifier {
                 _appendToLastMessage(token);
                 _flushBuffer(); // Flush trailing immediately
               }
+            }
+          } else if (data.containsKey('citations_text')) {
+            final String citationsText = data['citations_text'];
+            if (citationsText.isNotEmpty) {
+              receivedContent = true;
+              _throttleTimer?.cancel();
+              _chunkBuffer = '';
+              _updateLastMessage(citationsText);
             }
           }
         } catch (e) {

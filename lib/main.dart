@@ -18,7 +18,6 @@ import 'core/providers/providers.dart';
 import 'core/navigation/app_route_observer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/storage/secure_auth_storage.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'theme/theme.dart';
 import 'features/news/presentation/screens/feed_screen.dart';
@@ -177,15 +176,6 @@ Future<void> main() async {
       }));
     }
 
-    // ── Pre-Warm AdMob SDK ───────────────────────────────────────────────────
-    // Initialize asynchronously without awaiting to prevent blocking splash screen removal.
-    unawaited(MobileAds.instance.initialize().then((_) {
-      // return MobileAds.instance.updateRequestConfiguration(
-      //   RequestConfiguration(
-      //     testDeviceIds: ['B5BA899FC742C00FC339B57C62EB9624'],
-      //   ),
-      // );
-    }));
 
     // ── Non-Critical / Deferred Task Execution ─────────────────────────────────
     // These tasks don't need to block the first frame.
@@ -244,14 +234,7 @@ Future<void> main() async {
 /// to improve the 'Time to Interactive'.
 Future<void> _initializeDeferredTasks() async {
   try {
-
-    // Sign in anonymously if no session exists to track 'seen' state
-    final supabase = Supabase.instance.client;
-    if (supabase.auth.currentSession == null) {
-      debugPrint(
-          '[Auth] No session found. Signing in anonymously (deferred)...');
-      await supabase.auth.signInAnonymously();
-    }
+    // Deferred non-critical tasks can be initialized here.
   } catch (e, st) {
     debugPrint('[Init] Deferred initialization failed: $e');
     _reportError(e, st);

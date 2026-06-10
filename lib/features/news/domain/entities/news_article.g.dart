@@ -31,6 +31,9 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
       countryCode: json['country_code'] as String?,
       rankingScore: (json['ranking_score'] as num?)?.toDouble() ?? 0.0,
       isMajorSource: json['is_major_source'] as bool? ?? false,
+      expiresAt: json['expires_at'] == null
+          ? null
+          : DateTime.parse(json['expires_at'] as String),
       itemType: json['item_type'] as String? ?? 'article',
     );
 
@@ -56,5 +59,6 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'country_code': instance.countryCode,
       'ranking_score': instance.rankingScore,
       'is_major_source': instance.isMajorSource,
+      'expires_at': instance.expiresAt?.toIso8601String(),
       'item_type': instance.itemType,
     };

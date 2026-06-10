@@ -186,7 +186,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (_cacheAccessOrder.length > _maxCacheSize) {
       final oldest = _cacheAccessOrder.first;
       // Never evict the category currently displayed.
-      final currentCategory = state.valueOrNull?.selectedCategory;
+      final currentCategory = (state.hasValue ? state.value : null)?.selectedCategory;
       if (oldest != currentCategory) {
         _cacheAccessOrder.removeAt(0);
         _feedCache.remove(oldest);
@@ -293,7 +293,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     } else if (articles.isNotEmpty) {
       // Fallback for first-time migration: if no lastRefresh is stored but we have articles,
       // use the top article's age as a one-time proxy.
-      final topArticle = articles.firstOrNull;
+      final topArticle = articles.isNotEmpty ? articles.first : null;
       if (topArticle != null) {
         final age = now.difference(topArticle.publishedAt.toUtc());
         if (age.inHours >= AppConfig.hardTtlHours) {
@@ -368,7 +368,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final cached = _getFromCache(_lastRequestedCategory);
       if (cached != null) return cached;
 
-      final current = state.valueOrNull;
+      final current = (state.hasValue ? state.value : null);
       if (current != null &&
           current.selectedCategory == _lastRequestedCategory) {
         return current;
@@ -426,7 +426,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Appends the next batch of articles to the current list using session cursors.
   Future<void> loadNextPage() async {
-    final startState = state.valueOrNull;
+    final startState = (state.hasValue ? state.value : null);
     if (startState == null) return;
 
     final category = startState.selectedCategory;
@@ -457,14 +457,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       if (startState.sessionId == null) {
         for (var i = 0; i < 30; i++) {
           await Future.delayed(const Duration(milliseconds: 100));
-          final interim = state.valueOrNull;
+          final interim = (state.hasValue ? state.value : null);
           if (interim == null || interim.selectedCategory != category) return;
           if (interim.sessionId != null) break;
         }
       }
 
       // Re-read state after the optional wait
-      final current = state.valueOrNull;
+      final current = (state.hasValue ? state.value : null);
       final isCategoryActive =
           current != null && current.selectedCategory == category;
 
@@ -483,7 +483,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // Determine which state to use as base for update (either current active or cached)
       final baseState = isCategoryActive
-          ? (state.valueOrNull ?? current)
+          ? ((state.hasValue ? state.value : null) ?? current)
           : (_getFromCache(category) ?? resolvedState);
 
       // 4. Session Guard: Handle session ID transitions.
@@ -572,7 +572,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       _log('[FeedPaging] ERROR: $e\n$st');
     } finally {
       _fetchingStates.remove(category);
-      final finalCurrent = state.valueOrNull;
+      final finalCurrent = (state.hasValue ? state.value : null);
       if (finalCurrent != null && finalCurrent.isLoadingMore) {
         state = AsyncData(finalCurrent.copyWith(isLoadingMore: false));
       }
@@ -580,12 +580,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   Future<void> filterByCategory(NewsCategory? category) async {
-    _log('[NewsFeedNotifier] filterByCategory: ${category?.name}');
+    debugPrint('[NewsFeedNotifier] filterByCategory called with category: ${category?.name}');
     _lastRequestedCategory = category;
 
     // 1. Save current state to cache before switching away.
-    final oldState = state.valueOrNull;
+    final oldState = (state.hasValue ? state.value : null);
     if (oldState != null) {
+      debugPrint('[NewsFeedNotifier] filterByCategory: saving current state for ${oldState.selectedCategory?.name} to cache before switching.');
       _updateCache(
           oldState.selectedCategory, oldState.copyWith(isLoadingMore: false));
     }
@@ -595,12 +596,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     if (cached != null &&
         (cached.expiresAt == null ||
             DateTime.now().toUtc().isBefore(cached.expiresAt!.toUtc()))) {
+      debugPrint('[NewsFeedNotifier] filterByCategory: Cache hit found for category: ${category?.name}. Expires at: ${cached.expiresAt}');
       // PRODUCTION GUARD: If we're entering 'For You' and have no session yet,
       // we don't return early. This ensures we don't get stuck with a potentially
       // biased local-only cache (e.g. if the user immediately clicked another category on boot).
       if (category == null && cached.sessionId == null) {
-        _log(
-            '[Feed] For You cache is sessionless. Proceeding to sync to ensure diversity.');
+        debugPrint('[NewsFeedNotifier] filterByCategory: For You cache is sessionless. Proceeding to sync to ensure diversity.');
       } else {
         // Re-sync staleness flag
         bool isStale = false;
@@ -623,11 +624,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         // If the cache doesn't contain any valid primary-category articles,
         // ignore it and fall through to fetch fresh data.
         if (category != null && sanitizedArticles.isEmpty) {
-          _log(
-              '[Feed] Cache had no primary matches for ${category.name}; fetching fresh.');
+          debugPrint('[NewsFeedNotifier] filterByCategory: Cache had no primary matches for ${category.name}; fetching fresh.');
         } else {
+          debugPrint('[NewsFeedNotifier] filterByCategory: Cache contains ${sanitizedArticles.length} valid primary matches. Using cache.');
           state = AsyncData(newState);
-          _persistence.saveCurrentArticleId(newState.articles.firstOrNull?.id);
+          _persistence.saveCurrentArticleId(
+              newState.articles.isNotEmpty ? newState.articles.first.id : null);
 
           if (newState.sessionId == null) {
             Future.microtask(() => _establishSessionInBackground(category));
@@ -635,12 +637,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           return;
         }
       }
+    } else {
+      debugPrint('[NewsFeedNotifier] filterByCategory: Cache miss (or expired) for category: ${category?.name}');
     }
 
     // 3. Concurrency Guard: If we are already fetching this category, don't start another one.
     if (_fetchingStates.contains(category)) {
-      _log(
-          '[Feed] Already fetching ${category?.name}. Ignoring redundant request.');
+      debugPrint('[NewsFeedNotifier] filterByCategory: Already fetching ${category?.name}. Ignoring redundant request.');
       return;
     }
 
@@ -654,10 +657,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
     try {
       // 4. Local Fetch (Cache-First)
+      final authState = ref.read(authNotifierProvider);
+      debugPrint('[NewsFeedNotifier] filterByCategory: performing local fetch. preferredCountry=${authState.preferredCountry}, interests=${authState.selectedInterests}');
       List<NewsArticle> localArticles = await _repo.fetchPage(
         category: category,
-        preferredCategories: ref.read(authNotifierProvider).selectedInterests,
-        countryCode: ref.read(authNotifierProvider).preferredCountry,
+        preferredCategories: authState.selectedInterests,
+        countryCode: authState.preferredCountry,
         limit: _kPageSize,
         offset: 0,
         includeViewed: false,
@@ -666,6 +671,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       final isCategoryStillActive = _lastRequestedCategory == category;
       const int initialIndex = 0;
+
+      debugPrint('[NewsFeedNotifier] filterByCategory: local articles count: ${localArticles.length}. isCategoryStillActive: $isCategoryStillActive');
 
       if (localArticles.isNotEmpty) {
         final newState = FeedState(
@@ -681,10 +688,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         if (isCategoryStillActive) {
           // DIVERSITY GUARD: If For You has no session yet, we show a shimmer while syncing
           if (category == null) {
-            _log(
-                '[Feed] Showing shimmer for For You until remote sync completes.');
+            debugPrint('[NewsFeedNotifier] filterByCategory: Showing shimmer for For You until remote sync completes.');
             state = const AsyncLoading<FeedState>();
           } else {
+            debugPrint('[NewsFeedNotifier] filterByCategory: Displaying local articles for ${category.name}');
             state = AsyncData(newState);
           }
         }
@@ -698,6 +705,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       }
 
       // 5. Remote Sync (Fallback)
+      debugPrint('[NewsFeedNotifier] filterByCategory: No local articles found. Performing remote sync fallback.');
       final response = await _repo.syncMoreFromRemote(
         category: category,
         limit: _kPageSize,
@@ -708,6 +716,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final interests = ref.read(authNotifierProvider).selectedInterests;
       final filteredArticles =
           _filterArticles(response.articles, interests, category);
+
+      debugPrint('[NewsFeedNotifier] filterByCategory: remote sync response details: sessionId=${response.sessionId}, hasMore=${response.hasMore}, responseArticlesCount=${response.articles.length}, filteredArticlesCount=${filteredArticles.length}');
 
       final newState = FeedState(
         articles: filteredArticles,
@@ -723,6 +733,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       _updateCache(category, newState);
 
       if (_lastRequestedCategory == category) {
+        debugPrint('[NewsFeedNotifier] filterByCategory: applying remote sync results to active UI state');
         state = AsyncData(newState);
         if (newState.articles.isNotEmpty) {
           _persistence.saveCurrentArticleId(newState.articles.first.id);
@@ -731,9 +742,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       // ── Fallback: Secondary Content ──
       if (newState.articles.length < 5 && !response.hasMore) {
+        debugPrint('[NewsFeedNotifier] filterByCategory: Remote returned less than 5 articles and hasMore=false. Loading local secondary.');
         await _loadNextPageFromLocalSecondary(newState);
       }
     } catch (e, st) {
+      debugPrint('[NewsFeedNotifier] filterByCategory error: $e\n$st');
       if (_lastRequestedCategory == category) {
         state = AsyncError(e, st);
       }
@@ -744,7 +757,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Full refresh: invalidates ALL cached sessions and resets to page 1 with new data.
   Future<void> refresh() async {
-    final startState = state.valueOrNull;
+    final startState = (state.hasValue ? state.value : null);
 
     // Concurrency Guard: Don't start a new refresh if one is already in progress
     if (startState?.isRefreshing ?? false) {
@@ -805,7 +818,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   Future<void> refreshIfStale() async {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
 
     final now = DateTime.now().toUtc();
@@ -825,9 +838,11 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     _lastTtlCheckAt = now;
 
     // 2. Hard Expiry check (backend controlled)
-    if (current.expiresAt != null && now.isAfter(current.expiresAt!.toUtc())) {
-      _log('[Feed] refreshIfStale: Hard expiry (backend) reached. Refreshing.');
-      await refresh();
+    if (current.expiresAt != null && now.isAfter(current.expiresAt!.toUtc()) && !current.isStale) {
+      _log('[Feed] refreshIfStale: Hard expiry (backend) reached. Marking stale.');
+      final updated = current.copyWith(isStale: true);
+      state = AsyncData(updated);
+      _updateCache(current.selectedCategory, updated);
       return;
     }
 
@@ -838,20 +853,18 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       _log(
           '[Feed] refreshIfStale check: ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}, hardTtl=${AppConfig.hardTtlHours}, isStale=${current.isStale}');
 
-      if (age.inHours >= AppConfig.hardTtlHours) {
-        _log(
-            '[Feed] refreshIfStale: Hard TTL exceeded. Triggering full refresh.');
-        await refresh();
-      } else if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
-        _log('[Feed] refreshIfStale: Soft TTL exceeded. Setting isStale=true');
-        state = AsyncData(current.copyWith(isStale: true));
+      if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
+        _log('[Feed] refreshIfStale: TTL exceeded. Setting isStale=true');
+        final updated = current.copyWith(isStale: true);
+        state = AsyncData(updated);
+        _updateCache(current.selectedCategory, updated);
       }
     }
   }
 
   /// Toggles the like status of an article.
   Future<void> toggleLike(String articleId) async {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
 
     _updateArticleInAllFeeds(articleId, (a) {
@@ -866,7 +879,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   Future<void> toggleFavorite(String articleId) async {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
 
     _updateArticleInAllFeeds(
@@ -876,7 +889,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   /// Marks an article as viewed.
   Future<void> markArticleAsViewed(String articleId) async {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
 
     _updateArticleInAllFeeds(articleId, (a) => a.copyWith(isViewed: true));
@@ -887,7 +900,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   void _updateArticleInAllFeeds(
       String articleId, NewsArticle Function(NewsArticle) update) {
     // 1. Update current state
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current != null) {
       final index = current.articles.indexWhere((a) => a.id == articleId);
       if (index != -1) {
@@ -901,7 +914,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   void updateCurrentIndex(int index, {String? articleId}) {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
     state = AsyncData(current.copyWith(currentIndex: index));
     
@@ -921,13 +934,13 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   }
 
   void openChat(String articleId) {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
     state = AsyncData(current.copyWith(showChatForArticleId: () => articleId));
   }
 
   void closeChat() {
-    final current = state.valueOrNull;
+    final current = (state.hasValue ? state.value : null);
     if (current == null) return;
     state = AsyncData(current.copyWith(showChatForArticleId: () => null));
   }
@@ -940,7 +953,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   Future<void> _establishSessionInBackground(NewsCategory? category) async {
     if (_isDisposed) return;
 
-    final startState = state.valueOrNull;
+    final startState = (state.hasValue ? state.value : null);
     if (startState != null &&
         startState.selectedCategory == category &&
         startState.articles.isNotEmpty &&
@@ -955,7 +968,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       );
 
       if (_isDisposed) return;
-      final current = state.valueOrNull;
+      final current = (state.hasValue ? state.value : null);
       final isCategoryActive =
           current != null && current.selectedCategory == category;
 
@@ -964,18 +977,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           ? current
           : (_getFromCache(category) ?? FeedState(selectedCategory: category));
 
-      // Deduplicate and Append: Merge remote articles into the UI state instead of discarding them.
-      // This ensures Remote0-Remote9 are actually shown to the user.
-      final existingIds = base.articles.map((a) => a.id).toSet();
-
       final authState = ref.read(authNotifierProvider);
       final interests = authState.selectedInterests;
       final filteredIncoming =
           _filterArticles(response.articles, interests, category);
 
-      final newArticles =
-          filteredIncoming.where((a) => !existingIds.contains(a.id)).toList();
-      final combinedArticles = [...base.articles, ...newArticles];
+      // Deduplicate and merge/replace based on user position
+      final combinedArticles = <NewsArticle>[];
+      if (base.currentIndex == 0 && filteredIncoming.isNotEmpty) {
+        // User hasn't scrolled; replace cache with fresh remote articles to show new stories immediately
+        combinedArticles.addAll(filteredIncoming);
+      } else {
+        // User has scrolled; append remote articles to prevent shifting current reading view
+        final existingIds = base.articles.map((a) => a.id).toSet();
+        final newArticles =
+            filteredIncoming.where((a) => !existingIds.contains(a.id)).toList();
+        combinedArticles.addAll([...base.articles, ...newArticles]);
+      }
 
       // Patch the state with session metadata AND the new articles
       final patched = base.copyWith(
@@ -1004,7 +1022,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // lazily at the next loadNextPage call.
       _log('[Feed] Background session establishment failed: $e');
 
-      final current = state.valueOrNull;
+      final current = (state.hasValue ? state.value : null);
       if (current != null && current.selectedCategory == category) {
         state = AsyncData(current.copyWith(isRefreshing: false));
       }
@@ -1021,7 +1039,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     state = AsyncData(current.copyWith(isLoadingMore: true));
 
     try {
-      final lastArticle = current.articles.lastOrNull;
+      final lastArticle =
+          current.articles.isNotEmpty ? current.articles.last : null;
 
       final secondaryArticles = await _repo.fetchPage(
         category: category,
@@ -1075,17 +1094,25 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     List<String> interests,
     NewsCategory? category,
   ) {
+    debugPrint('[NewsFeedNotifier] _filterArticles inputs: category=${category?.name}, interests=$interests, articlesCount=${articles.length}');
     List<NewsArticle> filtered;
     if (category != null) {
       // HARD GATEKEEPER: Ensure every article in a category feed actually
       // belongs to that category. This prevents "leaks" from broader backend
       // buckets or local cache pollution.
       filtered = articles.where((article) {
+        final containsLocal = article.categories.contains(NewsCategory.local);
+        debugPrint('[NewsFeedNotifier] _filterArticles checking article ID: ${article.id}, Title: "${article.title}", categories: ${article.categories.map((c) => c.name).toList()}, containsLocal: $containsLocal');
         if (category == NewsCategory.local) {
-          return article.categories.contains(NewsCategory.local);
+          final isMatched = article.categories.contains(NewsCategory.local);
+          debugPrint('[NewsFeedNotifier] _filterArticles local category filter match result: $isMatched');
+          return isMatched;
         }
 
-        if (article.categories.isEmpty) return false;
+        if (article.categories.isEmpty) {
+          debugPrint('[NewsFeedNotifier] _filterArticles article has empty categories - filtered out');
+          return false;
+        }
 
         // Backend may prepend a virtual `local` marker for country-matched stories.
         // For category tabs, we treat the first non-local category as the true primary.
@@ -1095,17 +1122,23 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
                 ? article.categories[1]
                 : first;
 
-        return effectivePrimary.name == category.name;
+        final isMatched = effectivePrimary.name == category.name;
+        debugPrint('[NewsFeedNotifier] _filterArticles effectivePrimary filter match result for category ${category.name}: $isMatched (first: ${first.name}, effectivePrimary: ${effectivePrimary.name})');
+        return isMatched;
       }).toList();
     } else if (interests.isEmpty) {
+      debugPrint('[NewsFeedNotifier] _filterArticles category is null & interests is empty - showing all');
       filtered = articles; // No interests selected yet, show everything
     } else {
       filtered = articles.where((article) {
         // Defensive filter for 'For You' feed: Ensure at least one category matches the user's current interests.
-        return article.categories.any((cat) => interests.contains(cat.name));
+        final isMatched = article.categories.any((cat) => interests.contains(cat.name));
+        debugPrint('[NewsFeedNotifier] _filterArticles For You check for article ID: ${article.id}, categories: ${article.categories.map((c) => c.name).toList()}, match result: $isMatched');
+        return isMatched;
       }).toList();
     }
 
+    debugPrint('[NewsFeedNotifier] _filterArticles output: filteredCount=${filtered.length}');
     return filtered;
   }
 

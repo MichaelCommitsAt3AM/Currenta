@@ -198,6 +198,29 @@ class NewsRemoteDataSource {
     }
   }
 
+  Future<void> syncLikesBatch(List<Map<String, dynamic>> actions) async {
+    debugPrint('[DEBUG-LIKE] news_remote_datasource: syncLikesBatch initiated with actions: $actions');
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/like/batch';
+      final session = await _getValidSession();
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      await _dio.post(
+        url,
+        data: {'actions': actions},
+        options: options,
+      );
+    } catch (e) {
+      debugPrint('[Remote] Failed to sync likes batch: $e');
+      rethrow;
+    }
+  }
+
   /// Fetches liked articles from the backend with pagination.
   Future<Map<String, dynamic>> fetchLikedArticles({
     int limit = 30,

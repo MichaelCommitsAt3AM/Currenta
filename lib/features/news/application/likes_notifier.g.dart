@@ -6,7 +6,7 @@ part of 'likes_notifier.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$likesNotifierHash() => r'98ae047b46191d04cdacd6fb60737f5c4aa7cc03';
+String _$likesNotifierHash() => r'dbf5bc01d08b26c5d8c76070cdc131d3d3647a94';
 
 /// See also [LikesNotifier].
 @ProviderFor(LikesNotifier)

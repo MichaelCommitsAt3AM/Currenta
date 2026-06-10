@@ -36,7 +36,7 @@ class TrendingNotifier extends _$TrendingNotifier {
     if (!force && _lastFetchTime != null) {
       final difference = now.difference(_lastFetchTime!);
       if (difference < _cacheTtl) {
-        final currentData = state.valueOrNull;
+        final currentData = state.hasValue ? state.value : null;
         if (currentData != null && currentData.isNotEmpty) {
           debugPrint(
               '[Trending] Serving from cache (${difference.inMinutes}m old)');
@@ -60,7 +60,7 @@ class TrendingNotifier extends _$TrendingNotifier {
     } catch (e) {
       debugPrint('[Trending] Error fetching: $e');
       // If we have old data, keep it instead of returning empty
-      return state.valueOrNull ?? [];
+      return (state.hasValue ? state.value : null) ?? [];
     }
   }
 

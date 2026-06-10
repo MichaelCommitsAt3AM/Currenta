@@ -32,7 +32,7 @@ class SidebarTrendingNotifier extends _$SidebarTrendingNotifier {
     if (_lastFetchTime != null) {
       final difference = now.difference(_lastFetchTime!);
       if (difference < _cacheTtl) {
-        final currentData = state.valueOrNull;
+        final currentData = state.hasValue ? state.value : null;
         if (currentData != null && currentData.isNotEmpty) {
           return currentData;
         }
@@ -90,7 +90,7 @@ class SidebarTrendingNotifier extends _$SidebarTrendingNotifier {
       return combined.take(4).toList();
     } catch (e) {
       debugPrint('[SidebarTrending] Error: $e');
-      return state.valueOrNull ?? [];
+      return (state.hasValue ? state.value : null) ?? [];
     }
   }
 

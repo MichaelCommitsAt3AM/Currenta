@@ -122,6 +122,7 @@ class NewsArticlesTable extends Table {
       real().named('ranking_score').withDefault(const Constant(0.0))();
   BoolColumn get isMajorSource =>
       boolean().named('is_major_source').withDefault(const Constant(false))();
+  DateTimeColumn get expiresAt => dateTime().named('expires_at').nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -179,7 +180,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? connection]) : super(connection ?? _openConnection());
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -221,6 +222,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 11) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.countryCode);
+          }
+          if (from < 12) {
+            await m.addColumn(newsArticlesTable, newsArticlesTable.expiresAt);
           }
         },
       );

@@ -97,6 +97,10 @@ mixin _$NewsArticle {
   @JsonKey(name: 'is_major_source')
   bool get isMajorSource;
 
+  /// When the article expires (if future event)
+  @JsonKey(name: 'expires_at')
+  DateTime? get expiresAt;
+
   /// Type of item (article, exhaustion_marker)
   @JsonKey(name: 'item_type')
   String get itemType;
@@ -152,6 +156,8 @@ mixin _$NewsArticle {
                 other.rankingScore == rankingScore) &&
             (identical(other.isMajorSource, isMajorSource) ||
                 other.isMajorSource == isMajorSource) &&
+            (identical(other.expiresAt, expiresAt) ||
+                other.expiresAt == expiresAt) &&
             (identical(other.itemType, itemType) ||
                 other.itemType == itemType));
   }
@@ -180,12 +186,13 @@ mixin _$NewsArticle {
         countryCode,
         rankingScore,
         isMajorSource,
+        expiresAt,
         itemType
       ]);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource, itemType: $itemType)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource, expiresAt: $expiresAt, itemType: $itemType)';
   }
 }
 
@@ -224,6 +231,7 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
       @JsonKey(name: 'country_code') String? countryCode,
       @JsonKey(name: 'ranking_score') double rankingScore,
       @JsonKey(name: 'is_major_source') bool isMajorSource,
+      @JsonKey(name: 'expires_at') DateTime? expiresAt,
       @JsonKey(name: 'item_type') String itemType});
 }
 
@@ -259,6 +267,7 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
     Object? countryCode = freezed,
     Object? rankingScore = null,
     Object? isMajorSource = null,
+    Object? expiresAt = freezed,
     Object? itemType = null,
   }) {
     return _then(_self.copyWith(
@@ -342,6 +351,10 @@ class _$NewsArticleCopyWithImpl<$Res> implements $NewsArticleCopyWith<$Res> {
           ? _self.isMajorSource
           : isMajorSource // ignore: cast_nullable_to_non_nullable
               as bool,
+      expiresAt: freezed == expiresAt
+          ? _self.expiresAt
+          : expiresAt // ignore: cast_nullable_to_non_nullable
+              as DateTime?,
       itemType: null == itemType
           ? _self.itemType
           : itemType // ignore: cast_nullable_to_non_nullable
@@ -472,6 +485,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'country_code') String? countryCode,
             @JsonKey(name: 'ranking_score') double rankingScore,
             @JsonKey(name: 'is_major_source') bool isMajorSource,
+            @JsonKey(name: 'expires_at') DateTime? expiresAt,
             @JsonKey(name: 'item_type') String itemType)?
         $default, {
     required TResult orElse(),
@@ -500,6 +514,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.countryCode,
             _that.rankingScore,
             _that.isMajorSource,
+            _that.expiresAt,
             _that.itemType);
       case _:
         return orElse();
@@ -550,6 +565,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'country_code') String? countryCode,
             @JsonKey(name: 'ranking_score') double rankingScore,
             @JsonKey(name: 'is_major_source') bool isMajorSource,
+            @JsonKey(name: 'expires_at') DateTime? expiresAt,
             @JsonKey(name: 'item_type') String itemType)
         $default,
   ) {
@@ -577,6 +593,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.countryCode,
             _that.rankingScore,
             _that.isMajorSource,
+            _that.expiresAt,
             _that.itemType);
       case _:
         throw StateError('Unexpected subclass');
@@ -626,6 +643,7 @@ extension NewsArticlePatterns on NewsArticle {
             @JsonKey(name: 'country_code') String? countryCode,
             @JsonKey(name: 'ranking_score') double rankingScore,
             @JsonKey(name: 'is_major_source') bool isMajorSource,
+            @JsonKey(name: 'expires_at') DateTime? expiresAt,
             @JsonKey(name: 'item_type') String itemType)?
         $default,
   ) {
@@ -653,6 +671,7 @@ extension NewsArticlePatterns on NewsArticle {
             _that.countryCode,
             _that.rankingScore,
             _that.isMajorSource,
+            _that.expiresAt,
             _that.itemType);
       case _:
         return null;
@@ -692,6 +711,7 @@ class _NewsArticle implements NewsArticle {
       @JsonKey(name: 'country_code') this.countryCode,
       @JsonKey(name: 'ranking_score') this.rankingScore = 0.0,
       @JsonKey(name: 'is_major_source') this.isMajorSource = false,
+      @JsonKey(name: 'expires_at') this.expiresAt,
       @JsonKey(name: 'item_type') this.itemType = 'article'})
       : _categories = categories,
         _subCategories = subCategories;
@@ -815,6 +835,11 @@ class _NewsArticle implements NewsArticle {
   @JsonKey(name: 'is_major_source')
   final bool isMajorSource;
 
+  /// When the article expires (if future event)
+  @override
+  @JsonKey(name: 'expires_at')
+  final DateTime? expiresAt;
+
   /// Type of item (article, exhaustion_marker)
   @override
   @JsonKey(name: 'item_type')
@@ -876,6 +901,8 @@ class _NewsArticle implements NewsArticle {
                 other.rankingScore == rankingScore) &&
             (identical(other.isMajorSource, isMajorSource) ||
                 other.isMajorSource == isMajorSource) &&
+            (identical(other.expiresAt, expiresAt) ||
+                other.expiresAt == expiresAt) &&
             (identical(other.itemType, itemType) ||
                 other.itemType == itemType));
   }
@@ -904,12 +931,13 @@ class _NewsArticle implements NewsArticle {
         countryCode,
         rankingScore,
         isMajorSource,
+        expiresAt,
         itemType
       ]);
 
   @override
   String toString() {
-    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource, itemType: $itemType)';
+    return 'NewsArticle(id: $id, title: $title, summary: $summary, originalUrl: $originalUrl, imageUrl: $imageUrl, sourceName: $sourceName, sourceFaviconUrl: $sourceFaviconUrl, publishedAt: $publishedAt, createdAt: $createdAt, categories: $categories, subCategories: $subCategories, isPaywalled: $isPaywalled, isLiked: $isLiked, likesCount: $likesCount, isFavorited: $isFavorited, isViewed: $isViewed, clusterId: $clusterId, countryCode: $countryCode, rankingScore: $rankingScore, isMajorSource: $isMajorSource, expiresAt: $expiresAt, itemType: $itemType)';
   }
 }
 
@@ -950,6 +978,7 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
       @JsonKey(name: 'country_code') String? countryCode,
       @JsonKey(name: 'ranking_score') double rankingScore,
       @JsonKey(name: 'is_major_source') bool isMajorSource,
+      @JsonKey(name: 'expires_at') DateTime? expiresAt,
       @JsonKey(name: 'item_type') String itemType});
 }
 
@@ -985,6 +1014,7 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
     Object? countryCode = freezed,
     Object? rankingScore = null,
     Object? isMajorSource = null,
+    Object? expiresAt = freezed,
     Object? itemType = null,
   }) {
     return _then(_NewsArticle(
@@ -1068,6 +1098,10 @@ class __$NewsArticleCopyWithImpl<$Res> implements _$NewsArticleCopyWith<$Res> {
           ? _self.isMajorSource
           : isMajorSource // ignore: cast_nullable_to_non_nullable
               as bool,
+      expiresAt: freezed == expiresAt
+          ? _self.expiresAt
+          : expiresAt // ignore: cast_nullable_to_non_nullable
+              as DateTime?,
       itemType: null == itemType
           ? _self.itemType
           : itemType // ignore: cast_nullable_to_non_nullable

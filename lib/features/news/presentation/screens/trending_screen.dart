@@ -41,7 +41,7 @@ class _TrendingScreenState extends ConsumerState<TrendingScreen> {
 
   void _precacheImages(int index) {
     final trendingAsync = ref.read(trendingNotifierProvider);
-    final articles = trendingAsync.valueOrNull;
+    final articles = trendingAsync.hasValue ? trendingAsync.value : null;
     if (articles == null) return;
 
     final displayArticles = [

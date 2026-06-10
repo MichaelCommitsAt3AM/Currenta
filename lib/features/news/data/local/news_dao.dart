@@ -53,6 +53,9 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
     final hasPriority = category != null ||
         (preferredCategories != null && preferredCategories.isNotEmpty);
 
+    final notExpiredFilter = newsArticlesTable.expiresAt.isNull() |
+        newsArticlesTable.expiresAt.isBiggerThanValue(DateTime.now());
+
     return (select(newsArticlesTable).join([
       leftOuterJoin(viewedArticlesTable,
           viewedArticlesTable.id.equalsExp(newsArticlesTable.id))
@@ -74,18 +77,21 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
                                 .like(categoryFirstWithLocalPrefix))
                         : newsArticlesTable.categories.like(categoryContains))
                     : const Constant(true)) &
-                viewedArticlesTable.id.isNull(),
+                viewedArticlesTable.id.isNull() &
+                notExpiredFilter,
           ))
         .watch()
         .map((rows) => rows.map((r) => r.readTable(newsArticlesTable)).toList());
   }
 
   Future<List<NewsArticlesTableData>> getArticles({String? category}) {
+    final notExpiredFilter = newsArticlesTable.expiresAt.isNull() |
+        newsArticlesTable.expiresAt.isBiggerThanValue(DateTime.now());
     return (select(newsArticlesTable)
           ..orderBy([(t) => OrderingTerm.desc(t.publishedAt)])
-          ..where((t) => category != null
+          ..where((t) => (category != null
               ? t.categories.like('["$category"%')
-              : const Constant(true)))
+              : const Constant(true)) & notExpiredFilter))
         .get();
   }
 
@@ -244,11 +250,14 @@ class NewsDao extends DatabaseAccessor<AppDatabase> with _$NewsDaoMixin {
           }
         }
 
+        final notExpiredFilter = newsArticlesTable.expiresAt.isNull() |
+            newsArticlesTable.expiresAt.isBiggerThanValue(DateTime.now());
+
         if (includeViewed) {
-          return catFilter & cursorFilter;
+          return catFilter & cursorFilter & notExpiredFilter;
         }
 
-        return catFilter & cursorFilter & viewedArticlesTable.id.isNull();
+        return catFilter & cursorFilter & viewedArticlesTable.id.isNull() & notExpiredFilter;
       }());
 
     if (before == null) {
@@ -471,6 +480,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         countryCode: countryCode,
         rankingScore: rankingScore,
         isMajorSource: isMajorSource,
+        expiresAt: expiresAt,
       );
 }
 
@@ -496,5 +506,6 @@ extension NewsArticleDboMapper on NewsArticle {
         countryCode: Value(countryCode),
         rankingScore: Value(rankingScore),
         isMajorSource: Value(isMajorSource),
+        expiresAt: Value(expiresAt),
       );
 }

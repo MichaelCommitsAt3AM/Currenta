@@ -78,7 +78,7 @@ class LikesNotifier extends _$LikesNotifier {
   }
 
   Future<void> loadMore() async {
-    final current = state.valueOrNull;
+    final current = state.hasValue ? state.value : null;
     if (current == null || current.isLoadingMore || !current.hasMore) return;
 
     state = AsyncData(current.copyWith(isLoadingMore: true));
