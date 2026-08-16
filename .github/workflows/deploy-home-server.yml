@@ -14,4 +14,4 @@ jobs:
           cd ~/currenta
           git fetch origin main
           git reset --hard origin/main
-          docker compose up -d --build api worker redis caddy
+          docker compose up -d --build api worker redis caddy db auth rest storage

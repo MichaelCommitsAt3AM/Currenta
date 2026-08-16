@@ -3,12 +3,29 @@
 }
 
 :80 {
+    # Self-hosted Supabase stack (see docker-compose.yml). These paths match
+    # exactly what Supabase's own Kong gateway routes, so the supabase_flutter
+    # SDK and supabase-py client need no path changes, only a new SUPABASE_URL.
+    handle_path /auth/v1/* {
+        reverse_proxy auth:9999
+    }
+
+    handle_path /rest/v1/* {
+        reverse_proxy rest:3000
+    }
+
+    handle_path /storage/v1/* {
+        reverse_proxy storage:5000
+    }
+
     # Reverse proxy to our FastAPI container
-    reverse_proxy api:8080 {
-        # Preserve and forward original client IP chain for app-side GeoIP lookup.
-        # Caddy's defaults may overwrite X-Forwarded-For in some ingress chains.
-        header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-        header_up X-Real-IP {http.request.remote.host}
+    handle {
+        reverse_proxy api:8080 {
+            # Preserve and forward original client IP chain for app-side GeoIP lookup.
+            # Caddy's defaults may overwrite X-Forwarded-For in some ingress chains.
+            header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+            header_up X-Real-IP {http.request.remote.host}
+        }
     }
 
     # Compression is already handled by our backend Brotli middleware,

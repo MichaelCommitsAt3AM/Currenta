@@ -2321,3 +2321,13 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         except Exception as db_err:
             await log_ingestion_event(conn, url, "FAILED", error_type="DB_INSERT_ERROR", error_message=str(db_err))
             return None
+
+async def cleanup_old_ingestion_logs(db_pool: asyncpg.Pool):
+    """Deletes ingestion_logs rows older than 7 days. Replaces the retired
+    'cleanup-ingestion-logs' Supabase edge function (self-hosted Supabase has
+    no Deno edge runtime in this deployment)."""
+    async with db_pool.acquire() as conn:
+        deleted = await conn.fetchval(
+            "WITH d AS (DELETE FROM ingestion_logs WHERE created_at < NOW() - INTERVAL '7 days' RETURNING 1) SELECT COUNT(*) FROM d"
+        )
+    logger.info(f"[Cleanup] Deleted {deleted} ingestion_logs rows older than 7 days.")

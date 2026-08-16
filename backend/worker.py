@@ -8,7 +8,7 @@ load_dotenv()
 
 from .core.logging_config import setup_logging
 from .core import db
-from .services.ingestion import orchestrate_and_trend
+from .services.ingestion import orchestrate_and_trend, cleanup_old_ingestion_logs
 from .services.trending import update_trending_scores
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -94,11 +94,23 @@ async def main():
         replace_existing=True
     )
     
+    # 3. Ingestion logs cleanup (daily at midnight UTC) — replaces the retired
+    # 'cleanup-ingestion-logs' Supabase edge function + its pg_cron schedule.
+    scheduler.add_job(
+        cleanup_old_ingestion_logs,
+        'cron',
+        hour=0,
+        minute=0,
+        id='cleanup_old_ingestion_logs',
+        args=[db.db_pool],
+        replace_existing=True
+    )
+
     # Run once immediately on startup
     scheduler.add_job(orchestrate_and_trend, id='worker_startup_sync')
-    
+
     scheduler.start()
-    logger.info("Worker started: Sync+Trend (180m), Periodic Trend (60m).")
+    logger.info("Worker started: Sync+Trend (180m), Periodic Trend (60m), Log Cleanup (daily).")
 
     # Start Redis Pub/Sub listener for manual task triggers
     listener_task = asyncio.create_task(listen_for_tasks())
