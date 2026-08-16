@@ -292,4 +292,38 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
     assert insert_args[11] is None  # Should be set to None because it's non-local!
 
 
+def test_summarize_article_locality_context(monkeypatch):
+    """Verifies that summarize_article constructs prompt and makes calls without NameError."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Create a mock client
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.text = '{"title": "Test Title", "summary": "This is a test summary that is long enough to fit the constraints but not too long to trigger any failures.", "categories": ["tech"], "type": "hard_news", "subcategory": "Test", "local_relevance": "local", "local_confidence": 0.9, "local_reason": "test country"}'
+    
+    # Mock the async call: client.aio.models.generate_content
+    mock_generate = AsyncMock(return_value=mock_response)
+    mock_client.aio.models.generate_content = mock_generate
+
+    # Patch the global client and make sure it is set
+    monkeypatch.setattr(ingestion, "_gemini_client", mock_client)
+
+    result = asyncio.run(
+        ingestion.summarize_article(
+            text="Some article text goes here.",
+            provider="gemini",
+            country_code="KE",
+        )
+    )
+
+    assert result["title"] == "Test Title"
+    mock_generate.assert_called_once()
+    called_args, called_kwargs = mock_generate.call_args
+    assert called_kwargs["config"].response_mime_type == "application/json"
+    prompt = called_kwargs["contents"]
+    assert "Target country: KE" in prompt
+    assert "local_relevance" in prompt
+
+
+
 

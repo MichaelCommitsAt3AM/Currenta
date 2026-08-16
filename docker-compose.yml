@@ -63,8 +63,9 @@ services:
   caddy:
     image: caddy:2-alpine
     ports:
-      - "8000:80"     # Map 8000 to Caddy's port 80 for existing ngrok setup
-                      # Note: host ports 80/443 removed to avoid system conflicts.
+      # Laptop dev (ngrok) uses 8000 by default; the home server sets
+      # CADDY_HOST_PORT=80 in its .env since cloudflared's tunnel points at localhost:80.
+      - "${CADDY_HOST_PORT:-8000}:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data

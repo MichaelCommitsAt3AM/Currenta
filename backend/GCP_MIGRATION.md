@@ -98,24 +98,36 @@ gcloud scheduler jobs create http currenta-trending \
 ## 4. Secure Secrets (Secret Manager)
 Instead of a `.env` file in production, use **Google Secret Manager**.
 
-Create and map all runtime secrets/env vars used by backend modules:
+To fit within the Secret Manager free tier and reduce resource lookup overhead, consolidate your credentials into a single JSON secret called `APP_CONFIG`.
+
+### APP_CONFIG Secret Structure
+Create a secret in GCP Secret Manager named `APP_CONFIG` and paste the consolidated JSON:
+```json
+{
+  "DATABASE_URL": "postgresql://...",
+  "SUPABASE_URL": "https://...",
+  "SUPABASE_SERVICE_ROLE_KEY": "...",
+  "ADMIN_API_KEY": "...",
+  "REDIS_URL": "rediss://...",
+  "VERTEX_PROJECT": "your-project-id",
+  "VERTEX_LOCATION": "europe-west3",
+  "MAILTRAP_TOKEN": "...",
+  "FIREBASE_PROJECT_NUMBER": "...",
+  "GEMINI_API_KEY": "...",
+  "OPENAI_API_KEY": "...",
+  "VOYAGE_API_KEY": "...",
+  "VOYAGE_EMBED_MODEL": "..."
+}
+```
+
+### Map Secret in Cloud Run Deployment
+Deploy Cloud Run and map the unified secret:
 ```bash
 gcloud run deploy $SERVICE \
   --region $REGION \
-  --update-secrets=DATABASE_URL=DATABASE_URL:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,ADMIN_API_KEY=ADMIN_API_KEY:latest,REDIS_URL=REDIS_URL:latest,VERTEX_PROJECT=VERTEX_PROJECT:latest,VERTEX_LOCATION=VERTEX_LOCATION:latest \
+  --update-secrets=APP_CONFIG=APP_CONFIG:latest \
   --set-env-vars="ENABLE_INTERNAL_SCHEDULER=false,LLM_PROVIDER=vertex,TRUST_PROXY_HEADERS=true"
 ```
-
-For embeddings in production, also map:
-- `EMBEDDING_PROVIDER`
-
-If using OpenAI embeddings, map:
-- `OPENAI_API_KEY`
-- `OPENAI_EMBED_MODEL`
-
-If using Voyage embeddings, map:
-- `VOYAGE_API_KEY`
-- `VOYAGE_EMBED_MODEL`
 
 ## 5. IAM Authentication (Vertex AI)
 No API Key is required for Vertex AI when running on GCP.

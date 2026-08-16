@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from ..services.ingestion import orchestrate, add_source_feed_to_queue
+from ..services.ingestion import orchestrate, orchestrate_and_trend, add_source_feed_to_queue
 from ..core.security import verify_admin_api_key, limiter
 
 router = APIRouter()
@@ -59,6 +59,27 @@ async def trigger_orchestrator(
             # Orchestrate function loads the complete registry and adds all sources
             background_tasks.add_task(orchestrate)
         return {"status": "orchestration_started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/orchestrate-and-trend")
+@limiter.limit("3/minute;60/day")
+async def trigger_orchestrator_and_trend(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    admin_key: str = Depends(verify_admin_api_key)
+):
+    """
+    Manually triggers ingestion of all configured feeds, followed by a trending
+    score update once ingestion completes. Runs the two steps in sequence so
+    trending is never computed against a partial/in-progress ingestion batch.
+    """
+    try:
+        if request.app.state.redis_client:
+            await request.app.state.redis_client.publish("worker_tasks", "trigger_ingestion_and_trending")
+        else:
+            background_tasks.add_task(orchestrate_and_trend)
+        return {"status": "orchestration_and_trend_started"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1180,7 +1180,7 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
                   children: [
                     _FilterChip(
                       key: _itemKeys[null],
-                      label: '✨ For You',
+                      label: 'For You',
                       isSelected: widget.selectedCategory == null,
                       onTap: () => widget.onCategoryChanged(null),
                     ),
@@ -1194,7 +1194,7 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
                           key: i == 0
                               ? widget.onboardingCategoryKey
                               : _itemKeys[cat],
-                          label: '${cat.emoji}  ${cat.displayName}',
+                          label: cat.displayName,
                           isSelected: widget.selectedCategory == cat,
                           onTap: () => widget.onCategoryChanged(cat),
                         ),

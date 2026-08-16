@@ -1,4 +1,4 @@
-# Currenta 🚀
+# Currenta
 
 **Currenta** is an AI-first news platform designed to deliver high-signal, localized, and personalized news without the noise of clickbait or redundant headlines. 
 
@@ -6,19 +6,19 @@ By combining **Flutter**'s cross-platform reach with a powerful **FastAPI** back
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-*   **🤖 AI-Powered Summarization**: Every article is processed via Gemini or local LLMs (Ollama) to generate factual, 65-word "5Ws" summaries.
-*   **🎯 Vector Personalization**: Uses `pgvector` to build an interest profile based on your interactions (likes, views), matching articles semantically rather than just by keywords.
-*   **🌍 Intelligent Localization**: Automatic Geo-IP detection serves local news for your region on-demand, with dedicated "Local News" ingestion logic.
-*   **🛡️ Noise & Junk Filtering**: Multi-stage pipeline filters out betting odds, sports previews, live-blogs, and "fluff" to maintain a high-quality feed.
-*   **🔄 Smart Deduplication**: Near-duplicate headlines from multiple sources are collapsed using Jaccard similarity scoring.
-*   **🌓 Hybrid Architecture**: A "Portfolio Interleave" strategy mixes personalized, trending, and discovery content to break filter bubbles.
-*   **⚡ Cache-First Strategy**: Real-time reactive streams from a local SQLite (Drift) database for instant UI response, synced with a remote Supabase backend.
+*   **AI-Powered Summarization**: Every article is processed via Gemini or local LLMs (Ollama) to generate factual, 65-word "5Ws" summaries.
+*   **Vector Personalization**: Uses `pgvector` to build an interest profile based on your interactions (likes, views), matching articles semantically rather than just by keywords.
+*   **Intelligent Localization**: Automatic Geo-IP detection serves local news for your region on-demand, with dedicated "Local News" ingestion logic.
+*   **Noise & Junk Filtering**: Multi-stage pipeline filters out betting odds, sports previews, live-blogs, and "fluff" to maintain a high-quality feed.
+*   **Smart Deduplication**: Near-duplicate headlines from multiple sources are collapsed using Jaccard similarity scoring.
+*   **Hybrid Architecture**: A "Portfolio Interleave" strategy mixes personalized, trending, and discovery content to break filter bubbles.
+*   **Cache-First Strategy**: Real-time reactive streams from a local SQLite (Drift) database for instant UI response, synced with a remote Supabase backend.
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend
 - **Flutter**: Cross-platform mobile application.
@@ -38,12 +38,12 @@ By combining **Flutter**'s cross-platform reach with a powerful **FastAPI** back
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - **Docker & Docker Compose**
-- **Ollama** (for local AI features)
-- **ngrok** (for mobile device testing)
+- **Ollama** (for running local AI models)
+- **ngrok** 
 - **Flutter SDK**
 
 ### Quick Launch
@@ -68,7 +68,7 @@ The project includes a robust set of scripts to handle the complex dev environme
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```text
 ├── admin/            # Lightweight JS portal for DB exploration
@@ -83,9 +83,9 @@ The project includes a robust set of scripts to handle the complex dev environme
 
 ---
 
-## 🧪 Documentation
+## Documentation
 - **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for a deep dive into the data pipeline.
-- **API Reference**: Once the backend is running, visit `http://localhost:8000/docs` for the interactive Swagger UI.
 
-## 📄 License
+
+## License
 This project is proprietary and for internal development use only.

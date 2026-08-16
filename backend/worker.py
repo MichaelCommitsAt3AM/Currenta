@@ -8,21 +8,13 @@ load_dotenv()
 
 from .core.logging_config import setup_logging
 from .core import db
-from .services.ingestion import orchestrate_sync_wrapper
+from .services.ingestion import orchestrate_and_trend
 from .services.trending import update_trending_scores
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Configure logging
 setup_logging()
 logger = logging.getLogger(__name__)
-
-async def run_ingestion_and_trending():
-    """Wrapper to run scraping followed immediately by ranking/trending."""
-    logger.info("--- Starting Scheduled Ingestion Cycle ---")
-    await orchestrate_sync_wrapper()
-    logger.info("Ingestion complete. Starting post-sync trending update...")
-    await update_trending_scores(db.db_pool, db.redis_client)
-    logger.info("--- Ingestion and Trending Cycle Complete ---")
 
 async def listen_for_tasks():
     """Listens for manual triggers from the API server on Redis pub/sub."""
@@ -43,6 +35,9 @@ async def listen_for_tasks():
                         logger.info("Worker: Starting manual news ingestion orchestrator...")
                         from .services.ingestion import orchestrate
                         asyncio.create_task(orchestrate())
+                    elif payload == "trigger_ingestion_and_trending":
+                        logger.info("Worker: Starting manual ingestion + trending cycle...")
+                        asyncio.create_task(orchestrate_and_trend())
                     elif payload == "cancel_ingestion":
                         logger.info("Worker: Cancelling ongoing ingestion...")
                         from .services.ingestion import cancel_ingestion
@@ -82,10 +77,10 @@ async def main():
     
     # 1. Full Ingestion + Trending (Every 3 hours)
     scheduler.add_job(
-        run_ingestion_and_trending, 
-        'interval', 
-        minutes=180, 
-        id='orchestrate_news_and_trends', 
+        orchestrate_and_trend,
+        'interval',
+        minutes=180,
+        id='orchestrate_news_and_trends',
         replace_existing=True
     )
     
@@ -100,7 +95,7 @@ async def main():
     )
     
     # Run once immediately on startup
-    scheduler.add_job(run_ingestion_and_trending, id='worker_startup_sync')
+    scheduler.add_job(orchestrate_and_trend, id='worker_startup_sync')
     
     scheduler.start()
     logger.info("Worker started: Sync+Trend (180m), Periodic Trend (60m).")

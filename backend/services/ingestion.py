@@ -897,6 +897,7 @@ async def summarize_article(
     ref_str = ref_time.strftime("%Y-%m-%dT%H:%M:%SZ")
     ref_context = f"\n\nReference Time (UTC): {ref_str}"
     
+    locality_context = _build_locality_context(country_code)
     full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}{ref_context}\n\nArticle:\n{text}"
     raw_content = ""
 
@@ -1598,7 +1599,11 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
             try:
                 article_text = ""
                 article_image_url = None
-                
+                # Cover image is captured here but uploaded only once the article has
+                # cleared every gate below — see the upload site before the INSERT.
+                pending_image_bytes = None
+                pending_image_fallback_url = None
+
                 try:
                     # Run the synchronous scraper in a thread pool to avoid blocking
                     # the async event loop — curl_cffi.requests.get() is blocking I/O.
@@ -1632,22 +1637,15 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         scraper_status = "SUCCESS"
 
                     if not scraper_text_is_error and scraper_result.get("image_bytes"):
-                        image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                        persistent_url = await upload_image_sync(scraper_result["image_bytes"], image_file_name)
-                        article_image_url = persistent_url or scraper_result.get("image_url")
+                        pending_image_bytes = scraper_result["image_bytes"]
+                        article_image_url = scraper_result.get("image_url")
                     else:
                         article_image_url = scraper_result.get("image_url") if not scraper_error_msg else None
-                    
+
                     # Secondary fallback
                     if not article_image_url and item.get("imageUrl"):
                         article_image_url = item.get("imageUrl")
-                        from .scraper import process_image
-                        image_bytes_fallback = process_image(article_image_url)
-                        if image_bytes_fallback:
-                            image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
-                            persistent_url = await upload_image_sync(image_bytes_fallback, image_file_name)
-                            if persistent_url:
-                                article_image_url = persistent_url
+                        pending_image_fallback_url = article_image_url
 
                 except Exception as e:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="INTERNAL_ERROR", error_message=str(e))
@@ -1789,6 +1787,19 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 # New story: assign a fresh cluster_id (using the article's own ID as root)
                 article_id = uuid.uuid4() # Generate a new UUID for the article
                 target_cluster_id = article_id # Primary article is its own cluster root
+
+                # The article has now cleared every validation and dedup gate, so it is
+                # safe to persist its cover image. Uploading any earlier leaks an orphaned
+                # object into the bucket for every article we discard above.
+                if pending_image_bytes is None and pending_image_fallback_url:
+                    from .scraper import process_image
+                    pending_image_bytes = await asyncio.to_thread(process_image, pending_image_fallback_url)
+
+                if pending_image_bytes:
+                    image_file_name = hashlib.sha256(item["link"].encode()).hexdigest()
+                    persistent_url = await upload_image_sync(pending_image_bytes, image_file_name)
+                    if persistent_url:
+                        article_image_url = persistent_url
 
                 # Insert using the same connection
                 try:
@@ -1990,9 +2001,24 @@ async def orchestrate():
         logger.warning(f"Orchestrator: Failed to prune old ingestion logs: {e}")
 
 
-# Used by the scheduler which runs run_coroutine_threadsafe. 
+# Used by the scheduler which runs run_coroutine_threadsafe.
 async def orchestrate_sync_wrapper():
     await orchestrate()
+
+async def orchestrate_and_trend():
+    """Runs full feed ingestion, then trending score update immediately after.
+
+    Shared by the worker's scheduled jobs and the manual 'trigger_ingestion_and_trending'
+    task so both paths guarantee trending only runs on freshly ingested data.
+    """
+    from .trending import update_trending_scores
+    from ..core import db
+
+    logger.info("Orchestrator: Starting ingestion + trending cycle")
+    await orchestrate()
+    logger.info("Orchestrator: Ingestion complete, starting trending update")
+    await update_trending_scores(db.db_pool, db.redis_client)
+    logger.info("Orchestrator: Ingestion + trending cycle complete")
 
 async def add_source_feed_to_queue(feed_url: str, category_hint: str = None):
     from ..core import db

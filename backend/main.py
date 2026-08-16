@@ -1,10 +1,21 @@
 import os
+import json
 import logging
 import logging.config
 from dotenv import load_dotenv
 
 # Load environment variables before any other local imports
 load_dotenv()
+
+# Bootstrap GCP secrets JSON if running in production
+app_config_raw = os.environ.get("APP_CONFIG")
+if app_config_raw:
+    try:
+        config_dict = json.loads(app_config_raw)
+        for key, val in config_dict.items():
+            os.environ[key] = str(val)
+    except json.JSONDecodeError as e:
+        print(f"CRITICAL: Failed to parse APP_CONFIG JSON: {e}")
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
