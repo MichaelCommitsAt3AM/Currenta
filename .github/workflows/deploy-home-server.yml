@@ -1,0 +1,17 @@
+name: Deploy to home server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Sync repo and restart services
+        run: |
+          set -e
+          cd ~/currenta
+          git fetch origin main
+          git reset --hard origin/main
+          docker compose up -d --build api worker redis caddy
