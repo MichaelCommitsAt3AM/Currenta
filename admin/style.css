@@ -263,31 +263,12 @@ header {
 }
 
 @media (max-width: 900px) {
-    .dashboard-layout {
-        flex-direction: column;
-    }
-    
+    /* Below 900px the sidebar starts collapsed to an icon rail (see the
+       matching JS in setupEventListeners) instead of stacking into a
+       full-width horizontal tab bar — keeps the dashboard layout (rail +
+       content, side by side) consistent across breakpoints. */
     .sidebar {
-        width: 100% !important;
-        position: relative !important;
-        top: 0 !important;
-        margin-bottom: 1rem;
-    }
-    
-    .nav-links {
-        display: flex;
-        gap: 1rem;
-        overflow-x: auto;
-        padding-bottom: 0.5rem;
-    }
-    
-    .nav-item {
-        margin-bottom: 0 !important;
-        white-space: nowrap;
-    }
-    
-    .sidebar-footer {
-        display: none;
+        flex-shrink: 0;
     }
 
     .query-content-layout {
@@ -345,8 +326,8 @@ header {
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     background: var(--glass-border);
     border: none;
@@ -355,18 +336,47 @@ header {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: transform 0.3s ease;
+    transition: transform 0.2s ease, background 0.2s ease;
     z-index: 101;
+}
+
+.sidebar-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.toggle-icon {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+}
+
+.toggle-icon .bar {
+    width: 13px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-primary);
 }
 
 .sidebar.collapsed .sidebar-toggle-btn {
     right: 50%;
-    transform: translateX(50%) rotate(180deg);
+    transform: translateX(50%);
 }
 
 @media (max-width: 900px) {
-    .sidebar-toggle-btn {
-        display: none;
+    /* Expanding the rail on a narrow screen would otherwise squeeze
+       main-content into a sliver, so float it as a drawer over the
+       content instead of pushing it. */
+    .dashboard-layout {
+        position: relative;
+    }
+
+    .sidebar:not(.collapsed) {
+        position: absolute;
+        left: 0;
+        top: 0;
+        z-index: 200;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
     }
 }
 

@@ -450,6 +450,11 @@ function setupEventListeners() {
     // Sidebar Toggle
     document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
 
+    // Start as an icon rail on narrow viewports instead of the full sidebar
+    if (window.matchMedia('(max-width: 900px)').matches) {
+        document.getElementById('sidebar').classList.add('collapsed');
+    }
+
     // Close Detail Panel
     document.getElementById('close-detail-panel').addEventListener('click', hideRecordDetails);
 }
