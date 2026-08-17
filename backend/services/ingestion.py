@@ -637,6 +637,101 @@ class IngestBlocklist:
 BLOCKLIST_MANAGER = IngestBlocklist()
 
 # ---------------------------------------------------------------------------
+# Recently-Rejected Cooldown: avoids fully reprocessing a URL that was
+# terminally rejected moments ago and will very likely be rejected again this
+# cycle — whether that's a bot-blocked/paywalled scrape (Reuters, Manchester
+# Evening News), an LLM type/locality rejection, or a semantic duplicate of an
+# already-published article. None of these outcomes land in `articles`, so
+# the exact-URL dedupe check above never catches them — without this, the
+# same URL gets fully re-scraped (and often re-summarized/re-embedded) on
+# every scheduled poll it's still near the top of a feed. Measured on
+# production logs: DUPLICATE_EMBEDDING/LOW_SIGNAL_TYPE/LOW_LOCAL_RELEVANCE
+# rejections were being reprocessed 3-6x on average per distinct URL, since a
+# URL's content (and thus its LLM/embedding verdict) essentially never
+# changes between polls.
+# ---------------------------------------------------------------------------
+INGEST_REJECTION_COOLDOWN_SECONDS = int(os.environ.get("INGEST_REJECTION_COOLDOWN_SECONDS", str(12 * 3600)))
+
+def _rejection_cooldown_cache_key(url: str) -> str:
+    return f"ingest:rejected:{hashlib.sha256(url.encode()).hexdigest()}"
+
+async def _in_rejection_cooldown(url: str) -> bool:
+    from ..core import db
+    redis_client = db.redis_client
+    if not redis_client:
+        return False
+    try:
+        return bool(await redis_client.exists(_rejection_cooldown_cache_key(url)))
+    except Exception as e:
+        logger.warning("[RejectionCooldown] Redis check failed: %s", e)
+        return False
+
+async def _mark_rejection(url: str) -> None:
+    from ..core import db
+    redis_client = db.redis_client
+    if not redis_client:
+        return
+    try:
+        await redis_client.set(_rejection_cooldown_cache_key(url), "1", ex=INGEST_REJECTION_COOLDOWN_SECONDS)
+    except Exception as e:
+        logger.warning("[RejectionCooldown] Redis set failed: %s", e)
+
+# ---------------------------------------------------------------------------
+# Intra-batch title dedupe: within a single orchestrate() run, several of the
+# ~36 polled feeds often carry the same breaking story (Techmeme aggregates
+# other tech outlets; the Google News topic feeds overlap with individual
+# publisher feeds). The DB-backed semantic check (find_cluster_match) only
+# sees articles already committed to `articles`, so when two feeds carry the
+# same story in the same run, both can pay for a full scrape -> LLM ->
+# embedding pass before the second one is caught as a duplicate. This is a
+# cheap, conservative pre-filter (near-exact headline match only) that claims
+# a title for whichever item reaches it first this run and skips obvious
+# repeats before they hit the expensive path. It does NOT replace
+# find_cluster_match, which remains the authoritative dedup check for
+# paraphrased/reworded coverage of the same story.
+#
+# Known tradeoff: if the item that "claims" a title later fails downstream
+# (scrape/LLM/already-duplicate-in-DB), the skipped near-duplicates are not
+# retried. Deliberately conservative matching keeps this rare.
+# ---------------------------------------------------------------------------
+_TITLE_DEDUPE_STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at", "for",
+    "with", "is", "are", "was", "were", "be", "by", "as", "it", "its", "this",
+    "that", "from", "after", "amid", "over", "into", "new", "says", "say",
+    "vs", "how", "what", "why",
+}
+
+def _normalize_title_tokens(title: str) -> frozenset:
+    tokens = re.findall(r"[a-z0-9']+", (title or "").lower())
+    return frozenset(t for t in tokens if t not in _TITLE_DEDUPE_STOPWORDS and len(t) > 1)
+
+def _titles_are_near_duplicate(a: frozenset, b: frozenset) -> bool:
+    if len(a) < 3 or len(b) < 3:
+        return False
+    overlap = a & b
+    if len(overlap) < 4:
+        return False
+    return (len(overlap) / min(len(a), len(b))) >= 0.8
+
+class BatchTitleRegistry:
+    """Per-orchestrate()-run registry of claimed headlines. Not shared across runs."""
+
+    def __init__(self):
+        self._lock = asyncio.Lock()
+        self._claimed: list[tuple[frozenset, str]] = []
+
+    async def claim(self, title: str, url: str) -> Optional[str]:
+        """Returns the URL that already claimed a near-duplicate title, or
+        None (and claims `title` for `url`) if it looks like a new story."""
+        tokens = _normalize_title_tokens(title)
+        async with self._lock:
+            for existing_tokens, existing_url in self._claimed:
+                if _titles_are_near_duplicate(tokens, existing_tokens):
+                    return existing_url
+            self._claimed.append((tokens, url))
+            return None
+
+# ---------------------------------------------------------------------------
 # Stage 2: Deterministic Feature Extraction (Pre-fetch)
 # ---------------------------------------------------------------------------
 def is_metadata_junk(item: dict) -> Optional[str]:
@@ -1507,7 +1602,7 @@ async def log_ingestion_event(
     except Exception as e:
         logger.warning("Failed to write to ingestion_logs: %s", e)
 
-async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss", http_client: Optional[httpx.AsyncClient] = None):
+async def process_feed(feed_url: str, category: str, category_bias: str = "neutral", db_pool=None, country_code: Optional[str] = None, method: str = "rss", http_client: Optional[httpx.AsyncClient] = None, title_registry: Optional["BatchTitleRegistry"] = None):
     results = {"ingested": 0, "skipped": 0, "errors": 0}
     is_major = "news.google.com" in feed_url
     try:
@@ -1596,6 +1691,20 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 results["skipped"] += 1
                 continue
 
+            # Stage 3: Recently-Failed Cooldown (Pre-fetch)
+            if await _in_rejection_cooldown(item["link"]):
+                await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item.get("source"), error_type="RECENT_FAILURE_COOLDOWN", error_message="Skipped: this URL failed to scrape recently and is in cooldown.")
+                results["skipped"] += 1
+                continue
+
+            # Stage 4: Intra-batch Title Dedupe (Pre-fetch)
+            if title_registry is not None:
+                dup_of = await title_registry.claim(item["title"], item["link"])
+                if dup_of:
+                    await log_ingestion_event(conn, item["link"], "SKIPPED", source_name=item.get("source"), error_type="INTRA_BATCH_TITLE_DUPLICATE", error_message=f"Title closely matches another item already claimed this run: {dup_of}")
+                    results["skipped"] += 1
+                    continue
+
             try:
                 article_text = ""
                 article_image_url = None
@@ -1628,6 +1737,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         fallback_text = f"{item['title']}\n\n{item.get('description', '')}".strip()
                         if is_scraper_error_page(fallback_text) or count_words(fallback_text) < 75:
                             await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="SCRAPER_FAIL", error_message=scraper_error_msg or "Blocked/Invalid Content", resolved_url=scraper_result.get("url"))
+                            await _mark_rejection(item["link"])
                             results["skipped"] += 1
                             continue
                         article_text = fallback_text
@@ -1662,6 +1772,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                 # Strict validation: require at least 75 words for a meaningful summary.
                 if is_scraper_error_page(article_text) or count_words(article_text) < 75:
                     await log_ingestion_event(conn, item["link"], "FAILED", source_name=item["source"], error_type="CONTENT_TOO_SHORT", error_message=f"Content too short: {count_words(article_text)} words")
+                    await _mark_rejection(item["link"])
                     results["skipped"] += 1
                     continue
 
@@ -1715,6 +1826,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         error_type="LOW_SIGNAL_TYPE",
                         error_message=f"LLM type '{llm_res['type']}' is not allowed."
                     )
+                    await _mark_rejection(item["link"])
                     results["skipped"] += 1
                     continue
 
@@ -1728,6 +1840,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         error_type="LOW_LOCAL_RELEVANCE",
                         error_message=locality_message,
                     )
+                    await _mark_rejection(item["link"])
                     results["skipped"] += 1
                     continue
 
@@ -1774,6 +1887,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         ),
                         content_preview=f"{llm_res['title']}\n\n{llm_res['summary']}"[:500]
                     )
+                    await _mark_rejection(item["link"])
                     results["skipped"] += 1
                     continue
                 if best_similarity is not None:
@@ -1959,7 +2073,11 @@ async def orchestrate():
     SHOULD_STOP_INGESTION = False
     
     # 5. Orchestration Concurrency: Increased to 8 (Audit Recommendation)
-    semaphore = asyncio.Semaphore(8) 
+    semaphore = asyncio.Semaphore(8)
+
+    # Shared across every feed in this run so near-identical headlines carried
+    # by multiple feeds in the same cycle only pay for scrape/LLM/embedding once.
+    title_registry = BatchTitleRegistry()
 
     async def safe_process(url, cat, bias, country=None, method="rss", client=None):
         if SHOULD_STOP_INGESTION:
@@ -1967,7 +2085,7 @@ async def orchestrate():
         async with semaphore:
             logger.info(f"Orchestrator: Processing: {url} (Method: {method})")
             try:
-                return await process_feed(url, cat, bias, db_pool, country_code=country, method=method, http_client=client)
+                return await process_feed(url, cat, bias, db_pool, country_code=country, method=method, http_client=client, title_registry=title_registry)
             except Exception as e:
                 logger.error(f"Orchestrator: Error processing feed {url}: {e}")
                 return None
@@ -2174,14 +2292,20 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             await log_ingestion_event(conn, url, "SKIPPED", error_type="BLOCKLISTED", error_message=db_block_reason)
             return None
 
+        if await _in_rejection_cooldown(url):
+            await log_ingestion_event(conn, url, "SKIPPED", error_type="RECENT_FAILURE_COOLDOWN", error_message="Skipped: this URL failed to scrape recently and is in cooldown.")
+            return None
+
         scraper_result = await asyncio.to_thread(scrape_article_sync, url)
         if scraper_result.get("error"):
             await log_ingestion_event(conn, url, "FAILED", error_type="SCRAPER_ERROR", error_message=scraper_result.get("error"))
+            await _mark_rejection(url)
             return None
 
         scraped_text = scraper_result.get("text", "")
         if is_scraper_error_page(scraped_text) or count_words(scraped_text) < 75:
             await log_ingestion_event(conn, url, "FAILED", error_type="CONTENT_TOO_SHORT", error_message=f"Content too short: {count_words(scraped_text)} words")
+            await _mark_rejection(url)
             return None
 
         # Determine if it's junk
@@ -2210,6 +2334,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                 error_type="LOW_SIGNAL_TYPE",
                 error_message=f"LLM type '{llm_res['type']}' is not allowed."
             )
+            await _mark_rejection(url)
             return None
 
         locality_ok, locality_message = _passes_locality_gate(llm_res, country_code)
@@ -2221,6 +2346,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                 error_type="LOW_LOCAL_RELEVANCE",
                 error_message=locality_message,
             )
+            await _mark_rejection(url)
             return None
 
         # Embed
@@ -2247,6 +2373,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                     f"Matched cluster {matched_cluster_id}. Matched article {best_match_id}."
                 )
             )
+            await _mark_rejection(url)
             return None
         if best_similarity is not None:
             logger.info(
