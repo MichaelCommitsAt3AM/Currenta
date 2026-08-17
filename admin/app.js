@@ -1,13 +1,13 @@
 // admin/app.js
 
 const CONFIG = {
-    // ⚠️ Update this URL to your actual production backend (or keep ngrok if still testing)
-    API_BASE_URL: (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-        ? 'http://localhost:8000' 
-        : 'https://currenta-backend-uhcajg6hza-ey.a.run.app',
-    
-    SUPABASE_URL: 'https://cilocxpvkcbqepzqywtr.supabase.co',
-    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpbG9jeHB2a2NicWVwenF5d3RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MDg1NDQsImV4cCI6MjA5NTE4NDU0NH0.cVlzaMfkISrE8m47RE1d5WV7mexlKeegy9SEELm1HPs',
+    // Points at the home server's self-hosted stack (dev-api.currenta.tech)
+    // regardless of hostname — GCP Cloud Run isn't cut over yet (see CLAUDE.md),
+    // so it's not a valid target for the admin portal's Supabase-backed auth.
+    API_BASE_URL: 'https://dev-api.currenta.tech',
+
+    SUPABASE_URL: 'https://dev-api.currenta.tech',
+    SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg2OTM0NjkwLCJleHAiOjIxMDIyOTQ2OTB9.TEFBcKOiT1GFMbAYbLYhQnJV9OCpFgGoKVVKnRMBbQU',
     
     // --- Session Security Config ---
     SESSION_LIMIT_MS: 12 * 60 * 60 * 1000, // 12 hours

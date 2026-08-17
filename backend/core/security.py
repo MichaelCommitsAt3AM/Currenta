@@ -157,11 +157,18 @@ async def verify_admin_api_key(api_key: str = Security(admin_api_key_header)):
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
 
+# The self-hosted GoTrue instance signs with the legacy shared-secret HS256
+# scheme (GOTRUE_JWT_SECRET) rather than hosted Supabase's newer asymmetric
+# ES256 signing keys, so it publishes an empty JWKS (`{"keys":[]}`) -- there's
+# no public key to fetch. When JWT_SECRET is set (self-hosted only), verify
+# directly against the shared secret instead of going through JWKS at all.
+JWT_SECRET = os.getenv("JWT_SECRET")
+
 # Cache the JWKS fetching so we don't hit the Supabase API on every request.
 # lifespan=86400 caches the public keys for 24 hours (they rarely rotate).
 jwks_client = None
 
-if SUPABASE_URL:
+if not JWT_SECRET and SUPABASE_URL:
     jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
     jwks_client = jwt.PyJWKClient(
         jwks_url,
@@ -246,22 +253,31 @@ async def verify_supabase_jwt(authorization: str = Header(None)):
 
     token = authorization.split(" ")[1]
 
-    if not jwks_client:
-        logger.error("SUPABASE_URL not configured — cannot validate JWT via JWKS.")
+    if not JWT_SECRET and not jwks_client:
+        logger.error("Neither JWT_SECRET nor SUPABASE_URL configured — cannot validate JWT.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Auth configuration error"
         )
 
     try:
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-        payload = jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["ES256"],
-            audience=["authenticated", "anon"],
-            options={"verify_exp": True}
-        )
+        if JWT_SECRET:
+            payload = jwt.decode(
+                token,
+                JWT_SECRET,
+                algorithms=["HS256"],
+                audience=["authenticated", "anon"],
+                options={"verify_exp": True}
+            )
+        else:
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256"],
+                audience=["authenticated", "anon"],
+                options={"verify_exp": True}
+            )
 
         sub = payload.get("sub")
         if not sub:

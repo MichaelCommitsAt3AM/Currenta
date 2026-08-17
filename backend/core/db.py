@@ -19,7 +19,13 @@ async def init_db_pool():
 
     max_retries = 5
     base_delay = 2  # seconds
-    
+
+    # Hosted Supabase's pooler requires SSL; the self-hosted stack's `db`
+    # container is only reachable over the private docker network and
+    # doesn't have SSL configured, so it actively rejects the upgrade.
+    ssl_mode = os.environ.get("DB_SSL_MODE", "require")
+    ssl_param = False if ssl_mode == "disable" else ssl_mode
+
     for attempt in range(max_retries):
         try:
             logger.info(f"Connecting to PostgreSQL (Attempt {attempt+1}/{max_retries})...")
@@ -27,7 +33,7 @@ async def init_db_pool():
             db_pool = await asyncio.wait_for(
                 asyncpg.create_pool(
                     dsn=database_url,
-                    ssl='require',
+                    ssl=ssl_param,
                     statement_cache_size=0,
                     min_size=2,
                     max_size=12,

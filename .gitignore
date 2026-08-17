@@ -48,6 +48,8 @@ app.*.map.json
 # App Secrets
 /lib/core/config/app_config.dart
 /config/*.json
+/.selfhost_keys
+/backups/
 
 # Node.js
 node_modules/
