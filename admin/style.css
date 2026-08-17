@@ -325,7 +325,7 @@ header {
 .sidebar-toggle-btn {
     position: absolute;
     top: 0.5rem;
-    right: 0.5rem;
+    left: 0.5rem;
     width: 28px;
     height: 28px;
     border-radius: 50%;
@@ -358,11 +358,6 @@ header {
     background: var(--text-primary);
 }
 
-.sidebar.collapsed .sidebar-toggle-btn {
-    right: 50%;
-    transform: translateX(50%);
-}
-
 @media (max-width: 900px) {
     /* Expanding the rail on a narrow screen would otherwise squeeze
        main-content into a sliver, so float it as a drawer over the
@@ -382,6 +377,7 @@ header {
 
 .nav-links {
     list-style: none;
+    margin-top: 2rem;
 }
 
 .nav-item {
