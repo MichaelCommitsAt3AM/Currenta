@@ -420,13 +420,12 @@ async def get_analytics_overview(
         """, today)
         
         # 2. Content Engagement
-        top_liked = await conn.fetch("""
-            SELECT a.title, COUNT(l.user_id) as likes
+        trending = await conn.fetch("""
+            SELECT a.title, a.trend_score
             FROM articles a
-            JOIN article_likes l ON a.id = l.article_id
             WHERE a.published_at > NOW() - INTERVAL '7 days'
-            GROUP BY a.id, a.title
-            ORDER BY likes DESC
+            AND a.trend_score > 0
+            ORDER BY a.trend_score DESC
             LIMIT 5
         """)
         
@@ -466,7 +465,7 @@ async def get_analytics_overview(
                 "news_generations_today": ai_usage["news_generations_today"]
             },
             "content_engagement": {
-                "top_liked": [dict(r) for r in top_liked],
+                "trending": [dict(r) for r in trending],
                 "category_distribution": [dict(r) for r in cat_distribution]
             },
             "user_growth": dict(growth),

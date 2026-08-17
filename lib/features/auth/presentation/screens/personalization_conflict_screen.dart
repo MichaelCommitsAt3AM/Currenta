@@ -310,9 +310,20 @@ class _AccountCard extends StatelessWidget {
                       runSpacing: 4,
                       children: interests.take(3).map((catName) {
                          final cat = NewsCategory.values.firstWhere((c) => c.name == catName, orElse: () => NewsCategory.world);
-                         return Text(
-                           cat.emoji,
-                           style: const TextStyle(fontSize: 14),
+                         return Container(
+                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                           decoration: BoxDecoration(
+                             color: Colors.white.withValues(alpha: 0.05),
+                             borderRadius: BorderRadius.circular(8),
+                           ),
+                           child: Text(
+                             cat.displayName,
+                             style: const TextStyle(
+                               fontSize: 11,
+                               fontWeight: FontWeight.w600,
+                               color: Colors.white,
+                             ),
+                           ),
                          );
                       }).toList(),
                     ),

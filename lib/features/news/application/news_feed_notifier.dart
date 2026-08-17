@@ -788,8 +788,17 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         sessionId: null,
       );
 
+      final newArticles = _interleaveAds(response.articles);
+
+      // Keep the user's scroll position where it is — refresh swaps in fresh
+      // content at the currently-viewed slot instead of scrolling back to top.
+      // Clamp in case the new (shorter) page has fewer articles than the old index.
+      final preservedIndex = newArticles.isEmpty
+          ? 0
+          : (startState?.currentIndex ?? 0).clamp(0, newArticles.length - 1);
+
       final newState = FeedState(
-        articles: _interleaveAds(response.articles),
+        articles: newArticles,
         selectedCategory: currentCategory,
         sessionId: response.sessionId,
         nextCursor: response.nextCursor,
@@ -797,15 +806,16 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         expiresAt: response.expiresAt,
         isServerExhausted: !response.hasMore,
         isStale: false,
+        currentIndex: preservedIndex,
       );
 
       _persistence.saveLastRefreshTime(DateTime.now().toUtc());
       state = AsyncData(newState);
       _updateCache(currentCategory, newState);
 
-      // Persistence: Reset scroll position to top on refresh
       if (newState.articles.isNotEmpty) {
-        _persistence.saveCurrentArticleId(newState.articles.first.id);
+        _persistence.saveCurrentArticleId(
+            newState.articles[preservedIndex].id);
       }
     } catch (e, st) {
       _log('[Feed] Refresh failed: $e');

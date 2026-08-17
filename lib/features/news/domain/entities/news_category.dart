@@ -85,19 +85,6 @@ enum NewsCategory {
         NewsCategory.local => 'Local',
       };
 
-  String get emoji => switch (this) {
-        NewsCategory.politics => '🏛️',
-        NewsCategory.tech => '💻',
-        NewsCategory.science => '🔬',
-        NewsCategory.business => '📈',
-        NewsCategory.sports => '⚽',
-        NewsCategory.entertainment => '🎬',
-        NewsCategory.health => '🏥',
-        NewsCategory.world => '🌍',
-        NewsCategory.environment => '🌱',
-        NewsCategory.local => '📍',
-      };
-
   List<NewsSubCategory> get subCategories => switch (this) {
         NewsCategory.politics => [
             NewsSubCategory.elections,

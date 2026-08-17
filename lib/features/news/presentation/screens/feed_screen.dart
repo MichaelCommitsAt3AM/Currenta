@@ -53,6 +53,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   bool _isShowingRefreshAck = false;
   final GlobalKey _onboardingCategoryKey = GlobalKey();
   bool _isBottomSwipeLocked = false;
+  bool _hasTrackedInitialView = false;
 
   ProviderSubscription? _feedSubscription;
   ProviderSubscription? _refreshSubscription;
@@ -75,9 +76,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     _pageController.addListener(_onPageScroll);
     WidgetsBinding.instance.addObserver(this);
 
-    // Mark the very first article as viewed
+    // Mark the very first article as viewed. The feed provider's build() is
+    // async, so on cold start this first frame usually races an AsyncLoading
+    // state; _maybeTrackInitialView() no-ops here and is retried from the
+    // feed listener below once articles actually arrive.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _trackPageView(0);
+      _maybeTrackInitialView();
     });
 
     // Defer Custom Tabs browser warmup to avoid blocking launch frame resources
@@ -92,6 +96,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       final prevFeed = (previous != null && previous.hasValue) ? previous.value : null;
       final nextFeed = next.hasValue ? next.value : null;
       if (nextFeed == null) return;
+
+      _maybeTrackInitialView();
 
       // Reset pagination trigger when the underlying feed content is rebuilt
       // (e.g. after personalization changes/invalidation) even if category is unchanged.
@@ -166,6 +172,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
           _checkOnboarding();
         }
       }
+
+      // 4. Proactively check pagination whenever the feed content changes.
+      // Scroll-driven triggers (_onPageScroll/_onPageChanged) never fire when
+      // a feed starts out with too few articles to swipe past (e.g. a category
+      // with a single result), so without this, short feeds get stuck never
+      // requesting more.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _maybeLoadMore();
+      });
     });
 
     _refreshSubscription = ref.listenManual<bool>(needsFeedRefreshProvider, (previous, next) {
@@ -494,6 +509,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     // This prevents missing pagination when the scroll listener doesn't produce
     // a new rounded page value near the list end.
     _maybeLoadMore(pageHint: index);
+  }
+
+  /// Tracks a view for the article the user actually landed on at launch
+  /// (index 0, or a restored index) exactly once the feed has real data —
+  /// as opposed to firing blind against a still-loading provider.
+  void _maybeTrackInitialView() {
+    if (_hasTrackedInitialView) return;
+    final feedState = ref.read(newsFeedNotifierProvider);
+    final feed = feedState.hasValue ? feedState.value : null;
+    if (feed == null || feed.articles.isEmpty) return;
+    _hasTrackedInitialView = true;
+    _trackPageView(_currentIndex);
   }
 
   void _trackPageView(int index) {

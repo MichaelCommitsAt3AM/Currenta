@@ -411,7 +411,7 @@ class _NewsCardState extends ConsumerState<NewsCard>
           color: catColor,
         ),
         _CategoryChip(
-          label: '${displayCategory.emoji} ${displayCategory.displayName}',
+          label: displayCategory.displayName,
           color: catColor,
         ),
       ],

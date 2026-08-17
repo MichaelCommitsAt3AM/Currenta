@@ -127,23 +127,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                                 ]
                               : [],
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(cat.emoji,
-                                style: const TextStyle(fontSize: 20)),
-                            const SizedBox(width: 8),
-                            Text(
-                              cat.displayName,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          cat.displayName,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: isSelected
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
                         ),
                       ),
                     );

@@ -1034,15 +1034,15 @@ function renderAnalytics(data) {
     // 3. Trending Articles Table
     const tableBody = document.getElementById('trending-articles-body');
     tableBody.innerHTML = '';
-    
-    if (data.content_engagement.top_liked.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="2">No engagement data for the last 7 days.</td></tr>';
+
+    if (data.content_engagement.trending.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="2">No trending articles in the last 7 days.</td></tr>';
     } else {
-        data.content_engagement.top_liked.forEach(article => {
+        data.content_engagement.trending.forEach(article => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>${article.title}</td>
-                <td style="font-weight: 600; color: var(--accent);">${article.likes}</td>
+                <td style="font-weight: 600; color: var(--accent);">${Number(article.trend_score).toFixed(1)}</td>
             `;
             tableBody.appendChild(tr);
         });

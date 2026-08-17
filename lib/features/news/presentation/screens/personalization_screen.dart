@@ -598,8 +598,6 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                                       ),
                                       child: Row(
                                         children: [
-                                          Text(cat.emoji, style: const TextStyle(fontSize: 18)),
-                                          const SizedBox(width: 12),
                                           Text(
                                             cat.displayName,
                                             style: TextStyle(
