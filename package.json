@@ -1,7 +1,7 @@
 {
   "devDependencies": {
     "supabase": "^2.76.15",
-    "wrangler": "^4.80.0"
+    "wrangler": "^4.123.0"
   },
   "scripts": {
     "deploy:news": "supabase functions deploy ingest-news"

@@ -6,6 +6,22 @@
     # Self-hosted Supabase stack (see docker-compose.yml). These paths match
     # exactly what Supabase's own Kong gateway routes, so the supabase_flutter
     # SDK and supabase-py client need no path changes, only a new SUPABASE_URL.
+    #
+    # Hosted Supabase's Kong gateway adds CORS headers automatically. Here,
+    # GoTrue and PostgREST already emit their own permissive
+    # Access-Control-Allow-Origin: * on real responses (fine — the
+    # supabase-js client authenticates via Bearer token, not cookies, so
+    # credentialed CORS isn't needed), but neither handles OPTIONS preflight
+    # requests correctly, and Storage emits no CORS headers at all.
+    @cors_preflight method OPTIONS
+    handle @cors_preflight {
+        header Access-Control-Allow-Origin "{http.request.header.Origin}"
+        header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        header Access-Control-Allow-Headers "{http.request.header.Access-Control-Request-Headers}"
+        header Access-Control-Max-Age "3600"
+        respond 204
+    }
+
     handle_path /auth/v1/* {
         reverse_proxy auth:9999
     }
@@ -15,6 +31,7 @@
     }
 
     handle_path /storage/v1/* {
+        header Access-Control-Allow-Origin "{http.request.header.Origin}"
         reverse_proxy storage:5000
     }
 

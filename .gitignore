@@ -51,6 +51,9 @@ app.*.map.json
 /.selfhost_keys
 /backups/
 
+# Wrangler (Cloudflare Workers) local state/cache
+.wrangler/
+
 # Node.js
 node_modules/
 

@@ -80,7 +80,7 @@ app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.add_middleware(SecurityHeadersMiddleware)
 
-ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://hidden-paper-0d93.michaelnjonge905.workers.dev")
+ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://hidden-paper-0d93.michaelnjonge905.workers.dev,https://admin.currenta.tech")
 ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
 app.add_middleware(

@@ -30,7 +30,7 @@ class AnalyticsOverview(BaseModel):
     ai_usage: dict
     content_engagement: dict
     user_growth: dict
-    ingestion_health: dict
+    ingestion_health: List[dict]
 
 
 @router.get("/session/check")
