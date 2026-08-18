@@ -25,6 +25,7 @@ written under the repo root triggers a spurious restart mid-run.
 """
 import argparse
 import asyncio
+import json
 import math
 import os
 from collections import defaultdict
@@ -40,6 +41,28 @@ load_dotenv()
 
 EMBED_MATCH_THRESHOLD = 0.75
 REPORT_PATH = "/tmp/backfill_subcategories_report.txt"
+# Embeddings cost real money per call. This cache means a raw subcategory
+# string (or a taxonomy node label) is only ever embedded once, no matter how
+# many times this script is re-run (dry run, then --commit, then re-checked
+# later) — a repeat run reuses the cache instead of re-paying for the same
+# ~3,600 embedding calls.
+CACHE_PATH = "/tmp/backfill_subcategories_embed_cache.json"
+
+
+def _load_cache(taxonomy) -> dict:
+    if not os.path.exists(CACHE_PATH):
+        return {"taxonomy_etag": taxonomy.etag, "reference_embeddings": {}, "resolutions": {}}
+    with open(CACHE_PATH, "r") as f:
+        cache = json.load(f)
+    if cache.get("taxonomy_etag") != taxonomy.etag:
+        print("Taxonomy changed since the cache was built — discarding stale cache.")
+        return {"taxonomy_etag": taxonomy.etag, "reference_embeddings": {}, "resolutions": {}}
+    return cache
+
+
+def _save_cache(cache: dict) -> None:
+    with open(CACHE_PATH, "w") as f:
+        json.dump(cache, f)
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -58,29 +81,40 @@ async def _get_connection() -> asyncpg.Connection:
     return await asyncpg.connect(dsn=database_url, ssl=ssl_param)
 
 
-async def _build_reference_embeddings(taxonomy) -> Dict[str, List[float]]:
-    print(f"Embedding {len(taxonomy.all_slugs)} taxonomy node labels for fallback matching...")
-    embeddings = {}
-    for slug in taxonomy.all_slugs:
-        embeddings[slug] = await embed_text(taxonomy.label_text(slug))
-    return embeddings
+async def _build_reference_embeddings(taxonomy, cache: dict) -> Dict[str, List[float]]:
+    ref_cache = cache["reference_embeddings"]
+    missing = [slug for slug in taxonomy.all_slugs if slug not in ref_cache]
+    if missing:
+        print(f"Embedding {len(missing)}/{len(taxonomy.all_slugs)} taxonomy node labels "
+              f"({len(taxonomy.all_slugs) - len(missing)} already cached)...")
+        for slug in missing:
+            ref_cache[slug] = await embed_text(taxonomy.label_text(slug))
+        _save_cache(cache)
+    else:
+        print(f"All {len(taxonomy.all_slugs)} taxonomy node label embeddings already cached.")
+    return ref_cache
 
 
 async def _resolve_unmatched_via_embedding(
     unmatched_raw_values: List[str],
     reference_embeddings: Dict[str, List[float]],
+    cache: dict,
 ) -> Dict[str, Optional[tuple]]:
     """raw string -> (slug, similarity) or None, for everything the alias map missed."""
-    print(f"Embedding {len(unmatched_raw_values)} unique unmatched raw values...")
-    resolved = {}
-    for i, raw in enumerate(unmatched_raw_values):
+    resolutions = cache["resolutions"]
+    to_embed = [raw for raw in unmatched_raw_values if raw not in resolutions]
+    print(f"{len(unmatched_raw_values) - len(to_embed)}/{len(unmatched_raw_values)} unmatched "
+          f"values already cached; embedding the remaining {len(to_embed)}...")
+
+    for i, raw in enumerate(to_embed):
         if i % 50 == 0 and i > 0:
-            print(f"  ...{i}/{len(unmatched_raw_values)}")
+            print(f"  ...{i}/{len(to_embed)}")
+            _save_cache(cache)  # checkpoint periodically so a crash mid-run doesn't lose paid calls
         try:
             raw_embedding = await embed_text(raw)
         except Exception as e:
             print(f"  [WARN] Failed to embed {raw!r}: {e}")
-            resolved[raw] = None
+            resolutions[raw] = None
             continue
         best_slug, best_sim = None, 0.0
         for slug, ref_embedding in reference_embeddings.items():
@@ -88,14 +122,21 @@ async def _resolve_unmatched_via_embedding(
             if sim > best_sim:
                 best_slug, best_sim = slug, sim
         if best_slug and best_sim >= EMBED_MATCH_THRESHOLD:
-            resolved[raw] = (best_slug, best_sim)
+            resolutions[raw] = {"slug": best_slug, "similarity": best_sim}
         else:
-            resolved[raw] = None
+            resolutions[raw] = None
+    _save_cache(cache)
+
+    resolved = {}
+    for raw in unmatched_raw_values:
+        entry = resolutions.get(raw)
+        resolved[raw] = (entry["slug"], entry["similarity"]) if entry else None
     return resolved
 
 
 async def run(commit: bool) -> None:
     taxonomy = get_taxonomy()
+    cache = _load_cache(taxonomy)
     conn = await _get_connection()
     try:
         rows = await conn.fetch(
@@ -122,9 +163,9 @@ async def run(commit: bool) -> None:
         still_unmatched_raw: List[str] = []
 
         if unmatched_by_raw:
-            reference_embeddings = await _build_reference_embeddings(taxonomy)
+            reference_embeddings = await _build_reference_embeddings(taxonomy, cache)
             resolution = await _resolve_unmatched_via_embedding(
-                list(unmatched_by_raw.keys()), reference_embeddings
+                list(unmatched_by_raw.keys()), reference_embeddings, cache
             )
             for raw, result in resolution.items():
                 article_ids = unmatched_by_raw[raw]
