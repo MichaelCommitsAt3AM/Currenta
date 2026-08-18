@@ -54,9 +54,13 @@ mixin _$NewsArticle {
       toJson: _categoriesToJson)
   List<NewsCategory> get categories;
 
-  /// Sub-categories for fine-grained personalization
+  /// Sub-categories for fine-grained personalization. The backend now sends
+  /// canonical taxonomy slugs (e.g. 'artificial_intelligence.ai_research',
+  /// see taxonomy/taxonomy.json) here, not [NewsSubCategory] enum names —
+  /// they don't match yet, so this always parses to an empty list until the
+  /// enum is replaced with the server-driven taxonomy.
   @JsonKey(
-      name: 'sub_categories',
+      name: 'subcategories',
       fromJson: _subCategoriesFromJson,
       toJson: _subCategoriesToJson)
   List<NewsSubCategory> get subCategories;
@@ -218,7 +222,7 @@ abstract mixin class $NewsArticleCopyWith<$Res> {
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
       @JsonKey(
-          name: 'sub_categories',
+          name: 'subcategories',
           fromJson: _subCategoriesFromJson,
           toJson: _subCategoriesToJson)
       List<NewsSubCategory> subCategories,
@@ -472,7 +476,7 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(
-                name: 'sub_categories',
+                name: 'subcategories',
                 fromJson: _subCategoriesFromJson,
                 toJson: _subCategoriesToJson)
             List<NewsSubCategory> subCategories,
@@ -552,7 +556,7 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(
-                name: 'sub_categories',
+                name: 'subcategories',
                 fromJson: _subCategoriesFromJson,
                 toJson: _subCategoriesToJson)
             List<NewsSubCategory> subCategories,
@@ -630,7 +634,7 @@ extension NewsArticlePatterns on NewsArticle {
                 toJson: _categoriesToJson)
             List<NewsCategory> categories,
             @JsonKey(
-                name: 'sub_categories',
+                name: 'subcategories',
                 fromJson: _subCategoriesFromJson,
                 toJson: _subCategoriesToJson)
             List<NewsSubCategory> subCategories,
@@ -698,7 +702,7 @@ class _NewsArticle implements NewsArticle {
           toJson: _categoriesToJson)
       final List<NewsCategory> categories = const [NewsCategory.world],
       @JsonKey(
-          name: 'sub_categories',
+          name: 'subcategories',
           fromJson: _subCategoriesFromJson,
           toJson: _subCategoriesToJson)
       final List<NewsSubCategory> subCategories = const [],
@@ -775,13 +779,21 @@ class _NewsArticle implements NewsArticle {
     return EqualUnmodifiableListView(_categories);
   }
 
-  /// Sub-categories for fine-grained personalization
+  /// Sub-categories for fine-grained personalization. The backend now sends
+  /// canonical taxonomy slugs (e.g. 'artificial_intelligence.ai_research',
+  /// see taxonomy/taxonomy.json) here, not [NewsSubCategory] enum names —
+  /// they don't match yet, so this always parses to an empty list until the
+  /// enum is replaced with the server-driven taxonomy.
   final List<NewsSubCategory> _subCategories;
 
-  /// Sub-categories for fine-grained personalization
+  /// Sub-categories for fine-grained personalization. The backend now sends
+  /// canonical taxonomy slugs (e.g. 'artificial_intelligence.ai_research',
+  /// see taxonomy/taxonomy.json) here, not [NewsSubCategory] enum names —
+  /// they don't match yet, so this always parses to an empty list until the
+  /// enum is replaced with the server-driven taxonomy.
   @override
   @JsonKey(
-      name: 'sub_categories',
+      name: 'subcategories',
       fromJson: _subCategoriesFromJson,
       toJson: _subCategoriesToJson)
   List<NewsSubCategory> get subCategories {
@@ -965,7 +977,7 @@ abstract mixin class _$NewsArticleCopyWith<$Res>
           toJson: _categoriesToJson)
       List<NewsCategory> categories,
       @JsonKey(
-          name: 'sub_categories',
+          name: 'subcategories',
           fromJson: _subCategoriesFromJson,
           toJson: _subCategoriesToJson)
       List<NewsSubCategory> subCategories,

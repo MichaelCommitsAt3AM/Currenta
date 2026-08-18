@@ -131,7 +131,7 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
                 "publish model limitations, and implement accountability controls before deployment."
             ),
             "categories": ["tech", "business"],
-            "subcategory": "AI Policy",
+            "subcategories": ["artificial_intelligence.ai_policy_regulation"],
             "type": "hard_news",
             "local_relevance": "local",
             "local_confidence": 0.92,
@@ -162,7 +162,9 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
     assert "INSERT INTO articles" in insert_query
     assert insert_args[3] == ARTICLE_URL
     assert insert_args[6] == ["tech", "business"]
-    assert insert_args[8] == [0.01, 0.11, 0.21, 0.31]
+    assert insert_args[7] == "artificial_intelligence.ai_policy_regulation"
+    assert insert_args[8] == ["artificial_intelligence.ai_policy_regulation"]
+    assert insert_args[9] == [0.01, 0.11, 0.21, 0.31]
 
     success_logs = [row for row in conn.log_rows if "ingestion_logs" in row[0] and row[1][1] == "SUCCESS"]
     assert len(success_logs) >= 1
@@ -206,7 +208,7 @@ def test_ingest_single_google_news_article_skips_high_confidence_non_local(monke
             "title": "US lawmakers debate AI antitrust policy",
             "summary": "US congressional hearings focused on domestic antitrust tools and U.S. agency oversight for major AI companies.",
             "categories": ["tech", "politics"],
-            "subcategory": "AI Policy",
+            "subcategories": ["artificial_intelligence.ai_policy_regulation"],
             "type": "hard_news",
             "local_relevance": "non_local",
             "local_confidence": 0.94,
@@ -267,7 +269,7 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
             "title": "Standard title",
             "summary": "Standard summary",
             "categories": ["tech"],
-            "subcategory": "AI",
+            "subcategories": ["artificial_intelligence"],
             "type": "hard_news",
             "local_relevance": "non_local",
             "local_confidence": 0.60, # low confidence, passes gate when strict mode is off
@@ -289,7 +291,7 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
     assert article_id == "integration-article-1"
     assert len(conn.inserted_rows) == 1
     insert_query, insert_args = conn.inserted_rows[0]
-    assert insert_args[11] is None  # Should be set to None because it's non-local!
+    assert insert_args[12] is None  # Should be set to None because it's non-local!
 
 
 def test_summarize_article_locality_context(monkeypatch):
@@ -299,7 +301,7 @@ def test_summarize_article_locality_context(monkeypatch):
     # Create a mock client
     mock_client = MagicMock()
     mock_response = MagicMock()
-    mock_response.text = '{"title": "Test Title", "summary": "This is a test summary that is long enough to fit the constraints but not too long to trigger any failures.", "categories": ["tech"], "type": "hard_news", "subcategory": "Test", "local_relevance": "local", "local_confidence": 0.9, "local_reason": "test country"}'
+    mock_response.text = '{"title": "Test Title", "summary": "This is a test summary that is long enough to fit the constraints but not too long to trigger any failures.", "categories": ["tech"], "type": "hard_news", "subcategories": ["Test"], "local_relevance": "local", "local_confidence": 0.9, "local_reason": "test country"}'
     
     # Mock the async call: client.aio.models.generate_content
     mock_generate = AsyncMock(return_value=mock_response)
@@ -320,9 +322,83 @@ def test_summarize_article_locality_context(monkeypatch):
     mock_generate.assert_called_once()
     called_args, called_kwargs = mock_generate.call_args
     assert called_kwargs["config"].response_mime_type == "application/json"
+    assert called_kwargs["config"].response_schema is ingestion.SUMMARIZATION_RESPONSE_SCHEMA
     prompt = called_kwargs["contents"]
     assert "Target country: KE" in prompt
     assert "local_relevance" in prompt
+    assert "CANONICAL SUBCATEGORY LIST" in prompt
+    assert "artificial_intelligence" in prompt
+
+
+def test_parse_llm_response_passes_through_canonical_slug():
+    """A response-schema-constrained model emits the slug directly; it should
+    survive parse_llm_response unchanged."""
+    raw = (
+        '{"title": "T", "summary": "S", "categories": ["tech"], '
+        '"type": "hard_news", "subcategories": ["artificial_intelligence.ai_research"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["subcategories"] == ["artificial_intelligence.ai_research"]
+
+
+def test_parse_llm_response_normalizes_known_alias():
+    """Groq/Ollama (no structured schema) may still emit free-text; the alias
+    map should resolve it to the canonical slug."""
+    raw = (
+        '{"title": "T", "summary": "S", "categories": ["tech"], '
+        '"type": "hard_news", "subcategories": ["AI"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["subcategories"] == ["artificial_intelligence"]
+
+
+def test_parse_llm_response_disambiguates_alias_by_category():
+    """'Wildlife' is a valid alias under both science (biology_genetics) and
+    environment (conservation_wildlife); the assigned category should decide
+    which canonical slug it resolves to."""
+    raw_science = (
+        '{"title": "T", "summary": "S", "categories": ["science"], '
+        '"type": "hard_news", "subcategories": ["Wildlife"]}'
+    )
+    raw_environment = (
+        '{"title": "T", "summary": "S", "categories": ["environment"], '
+        '"type": "hard_news", "subcategories": ["Wildlife"]}'
+    )
+    assert ingestion.parse_llm_response(raw_science)["subcategories"] == ["biology_genetics"]
+    assert ingestion.parse_llm_response(raw_environment)["subcategories"] == ["conservation_wildlife"]
+
+
+def test_parse_llm_response_drops_unmatched_subcategory():
+    """An off-taxonomy string (only reachable via a non-schema-enforced
+    provider) should be dropped rather than stored as free text."""
+    raw = (
+        '{"title": "T", "summary": "S", "categories": ["tech"], '
+        '"type": "hard_news", "subcategories": ["Completely Made Up Topic"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["subcategories"] == []
+
+
+def test_parse_llm_response_accepts_two_subcategories_and_dedupes():
+    """Up to 2 slugs are kept in order, with duplicates (e.g. an alias and its
+    canonical slug both resolving to the same node) collapsed."""
+    raw = (
+        '{"title": "T", "summary": "S", "categories": ["tech", "politics"], '
+        '"type": "hard_news", "subcategories": ["AI Regulation", "government_policy", "Artificial Intelligence"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["subcategories"] == ["artificial_intelligence.ai_policy_regulation", "government_policy"]
+
+
+def test_parse_llm_response_accepts_legacy_singular_subcategory_field():
+    """A non-schema-enforced provider that hasn't picked up the new prompt
+    wording yet may still emit the old singular 'subcategory' key."""
+    raw = (
+        '{"title": "T", "summary": "S", "categories": ["tech"], '
+        '"type": "hard_news", "subcategory": "AI"}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["subcategories"] == ["artificial_intelligence"]
 
 
 

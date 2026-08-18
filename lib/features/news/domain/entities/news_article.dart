@@ -27,13 +27,14 @@ List<String> _categoriesToJson(List<NewsCategory> categories) =>
 
 List<NewsSubCategory> _subCategoriesFromJson(dynamic raw) {
   if (raw == null) return [];
+  // Backend currently sends a single free-text `subcategory` string; a future
+  // migration moves this to a `subcategories` array. Accept either shape.
   final List<dynamic> list = raw is List ? raw : [raw];
   return list
       .map((e) => e?.toString() ?? '')
-      .map((s) => NewsSubCategory.values.firstWhere(
-            (c) => c.name == s,
-            orElse: () => NewsSubCategory.elections, // Defaulting to something, but we filter out errors maybe?
-          ))
+      .where((s) => s.isNotEmpty)
+      .map((s) => NewsSubCategory.values.where((c) => c.name == s).firstOrNull)
+      .whereType<NewsSubCategory>()
       .toList();
 }
 
@@ -81,9 +82,13 @@ abstract class NewsArticle with _$NewsArticle {
     @Default([NewsCategory.world])
     List<NewsCategory> categories,
 
-    /// Sub-categories for fine-grained personalization
+    /// Sub-categories for fine-grained personalization. The backend now sends
+    /// canonical taxonomy slugs (e.g. 'artificial_intelligence.ai_research',
+    /// see taxonomy/taxonomy.json) here, not [NewsSubCategory] enum names —
+    /// they don't match yet, so this always parses to an empty list until the
+    /// enum is replaced with the server-driven taxonomy.
     @JsonKey(
-      name: 'sub_categories',
+      name: 'subcategories',
       fromJson: _subCategoriesFromJson,
       toJson: _subCategoriesToJson,
     )

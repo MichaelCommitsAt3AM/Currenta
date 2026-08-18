@@ -28,7 +28,7 @@ VALID_CATEGORIES = frozenset([
 # Only these columns are sent to the client — never the embedding vector or internal fields
 ARTICLE_COLUMNS = """
     id, title, summary, original_url, image_url, source_name,
-    published_at, created_at, categories, subcategory, is_paywalled, country_code, ranking_score, cluster_id, is_major_source,
+    published_at, created_at, categories, subcategory, subcategories, is_paywalled, country_code, ranking_score, cluster_id, is_major_source,
     expires_at,
     'article' as item_type
 """

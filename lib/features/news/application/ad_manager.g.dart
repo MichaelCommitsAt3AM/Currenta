@@ -6,7 +6,7 @@ part of 'ad_manager.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$adManagerHash() => r'aa022519d559687d7803e9a38ba18fb5e2cc7ddf';
+String _$adManagerHash() => r'ff8b378044cc166c84f4287433cf2c023c77ccb6';
 
 /// See also [AdManager].
 @ProviderFor(AdManager)

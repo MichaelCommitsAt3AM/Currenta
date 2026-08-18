@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS articles (
     content_hash      TEXT,
     summary_model     TEXT,
     subcategory       TEXT,
+    subcategories     TEXT[] NOT NULL DEFAULT '{}',
     categories        TEXT[] NOT NULL DEFAULT '{world}',
     country_code      VARCHAR(2),
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -171,6 +172,7 @@ CREATE INDEX IF NOT EXISTS articles_created_at_idx ON articles (created_at DESC)
 CREATE INDEX IF NOT EXISTS articles_trend_score_idx ON articles (trend_score DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS articles_content_hash_idx ON articles (content_hash) WHERE content_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS articles_categories_gin_idx ON articles USING GIN (categories);
+CREATE INDEX IF NOT EXISTS articles_subcategories_gin_idx ON articles USING GIN (subcategories);
 CREATE INDEX IF NOT EXISTS articles_ranking_score_idx ON articles (ranking_score DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_category_country ON articles (country_code, categories);
 CREATE INDEX IF NOT EXISTS idx_articles_major_source ON articles (is_major_source) WHERE is_major_source = TRUE;

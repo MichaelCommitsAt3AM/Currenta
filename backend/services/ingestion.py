@@ -11,6 +11,7 @@ import httpx
 import asyncpg
 from supabase import create_client, Client
 from .scraper import scrape_article_sync, discover_techcrunch_articles
+from .taxonomy import get_taxonomy
 from dateutil import parser as date_parser, tz
 import random
 import uuid
@@ -64,6 +65,42 @@ DUPLICATE_LOOKBACK_DAYS = int(os.environ.get("DUPLICATE_LOOKBACK_DAYS", "7"))
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
 VALID_LOCAL_RELEVANCE = {"local", "non_local", "uncertain"}
+
+TAXONOMY = get_taxonomy()
+VALID_SUBCATEGORY_SLUGS = TAXONOMY.all_slugs
+
+# Structured-output schema for Gemini/Vertex: makes it impossible for the model
+# to emit a category/subcategory outside the canonical lists on this provider.
+# local_relevance/local_confidence/local_reason are only ever requested by the
+# prompt when a country_code is set (see _build_locality_context), so they're
+# left optional here rather than required.
+SUMMARIZATION_RESPONSE_SCHEMA = genai_types.Schema(
+    type="OBJECT",
+    required=["title", "summary", "categories", "subcategories", "type"],
+    properties={
+        "title": genai_types.Schema(type="STRING"),
+        "summary": genai_types.Schema(type="STRING"),
+        "categories": genai_types.Schema(
+            type="ARRAY",
+            items=genai_types.Schema(type="STRING", enum=VALID_CATEGORIES),
+            min_items=1,
+        ),
+        "subcategories": genai_types.Schema(
+            type="ARRAY",
+            items=genai_types.Schema(type="STRING", enum=VALID_SUBCATEGORY_SLUGS),
+            min_items=1,
+            max_items=2,
+        ),
+        "type": genai_types.Schema(
+            type="STRING",
+            enum=["hard_news", "analysis", "opinion", "review", "listicle", "sponsored", "irrelevant"],
+        ),
+        "expires_at": genai_types.Schema(type="STRING", nullable=True),
+        "local_relevance": genai_types.Schema(type="STRING", enum=sorted(VALID_LOCAL_RELEVANCE)),
+        "local_confidence": genai_types.Schema(type="NUMBER"),
+        "local_reason": genai_types.Schema(type="STRING"),
+    },
+)
 
 LOCALITY_FILTER_ENABLED = os.environ.get("LOCALITY_FILTER_ENABLED", "1").strip().lower() in {
     "1", "true", "yes", "on"
@@ -193,7 +230,7 @@ Return the result as a raw JSON object only (no preamble):
   "title": "...",
   "summary": "...",
   "categories": ["primary_category", "secondary_category"],
-  "subcategory": "...",
+  "subcategories": ["primary_subcategory"],
   "type": "...",
   "expires_at": "YYYY-MM-DDTHH:MM:SSZ" or null
 }
@@ -202,7 +239,7 @@ Rules:
 1. "summary" MUST be EXACTLY 65 words (tolerance: 60-70 words), written in exactly 3-4 sentences, each roughly 15-20 words. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
 3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
-4. "subcategory" should be a specific, granular topic string representing the article (e.g., 'AI', 'Gaming', 'Game Dev', 'Elections', 'Startups', 'Space'). Keep it to 1-3 words.
+4. "subcategories" MUST be a JSON array of 1-2 slugs from the CANONICAL SUBCATEGORY LIST below (given after this rule block), chosen from any of the rows whose category matches one of the values you picked for "categories". List exactly ONE slug unless the article is genuinely and substantially about two distinct subtopics (e.g. an AI regulation bill is both "artificial_intelligence.ai_policy_regulation" and "government_policy") — do not pad to 2 just to fill the array. Prefer the more specific child slug (formatted "parent_slug.child_slug") over its parent when the article clearly fits that child; otherwise use the parent slug alone. If truly nothing fits, use the closest available slug rather than inventing a new one.
 5. "type" MUST be one of: "hard_news", "analysis", "opinion", "review", "listicle", "sponsored", "irrelevant".
    - hard_news: Breaking news, reports on current events.
    - analysis: Deep dives, context-heavy reporting.
@@ -222,6 +259,12 @@ Example of a 64-word summary (Use this density as a template):
 "Following a significant technological breakthrough, researchers at the leading national laboratory successfully demonstrated a new quantum computing architecture. This innovative approach utilizes stable silicon-based qubits, drastically reducing error rates compared to previous superconducting models. The team believes this advancement paves the logical path towards commercially viable quantum systems within five years, potentially revolutionizing cryptography, materials science, and complex financial modeling worldwide starting today."
 
 Article to summarize and classify:
+"""
+
+SUBCATEGORY_TAXONOMY_PROMPT = f"""
+
+CANONICAL SUBCATEGORY LIST (for rule 4 above; one row per category, values are valid "subcategories" slugs):
+{TAXONOMY.prompt_text()}
 """
 
 
@@ -993,7 +1036,10 @@ async def summarize_article(
     ref_context = f"\n\nReference Time (UTC): {ref_str}"
     
     locality_context = _build_locality_context(country_code)
-    full_prompt = f"{SUMMARIZATION_PROMPT}{category_context}{locality_context}{ref_context}\n\nArticle:\n{text}"
+    full_prompt = (
+        f"{SUMMARIZATION_PROMPT}{SUBCATEGORY_TAXONOMY_PROMPT}"
+        f"{category_context}{locality_context}{ref_context}\n\nArticle:\n{text}"
+    )
     raw_content = ""
 
     # Recommendation 3: Use shared http_client if provided to reduce connection overhead
@@ -1019,7 +1065,8 @@ async def summarize_article(
                         contents=full_prompt,
                         config=genai_types.GenerateContentConfig(
                             temperature=0.1,
-                            response_mime_type="application/json"
+                            response_mime_type="application/json",
+                            response_schema=SUMMARIZATION_RESPONSE_SCHEMA,
                         )
                     )
                     raw_content = response.text.strip()
@@ -1121,7 +1168,7 @@ def parse_llm_response(raw_str: str) -> dict:
             "summary": str(raw_str)[:300],
             "categories": ["world"],
             "type": "irrelevant",
-            "subcategory": "",
+            "subcategories": [],
             "expires_at": None,
         }
 
@@ -1143,7 +1190,32 @@ def parse_llm_response(raw_str: str) -> dict:
             categories.append("world")
             
         type_str = parsed.get("type", "hard_news").lower()
-        subcat = parsed.get("subcategory", "").replace("**", "").strip('"').strip()
+
+        raw_subcats = parsed.get("subcategories")
+        if raw_subcats is None:
+            # Backward-compat: a non-schema-enforced provider (Groq/Ollama) may
+            # still emit the old singular field.
+            legacy = parsed.get("subcategory")
+            raw_subcats = [legacy] if legacy else []
+        if isinstance(raw_subcats, str):
+            raw_subcats = [raw_subcats]
+
+        subcategories = []
+        for raw in raw_subcats:
+            raw_clean = str(raw).replace("**", "").strip('"').strip()
+            if not raw_clean:
+                continue
+            slug = TAXONOMY.match(raw_clean, categories)
+            if slug:
+                if slug not in subcategories:
+                    subcategories.append(slug)
+            else:
+                # Response-schema-enforced providers (Gemini/Vertex) can't emit this;
+                # only reachable via Groq/Ollama ignoring the prompt's slug list.
+                # Logged so unmatched strings can inform future taxonomy additions.
+                logger.info(f"[Taxonomy] Unmatched subcategory from LLM: {raw_clean!r} (categories={categories})")
+        subcategories = subcategories[:2]
+
         local_relevance = str(parsed.get("local_relevance", "uncertain")).strip().lower()
         if local_relevance not in VALID_LOCAL_RELEVANCE:
             local_relevance = "uncertain"
@@ -1164,7 +1236,7 @@ def parse_llm_response(raw_str: str) -> dict:
             "summary": summary,
             "categories": categories,
             "type": type_str,
-            "subcategory": subcat,
+            "subcategories": subcategories,
             "local_relevance": local_relevance,
             "local_confidence": local_confidence,
             "local_reason": local_reason,
@@ -1177,7 +1249,7 @@ def parse_llm_response(raw_str: str) -> dict:
             "summary": raw_str[:300],
             "categories": ["world"],
             "type": "irrelevant",
-            "subcategory": "",
+            "subcategories": [],
             "expires_at": None,
         }
 
@@ -1929,7 +2001,8 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     favicon_url = item.get("source_favicon_url") # Placeholder, adjust as needed
                     item_pub_date = item["pubDate"]
                     categories = llm_res["categories"]
-                    subcategory = llm_res["subcategory"]
+                    subcategories = llm_res["subcategories"]
+                    subcategory = subcategories[0] if subcategories else ""
 
                     # Determine if we should tag the article with a country code in the database.
                     # We only do so if it is confidently classified as local to that country.
@@ -1944,17 +2017,17 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     '''
                     INSERT INTO articles (
                         id, title, summary, original_url, image_url, source_name, source_favicon_url,
-                        published_at, categories, subcategory, embedding, content_hash, 
+                        published_at, categories, subcategory, subcategories, embedding, content_hash,
                         summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source,
                         expires_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::float8[]::vector, $12, $13, $14, $15, $16, $17, $18, $19)
-                    ON CONFLICT (original_url) DO UPDATE SET 
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19, $20)
+                    ON CONFLICT (original_url) DO UPDATE SET
                         is_major_source = CASE WHEN articles.is_major_source = FALSE THEN EXCLUDED.is_major_source ELSE articles.is_major_source END,
                         expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
                     ''',
                     article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
-                    item_pub_date, categories, subcategory, embedding, content_hash, 
+                    item_pub_date, categories, subcategory, subcategories, embedding, content_hash,
                     get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major,
                     llm_res.get("expires_at")
                 )
@@ -2411,22 +2484,25 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
         try:
             ranking_score = calculate_ranking_score(datetime.now(timezone.utc), 0.0)
 
+            subcategories = llm_res["subcategories"]
+            subcategory = subcategories[0] if subcategories else ""
+
             # We use a CTE to ensure we get the ID even if it exists.
             result = await conn.fetchrow('''
                 INSERT INTO articles (
                     id, title, summary, original_url, image_url, source_name,
-                    published_at, categories, subcategory, embedding, content_hash, 
+                    published_at, categories, subcategory, subcategories, embedding, content_hash,
                     summary_model, country_code, is_paywalled, ingestion_method, created_at,
                     ranking_score, cluster_id, expires_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9::float8[]::vector, $10, $11, $12, $13, $14, NOW(), $15, $16, $17)
-                ON CONFLICT (original_url) DO UPDATE SET 
+                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10::float8[]::vector, $11, $12, $13, $14, $15, NOW(), $16, $17, $18)
+                ON CONFLICT (original_url) DO UPDATE SET
                     last_trend_update = NOW(), -- Dummy update to trigger RETURNING
                     expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
                 RETURNING id
-            ''', 
+            ''',
             article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
-            llm_res["categories"], llm_res["subcategory"],
-            embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code, 
+            llm_res["categories"], subcategory, subcategories,
+            embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code,
             scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"))
             
             article_id = result["id"] if result else None

@@ -9,15 +9,16 @@ from urllib.parse import urlparse
 
 from ..core.security import verify_is_admin, User
 from ..services.ingestion import (
-    scrape_article_sync, 
-    summarize_article, 
-    embed_text, 
+    scrape_article_sync,
+    summarize_article,
+    embed_text,
     generate_content_hash,
     calculate_ranking_score,
     log_ingestion_event,
     LLM_PROVIDER,
     VALID_CATEGORIES
 )
+from ..services.taxonomy import get_taxonomy
 import asyncio
 from datetime import date, timedelta
 
@@ -191,7 +192,7 @@ async def create_news_draft(
             title=llm_res.get("title", "Unknown Title"),
             summary=llm_res.get("summary", ""),
             categories=llm_res.get("categories", ["world"]),
-            subcategory=llm_res.get("subcategory", ""),
+            subcategory=(llm_res.get("subcategories") or [""])[0],
             source_name=source_name,
             original_url=url,
             image_url=scraper_result.get("image_url"),
@@ -263,27 +264,21 @@ async def publish_manual_news(
             # Generate ID and Clustering Data
             article_id_uuid = uuid.uuid4()
             cluster_id = article_id_uuid # Manual story starts its own cluster
-            
-            # Insert with explicit debug logging
-            all_args = [
-                article_id_uuid, publish_req.title, publish_req.summary, publish_req.original_url, 
-                publish_req.source_name, published_at, publish_req.categories, 
-                publish_req.subcategory, publish_req.country_code, publish_req.image_url, 
-                content_hash, embedding, ranking_score, "manual_admin", 
-                publish_req.is_paywalled, cluster_id, False, "manual_admin", publish_req.expires_at
-            ]
-            for i, val in enumerate(all_args):
-                logger.debug(f"[admin_publish] Arg ${i+1}: type={type(val)}, value={str(val)[:50]}...")
-            
+
+            # Admins can free-type the subcategory field before publishing; resolve
+            # it to a canonical taxonomy slug the same way the ingestion pipeline does.
+            subcategory = get_taxonomy().match(publish_req.subcategory, publish_req.categories) or ""
+            subcategories = [subcategory] if subcategory else []
+
             article_id = await conn.fetchval(
                 """
                 INSERT INTO articles (
-                    id, title, summary, original_url, source_name, 
-                    published_at, categories, subcategory, 
-                    country_code, image_url, content_hash, 
+                    id, title, summary, original_url, source_name,
+                    published_at, categories, subcategory, subcategories,
+                    country_code, image_url, content_hash,
                     embedding, ranking_score, ingestion_method,
                     is_paywalled, cluster_id, is_major_source, summary_model, expires_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::float8[]::vector, $14, $15, $16, $17, $18, $19, $20)
                 RETURNING id
                 """,
                 article_id_uuid,
@@ -293,7 +288,8 @@ async def publish_manual_news(
                 publish_req.source_name,
                 published_at,
                 publish_req.categories,
-                publish_req.subcategory,
+                subcategory,
+                subcategories,
                 publish_req.country_code,
                 publish_req.image_url,
                 content_hash,
