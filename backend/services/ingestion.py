@@ -85,9 +85,18 @@ SUMMARIZATION_RESPONSE_SCHEMA = genai_types.Schema(
             items=genai_types.Schema(type="STRING", enum=VALID_CATEGORIES),
             min_items=1,
         ),
+        # No `enum=` here: an 88-value enum inside this ARRAY, combined with
+        # the other enum fields in this schema, makes Gemini/Vertex reject
+        # the whole request with "constraint has too much branching for
+        # serving" (confirmed in production 2026-08-19 — every ingestion
+        # call failed for ~18h before this was caught and reverted). The
+        # canonical slug list is still enforced via the prompt text
+        # (SUBCATEGORY_TAXONOMY_PROMPT) and validated/normalized through
+        # TAXONOMY.match() in parse_llm_response, same as the Groq/Ollama
+        # path already relies on — just without the hard schema guarantee.
         "subcategories": genai_types.Schema(
             type="ARRAY",
-            items=genai_types.Schema(type="STRING", enum=VALID_SUBCATEGORY_SLUGS),
+            items=genai_types.Schema(type="STRING"),
             min_items=1,
             max_items=2,
         ),
