@@ -12,8 +12,9 @@ import orjson
 from pydantic import BaseModel
 from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip, verify_app_check, get_feed_rate_limit
 from ..core.geo import get_country_from_ip
-from ..services.ingestion import fetch_local_news_on_demand
+from ..services.ingestion import fetch_local_news_on_demand, embed_text
 from ..services.personalization import schedule_debounced_personalization_update
+from ..services.taxonomy import get_taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,11 @@ ARTICLE_COLUMNS = """
     expires_at,
     'article' as item_type
 """
+
+# How far into the Phase 1 feed the Discovery (random) bucket is held back. The
+# top of the feed stays personalized/trending; filter-bubble breakers start once
+# the user has scrolled past roughly the first screen.
+DISCOVERY_START_POSITION = 12
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _TEXT_STOPWORDS = {
@@ -144,16 +150,21 @@ class Diversifier:
     Interleaves articles from multiple buckets while enforcing diversity rules.
     Designed to be extensible for future personalization (likes/dislikes).
     """
-    def __init__(self, buckets: List[List[dict]], ratios: List[float], max_consecutive_cat: int = 3, max_consecutive_source: int = 2, ignore_cat_limit: bool = False):
+    def __init__(self, buckets: List[List[dict]], ratios: List[float], max_consecutive_cat: int = 3, max_consecutive_source: int = 2, ignore_cat_limit: bool = False, start_positions: Optional[List[int]] = None):
         self.buckets = [list(b) for b in buckets]
         self.ratios = ratios
         self.max_consecutive_cat = max_consecutive_cat
         self.max_consecutive_source = max_consecutive_source
         self.ignore_cat_limit = ignore_cat_limit
+        # Position in the interleaved result before a bucket is allowed to contribute.
+        # Used to hold Discovery (random) content back until the user has scrolled
+        # through a run of personalized/trending stories first.
+        self.start_positions = list(start_positions) if start_positions else [0] * len(self.buckets)
         
         self.last_categories: List[str] = []
         self.last_sources: List[str] = []
-        self.current_counts = [0] * len(self.buckets)
+        self.current_counts = [0.0] * len(self.buckets)
+        self.activated = [start <= 0 for start in self.start_positions]
         
     def _is_diverse(self, article: dict) -> bool:
         # Category Guard - bypassed if ignore_cat_limit is True (e.g. for specific category pages)
@@ -196,10 +207,27 @@ class Diversifier:
             
             # We sort indices by score so we can try the best one first, 
             # and if diversity fails, try the next best one.
+            eligible = [
+                i for i in range(len(self.buckets))
+                if self.buckets[i] and len(result) >= self.start_positions[i]
+            ]
+            if not eligible:
+                # Every remaining bucket is still held back. Rather than truncate the
+                # feed, drop the delay and let them in.
+                eligible = [i for i in range(len(self.buckets)) if self.buckets[i]]
+
             candidates = []
-            for i in range(len(self.buckets)):
-                if not self.buckets[i]:
-                    continue
+            for i in eligible:
+                if not self.activated[i]:
+                    # A delayed bucket starts at the pace of the buckets already in
+                    # play, so it eases in instead of firing a burst to catch up.
+                    self.activated[i] = True
+                    peers = [
+                        self.current_counts[j] / self.ratios[j]
+                        for j in eligible if j != i and self.activated[j]
+                    ]
+                    if peers:
+                        self.current_counts[i] = max(peers) * self.ratios[i]
                 score = self.current_counts[i] / self.ratios[i]
                 candidates.append((score, i))
             
@@ -264,6 +292,49 @@ def get_db(request: Request) -> asyncpg.Pool:
     return pool
 
 
+async def _seed_cold_start_interest_embedding(
+    user_id: str, categories: List[str], db_pool: asyncpg.Pool
+) -> Optional[List[float]]:
+    """Bootstrap user_profiles.interest_embedding from onboarding category
+    picks by embedding each category's popular-subcategory labels (from the
+    canonical taxonomy) and averaging. Best-effort: any failure here should
+    never break feed loading, just leave the user on the category-only
+    cold-start path for this request."""
+    try:
+        taxonomy = get_taxonomy()
+        texts = []
+        for category in categories:
+            nodes = taxonomy.by_category.get(category, [])
+            popular_labels = [n["display_name"] for n in nodes if n.get("popular")]
+            labels = popular_labels or [n["display_name"] for n in nodes[:6]]
+            if labels:
+                texts.append(f"{category} news: {', '.join(labels)}")
+        if not texts:
+            return None
+
+        embeddings = [await embed_text(t) for t in texts]
+        dims = len(embeddings[0])
+        mean_embedding = [
+            sum(e[i] for e in embeddings) / len(embeddings) for i in range(dims)
+        ]
+
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO user_profiles (user_id, interest_embedding, updated_at)
+                VALUES ($1, $2::float8[]::vector, now())
+                ON CONFLICT (user_id) DO UPDATE
+                    SET interest_embedding = EXCLUDED.interest_embedding,
+                        updated_at = EXCLUDED.updated_at
+                """,
+                user_id, mean_embedding,
+            )
+        return mean_embedding
+    except Exception as e:
+        logger.warning("Cold-start interest_embedding seeding failed for user %s: %s", user_id, e)
+        return None
+
+
 async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> dict:
     """Fetch user country preference + interests, with Redis caching."""
     cache_key = f"user_state:{user_id}"
@@ -283,16 +354,31 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
         interest_records = await conn.fetch(
             "SELECT category FROM user_interests WHERE user_id = $1", user_id
         )
+        sub_interest_records = await conn.fetch(
+            "SELECT sub_category FROM user_sub_interests WHERE user_id = $1", user_id
+        )
 
     # Parse interest_embedding string (e.g. "[0.1, 0.2]") to list
     profile_data = dict(profile) if profile else {}
     emb_text = profile_data.get("interest_embedding")
     interest_embedding = orjson.loads(emb_text) if emb_text else None
+    categories = sorted([r["category"] for r in interest_records])
+
+    # Cold start: a brand-new user has no article_likes yet, so the
+    # like-weighted `update_user_interest_vector` trigger (see
+    # 20260421113000_recommendation_engine_core.sql) never fires and the
+    # embedding-based Personalized bucket below stays dead until their first
+    # like. Bootstrap it once from their onboarding category picks instead —
+    # the like-based trigger naturally supersedes this the moment real signal
+    # exists, since both write the same user_profiles.interest_embedding column.
+    if interest_embedding is None and categories:
+        interest_embedding = await _seed_cold_start_interest_embedding(user_id, categories, db_pool)
 
     state = {
         "preferred_country": profile_data.get("preferred_country"),
         "interest_embedding": interest_embedding,
-        "interests": sorted([r["category"] for r in interest_records]),
+        "interests": categories,
+        "sub_interests": sorted([r["sub_category"] for r in sub_interest_records]),
     }
 
     if redis_client:
@@ -474,8 +560,15 @@ async def get_feed(
             topic_interests = [i for i in user_interests if i != "local"]
             category_boost = None
 
+        # Sub-interests apply as a soft ranking boost regardless of category page
+        # or not — a user's fine-grained picks stay relevant even inside a single
+        # category. Never a WHERE filter: a hard filter on a narrow selection
+        # would starve the bucket, defeating the portfolio-interleave design.
+        sub_interests = user_state.get("sub_interests", []) if user_state else []
+
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
-        async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None):
+        async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None, subcategory_boost: Optional[List[str]] = None, trending_first: bool = False):
+            params = list(params)  # local copy — subcategory_boost below appends to it
             if not order_by:
                 if strict_primary_category:
                     # Category page behavior: Trending first, then Major Sources, then Ranking Score.
@@ -492,8 +585,19 @@ async def get_feed(
                 # Prioritize articles where the requested category is the PRIMARY category (index 1)
                 order_by = f"(categories[1] = '{category_boost}') DESC, {order_by}"
 
+            if subcategory_boost:
+                # Soft boost only — subcategory_boost values come from user-writable
+                # data (user_sub_interests), unlike category_boost, so this MUST be
+                # parameterized rather than string-interpolated.
+                params.append(subcategory_boost)
+                order_by = f"(subcategories && ${len(params)}::text[]) DESC, {order_by}"
+
+            # trend_score is only needed to re-rank in Python; it is stripped before
+            # the articles leave this function so the response shape is unchanged.
+            extra_columns = ", trend_score AS _trend_score" if trending_first else ""
+
             query = f"""
-                SELECT {ARTICLE_COLUMNS}
+                SELECT {ARTICLE_COLUMNS}{extra_columns}
                 FROM articles_feed
                 WHERE {where_clause}
                 ORDER BY {order_by}
@@ -516,6 +620,16 @@ async def get_feed(
                 dict_r['id'] = str(dict_r['id'])
                 dict_r['cluster_id'] = str(dict_r['cluster_id']) if dict_r.get('cluster_id') else None
                 articles.append(dict_r)
+
+            if trending_first:
+                # Candidate selection above stays purely relevance-driven (so the set of
+                # 150 articles does not change); we only float the ones that are ALSO
+                # trending to the front. The sort is stable, so relevance order is
+                # preserved within both the trending and the non-trending run.
+                articles.sort(key=lambda a: 0 if (a.get('_trend_score') or 0) > 0 else 1)
+                for a in articles:
+                    a.pop('_trend_score', None)
+
             logger.info(f"Bucket '{label}' fetched: {len(articles)} items")
             return articles
 
@@ -575,7 +689,9 @@ async def get_feed(
                     p_params,
                     "Personalized",
                     order_by=f"embedding <=> ${emb_idx}::vector",
-                    category_boost=category_boost
+                    category_boost=category_boost,
+                    subcategory_boost=sub_interests,
+                    trending_first=True
                 )
             else:
                 # Cold start: rely on category matches
@@ -603,7 +719,8 @@ async def get_feed(
                     p_where,
                     p_params,
                     "Personalized (Cold)",
-                    category_boost=category_boost
+                    category_boost=category_boost,
+                    subcategory_boost=sub_interests,
                 )
 
             # Bucket 2: Trending (20%)
@@ -722,26 +839,38 @@ async def get_feed(
         # --- Phase 1: Primary Matches ---
         active_buckets_p = []
         active_ratios_p = []
+        active_starts_p = []
         
         # If cold start, we use global trending as the core of the primary feed
         if is_cold_start and gt_primary:
             active_buckets_p.append(gt_primary)
             active_ratios_p.append(1.0)
+            active_starts_p.append(0)
         else:
             if p_primary:
                 active_buckets_p.append(p_primary)
                 active_ratios_p.append(0.7)
+                active_starts_p.append(0)
             if t_primary:
                 active_buckets_p.append(t_primary)
                 active_ratios_p.append(0.2)
+                active_starts_p.append(0)
             if d_primary:
                 active_buckets_p.append(d_primary)
                 active_ratios_p.append(0.1)
+                # Random discovery only kicks in deeper into the feed, once the user
+                # has worked through personalized/trending stories.
+                active_starts_p.append(DISCOVERY_START_POSITION)
             
         if active_ratios_p:
             total_r = sum(active_ratios_p)
             active_ratios_p = [r/total_r for r in active_ratios_p]
-            div_p = Diversifier(active_buckets_p, active_ratios_p, ignore_cat_limit=is_category_page)
+            div_p = Diversifier(
+                active_buckets_p,
+                active_ratios_p,
+                ignore_cat_limit=is_category_page,
+                start_positions=active_starts_p,
+            )
             primary_results = div_p.interleave(limit=300)
         else:
             primary_results = []
