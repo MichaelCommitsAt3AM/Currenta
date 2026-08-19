@@ -15,6 +15,7 @@ from ..services.ingestion import (
     generate_content_hash,
     calculate_ranking_score,
     log_ingestion_event,
+    detect_paywall,
     LLM_PROVIDER,
     VALID_CATEGORIES
 )
@@ -27,11 +28,36 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class AiUsage(BaseModel):
+    messages_today: int
+    quota_users: int
+    news_generations_today: int
+
+class TrendingArticle(BaseModel):
+    title: str
+    trend_score: float
+
+class CategoryCount(BaseModel):
+    category: str
+    count: int
+
+class ContentEngagement(BaseModel):
+    trending: List[TrendingArticle]
+    category_distribution: List[CategoryCount]
+
+class UserGrowth(BaseModel):
+    total_users: int
+    new_users_24h: int
+
+class IngestionHealthRow(BaseModel):
+    status: str
+    count: int
+
 class AnalyticsOverview(BaseModel):
-    ai_usage: dict
-    content_engagement: dict
-    user_growth: dict
-    ingestion_health: List[dict]
+    ai_usage: AiUsage
+    content_engagement: ContentEngagement
+    user_growth: UserGrowth
+    ingestion_health: List[IngestionHealthRow]
 
 
 @router.get("/session/check")
@@ -52,6 +78,8 @@ class NewsDraft(BaseModel):
     source_name: str
     original_url: str
     image_url: Optional[str] = None
+    country_code: Optional[str] = None
+    is_paywalled: bool = False
     expires_at: Optional[datetime] = None
 
 class PublishRequest(BaseModel):
@@ -68,6 +96,14 @@ class PublishRequest(BaseModel):
 
 class SqlQueryRequest(BaseModel):
     query: str
+
+class SqlQueryResponse(BaseModel):
+    status: str
+    row_count: int
+    columns: List[str]
+    # Row shape depends on the caller's arbitrary SELECT, so individual
+    # column values can't be typed any tighter than this.
+    data: List[dict]
 
 def is_sql_safe(query: str) -> bool:
     """
@@ -188,6 +224,8 @@ async def create_news_draft(
                 resolved_url=scraper_result.get("url"),
             )
         
+        is_paywalled = scraper_result.get("is_paywalled", False) or detect_paywall(text)
+
         return NewsDraft(
             title=llm_res.get("title", "Unknown Title"),
             summary=llm_res.get("summary", ""),
@@ -196,6 +234,7 @@ async def create_news_draft(
             source_name=source_name,
             original_url=url,
             image_url=scraper_result.get("image_url"),
+            is_paywalled=is_paywalled,
             expires_at=llm_res.get("expires_at")
         )
         
@@ -341,7 +380,7 @@ async def publish_manual_news(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/query")
+@router.post("/query", response_model=SqlQueryResponse)
 async def run_admin_query(
     request: Request,
     query_req: SqlQueryRequest,
