@@ -105,6 +105,10 @@ class SqlQueryResponse(BaseModel):
     # column values can't be typed any tighter than this.
     data: List[dict]
 
+class PublishResponse(BaseModel):
+    status: str
+    article_id: str
+
 def is_sql_safe(query: str) -> bool:
     """
     Very basic check to ensure only SELECT-like queries are run.
@@ -256,7 +260,7 @@ async def create_news_draft(
             )
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/news/publish")
+@router.post("/news/publish", response_model=PublishResponse)
 async def publish_manual_news(
     request: Request,
     publish_req: PublishRequest,
