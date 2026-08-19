@@ -847,9 +847,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     }
     _lastTtlCheckAt = now;
 
-    // 2. Hard Expiry check (backend controlled)
+    // 2. Session expiry check (backend controlled) — independent of the
+    // client-side soft/hard TTLs below; the backend can end a session early.
     if (current.expiresAt != null && now.isAfter(current.expiresAt!.toUtc()) && !current.isStale) {
-      _log('[Feed] refreshIfStale: Hard expiry (backend) reached. Marking stale.');
+      _log('[Feed] refreshIfStale: Backend session expired. Marking stale.');
       final updated = current.copyWith(isStale: true);
       state = AsyncData(updated);
       _updateCache(current.selectedCategory, updated);
@@ -863,8 +864,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       _log(
           '[Feed] refreshIfStale check: ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}, hardTtl=${AppConfig.hardTtlHours}, isStale=${current.isStale}');
 
-      if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
-        _log('[Feed] refreshIfStale: TTL exceeded. Setting isStale=true');
+      if (age.inHours >= AppConfig.hardTtlHours) {
+        _log(
+            '[Feed] refreshIfStale: Hard TTL exceeded (${age.inHours}h >= ${AppConfig.hardTtlHours}h). Forcing refresh.');
+        await refresh(); // also resets the soft TTL via saveLastRefreshTime
+      } else if (age.inHours >= AppConfig.softTtlHours && !current.isStale) {
+        _log('[Feed] refreshIfStale: Soft TTL exceeded. Setting isStale=true');
         final updated = current.copyWith(isStale: true);
         state = AsyncData(updated);
         _updateCache(current.selectedCategory, updated);

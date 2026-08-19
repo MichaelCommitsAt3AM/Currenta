@@ -15,3 +15,12 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
           docker compose up -d --build api worker redis caddy db auth rest storage
+
+      - name: Flush cached feed sessions
+        run: |
+          set -e
+          cd ~/currenta
+          # Ranking/personalization changes are otherwise invisible for up to 4h,
+          # because a client replaying its session_id gets the ordering that was
+          # precomputed by the OLD code. Targeted on purpose — see the script.
+          scripts/flush-feed-cache.sh
