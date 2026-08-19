@@ -64,6 +64,8 @@ class Taxonomy:
                 self._register(full_slug, child["display_name"], categories,
                                 child.get("aliases", []))
 
+        self._category_names = {_normalize(c) for c in self.by_category}
+
     def _register(self, slug: str, display_name: str, categories: Set[str],
                   aliases: List[str]) -> None:
         self.all_slugs.append(slug)
@@ -99,15 +101,42 @@ class Taxonomy:
         (maps to multiple slugs, e.g. "Climate Change" under both science
         and environment) prefers whichever candidate overlaps the
         article's assigned categories.
+
+        Falls back to two defensive normalizations for the model's most
+        common formatting slips (confirmed in production 2026-08-19, without
+        a response_schema enum backstopping this field): (1) a redundant
+        "<category>." prefix on an otherwise-valid slug, e.g.
+        "politics.government_policy" instead of "government_policy" — likely
+        the model pattern-matching the prompt's "- category: slug, slug"
+        display grouping into the value itself; (2) a hallucinated L3 child
+        under a real L2 slug, e.g. "football_soccer.core_football" — falls
+        back to the valid L2 parent.
         """
         if not raw:
             return None
+
         candidates = self._match_index.get(_normalize(raw))
-        if not candidates:
-            return None
+        if candidates:
+            return self._pick(candidates, categories)
+
+        if "." in raw:
+            first, _, rest = raw.partition(".")
+            if _normalize(first) in self._category_names and rest:
+                candidates = self._match_index.get(_normalize(rest))
+                if candidates:
+                    return self._pick(candidates, categories)
+
+            parent, _, _child = raw.rpartition(".")
+            if parent:
+                candidates = self._match_index.get(_normalize(parent))
+                if candidates:
+                    return self._pick(candidates, categories)
+
+        return None
+
+    def _pick(self, candidates: List[str], categories: Optional[List[str]]) -> str:
         if len(candidates) == 1 or not categories:
             return candidates[0]
-
         cat_set = set(categories)
         for slug in candidates:
             if self.slug_categories.get(slug, set()) & cat_set:

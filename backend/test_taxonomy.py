@@ -56,6 +56,33 @@ def test_match_uses_category_context_to_disambiguate():
     assert t.match("Wildlife", ["environment"]) == "conservation_wildlife"
 
 
+def test_match_strips_redundant_category_prefix():
+    """The model sometimes prefixes an already-valid slug with its category
+    name (e.g. mistaking the prompt's "- politics: slug_a, slug_b" display
+    grouping for part of the value) — confirmed happening in production
+    2026-08-19 once the response_schema enum stopped hard-blocking it."""
+    t = get_taxonomy()
+    assert t.match("politics.government_policy") == "government_policy"
+    assert t.match("business.real_estate") == "real_estate"
+    assert t.match("entertainment.theatre_arts") == "theatre_arts"
+    # Also strips the prefix off an already-valid dotted L2.L3 child.
+    assert t.match("tech.artificial_intelligence.ai_research") == "artificial_intelligence.ai_research"
+
+
+def test_match_falls_back_to_l2_parent_for_hallucinated_child():
+    t = get_taxonomy()
+    assert t.match("football_soccer.core_football") == "football_soccer"
+    assert t.match("sports.football_soccer") == "football_soccer"
+
+
+def test_match_still_rejects_genuine_taxonomy_gaps():
+    """A prefix-stripped or parent-fallback attempt must not paper over a
+    string that truly isn't in the taxonomy at all."""
+    t = get_taxonomy()
+    assert t.match("entertainment.food_and_drink") is None
+    assert t.match("not_a_category.not_a_slug") is None
+
+
 def test_api_payload_shape_and_etag_stability():
     t = get_taxonomy()
     payload = t.to_api_payload()
