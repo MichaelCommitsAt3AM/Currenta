@@ -1,0 +1,289 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+h1, h2, h3, .logo {
+    font-family: 'Outfit', sans-serif;
+}
+
+label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+input, textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+}
+
+input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 4px hsla(265, 80%, 65%, 0.15);
+}
+
+/* Bare element selectors, not classes — CSS Modules can't scope these to
+   one component, so they stay global exactly as they were in the legacy
+   monolithic stylesheet. The Analytics trending table's own ID-scoped
+   rules are more specific and override these where it needs to differ. */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-color);
+    padding: 0.8rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--glass-border);
+    white-space: nowrap;
+}
+
+td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-primary);
+}
+
+.logo {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.logo span {
+    color: var(--accent-color);
+    font-weight: 300;
+}
+
+.hidden { display: none !important; }
+
+.error {
+    color: var(--error-color);
+    font-size: 0.9rem;
+    margin-top: 1rem;
+    white-space: pre-line;
+}
+
+.tab-content {
+    animation: fadeIn 0.4s ease-out;
+}
+
+.table-wrapper {
+    width: 100%;
+    overflow: auto;
+    max-height: 65vh;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.section-header {
+    margin-bottom: 1.5rem;
+}
+
+.section-header h2 {
+    font-size: 1.8rem;
+    margin-bottom: 0.3rem;
+}
+
+.section-header p {
+    color: var(--text-secondary);
+}
+
+.badge {
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* --- Backdrop ---
+   Static, pitched to match the login screen's near-black ground on every
+   route — a previous version rotated a blurred, oversized gradient behind
+   the whole page, which visibly lightened routes with more content than
+   the login screen (see the AppShell vs. AuthOverlay backgrounds). */
+.aurora {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 72% 22%, hsla(210, 80%, 45%, 0.05) 0%, transparent 70%),
+                radial-gradient(ellipse 70% 60% at 20% 85%, hsla(265, 80%, 50%, 0.04) 0%, transparent 70%);
+    z-index: -1;
+    pointer-events: none;
+}
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+    transition: opacity 0.4s ease;
+}
+
+.overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.glass-card {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(20px);
+    border-radius: var(--radius);
+    padding: 2.5rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* --- Buttons --- */
+.btn {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 0.8rem 1.5rem;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 1rem;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    filter: grayscale(0.8);
+    transform: none !important;
+}
+
+.btn.outline {
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+}
+
+.btn.primary {
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    color: white;
+    width: 100%;
+}
+
+.btn.google {
+    background: white;
+    color: #444;
+    border: 1px solid #ddd;
+    width: 100%;
+    margin-top: 0.5rem;
+}
+
+.btn.google img { width: 18px; }
+.btn.google:hover { filter: brightness(0.95); transform: translateY(-1px); }
+
+/* Legacy admin/index.html applies this class to the "Generate Draft" CTA,
+   but no .btn.accent rule was ever defined there — the base .btn class has
+   no background of its own, so that button currently renders unstyled in
+   production. Reuses .btn.primary's gradient without its width:100%, which
+   would break the inline button row it sits in. */
+.btn.accent {
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    color: white;
+}
+
+/* --- Shared loaders --- */
+.loader {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.loader-large {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+}
+
+/* --- Shared keyframes --- */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes slideInUp {
+    from { transform: translateY(30px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@media (max-width: 560px) {
+    .glass-card {
+        padding: 1.25rem;
+    }
+
+    .logo {
+        font-size: 1.8rem;
+    }
+}

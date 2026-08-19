@@ -1,0 +1,101 @@
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--card-bg);
+    border: none;
+    border-right: 1px solid var(--glass-border);
+    border-radius: 0;
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: calc(100vh - var(--header-height));
+    position: sticky;
+    top: var(--header-height);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
+    overflow: hidden;
+    z-index: 100;
+}
+
+.sidebar.collapsed {
+    width: 80px;
+    padding: 1.5rem 0.8rem;
+}
+
+.sidebar.collapsed .navText,
+.sidebar.collapsed .sidebarFooter {
+    display: none;
+}
+
+.sidebar.collapsed .navItem {
+    justify-content: center;
+    padding: 0.8rem 0;
+}
+
+@media (max-width: 900px) {
+    /* Expanding the rail on a narrow screen would otherwise squeeze
+       main-content into a sliver, so float it as a drawer over the
+       content instead of pushing it. */
+    .sidebar:not(.collapsed) {
+        position: absolute;
+        left: 0;
+        top: 0;
+        z-index: 200;
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
+    }
+}
+
+.navLinks {
+    list-style: none;
+    margin-top: 0.5rem;
+}
+
+.navItem {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    text-decoration: none;
+}
+
+.navItem:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.navItem.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+@media (pointer: coarse) {
+    .navItem {
+        min-height: 44px;
+    }
+}
+
+.navIcon {
+    font-size: 1.2rem;
+}
+
+.navText {
+    font-weight: 500;
+}
+
+.sidebarFooter {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--glass-border);
+}
+
+.email {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

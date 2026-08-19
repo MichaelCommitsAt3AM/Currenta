@@ -1,0 +1,19 @@
+.container {
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    animation: fadeIn 0.6s ease-out;
+}
+
+.dashboardLayout {
+    display: flex;
+    gap: 0;
+    min-height: calc(100vh - var(--header-height));
+    position: relative;
+}
+
+.mainContent {
+    flex: 1;
+    min-width: 0; /* Important for overflow-x on tables */
+    padding: 1.5rem;
+}

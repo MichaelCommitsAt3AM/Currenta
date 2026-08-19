@@ -1,0 +1,87 @@
+.editorSection {
+    margin-top: 2.5rem;
+}
+
+/* No .editor-header rule existed in the legacy CSS at all — the "AI
+   Assisted" badge fell to the line below the heading instead of sitting
+   beside it. Mirrors the same title+badge layout already used for
+   .table-card .card-header elsewhere in this app. */
+.editorHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.editorGrid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 2rem;
+    margin: 2rem 0;
+}
+
+.inputRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 700px) {
+    .editorGrid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .inputRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+.toggleGroup {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    height: 100%;
+    padding-top: 1.5rem;
+}
+
+.toggleInput {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+@media (pointer: coarse) {
+    .toggleInput {
+        width: 24px;
+        height: 24px;
+    }
+}
+
+.wordCount {
+    text-align: right;
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+}
+
+.imageBox {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    border: 2px dashed var(--glass-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.imageBox img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.editorFooter {
+    margin-top: 1.5rem;
+}

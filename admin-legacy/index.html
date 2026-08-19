@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Currenta Admin Portal — Manual Ingestion</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Supabase JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="aurora"></div>
+    
+    <!-- Login Overlay -->
+    <div id="auth-overlay" class="overlay active">
+        <div class="glass-card auth-card">
+            <h1 class="logo">Currenta<span>.admin</span></h1>
+            <p>Enter your credentials to manage niche news.</p>
+            <form id="login-form">
+                <div class="input-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" required placeholder="admin@currenta.tech">
+                </div>
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn primary">Login</button>
+            </form>
+            <div class="divider"><span>OR</span></div>
+            <button id="google-login" class="btn google">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
+                Sign in with Google
+            </button>
+            <p id="auth-error" class="error"></p>
+            
+            <!-- Verification Loading State -->
+            <div id="auth-loading" class="auth-loading hidden">
+                <div class="loader-large"></div>
+                <p>Verifying admin access...</p>
+            </div>
+
+            <!-- Verification Retry -->
+            <button id="auth-retry-btn" class="btn outline hidden" style="margin-top: 1rem; width: 100%;">
+                Retry Verification
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="container hidden">
+        <header>
+            <div class="header-left">
+                <button id="sidebar-toggle" class="sidebar-toggle-btn" aria-label="Toggle sidebar">
+                    <span class="toggle-icon">
+                        <span class="bar"></span>
+                        <span class="bar"></span>
+                        <span class="bar"></span>
+                    </span>
+                </button>
+                <h1 class="logo">Currenta<span>.admin</span></h1>
+            </div>
+            <button id="logout-btn" class="btn outline small">Logout</button>
+        </header>
+
+        <div class="dashboard-layout">
+            <nav id="sidebar" class="sidebar">
+                <ul class="nav-links">
+                    <li class="nav-item active" data-tab="ingest-tab">
+                        <span class="nav-icon">📥</span>
+                        <span class="nav-text">Manual Ingestion</span>
+                    </li>
+                    <li class="nav-item" data-tab="query-tab">
+                        <span class="nav-icon">🔍</span>
+                        <span class="nav-text">Database Explorer</span>
+                    </li>
+                    <li class="nav-item" data-tab="analytics-tab">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-text">Analytics</span>
+                    </li>
+                </ul>
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div id="user-email-display" class="email">admin@currenta.tech</div>
+                    </div>
+                </div>
+            </nav>
+
+            <main class="main-content">
+                <section id="ingest-tab" class="tab-content active">
+                    <section class="ingest-section">
+                <div class="section-header">
+                    <h2>Manual Ingestion</h2>
+                    <p>Provide a URL to start the magic draft process.</p>
+                </div>
+                
+                <div class="url-bar">
+                    <input type="url" id="news-url" placeholder="https://niche-news-source.com/article-path">
+                    <button id="draft-btn" class="btn accent">
+                        <span class="btn-text">Generate Draft</span>
+                        <div class="loader hidden"></div>
+                    </button>
+                    <button id="manual-btn" class="btn outline">Manual Entry</button>
+                </div>
+            </section>
+
+            <section id="editor-section" class="editor-section hidden">
+                <div class="glass-card editor-card">
+                    <div class="editor-header">
+                        <h3>Draft Editor</h3>
+                        <span class="badge ai">AI Assisted</span>
+                    </div>
+
+                    <div class="editor-grid">
+                        <div class="editor-left">
+                            <div class="input-group">
+                                <label for="draft-title">Title</label>
+                                <input type="text" id="draft-title">
+                            </div>
+
+                            <div class="input-group">
+                                <label for="draft-summary">AI Summary (60-68 words)</label>
+                                <textarea id="draft-summary" rows="5"></textarea>
+                                <div class="word-count"><span id="word-count">0</span> / 68</div>
+                            </div>
+
+                            <div class="input-row">
+                                <div class="input-group">
+                                    <label for="draft-source">Source Name</label>
+                                    <input type="text" id="draft-source">
+                                </div>
+                                <div class="input-group">
+                                    <label for="draft-subcategory">Subcategory</label>
+                                    <input type="text" id="draft-subcategory" placeholder="e.g. AI, Space, Politics">
+                                </div>
+                            </div>
+
+                            <div class="input-row">
+                                <div class="input-group">
+                                    <label for="draft-country">Country</label>
+                                    <div class="custom-dropdown" id="country-dropdown">
+                                        <input type="text" id="draft-country-search" placeholder="Search country..." autocomplete="off">
+                                        <input type="hidden" id="draft-country" value="">
+                                        <div class="dropdown-options" id="country-options">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="input-group toggle-group">
+                                    <label>Paywalled</label>
+                                    <input type="checkbox" id="draft-paywall" class="toggle-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="editor-right">
+                            <div class="input-group">
+                                <label>Image</label>
+                                <div class="image-input-wrapper">
+                                    <input type="url" id="draft-image-url" placeholder="https://...">
+                                    <div class="file-upload-btn">
+                                        <input type="file" id="image-upload" accept="image/*" class="hidden-file-input">
+                                        <button type="button" id="upload-trigger" class="btn outline small">Upload</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="input-group">
+                                <label>Categories</label>
+                                <div id="category-chips" class="chip-container">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+
+                            <div class="image-preview-container">
+                                <label>Image Preview</label>
+                                <div id="image-preview" class="image-box">
+                                    <span>No Image Detected</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="editor-footer">
+                        <p id="publish-error" class="error"></p>
+                        <button id="publish-btn" class="btn primary large">
+                            <span class="btn-text">Publish to Database</span>
+                            <div class="loader hidden"></div>
+                        </button>
+                    </div>
+                </div>
+            </section>
+            
+                </section>
+                
+                <section id="query-tab" class="tab-content hidden">
+                    <section class="query-section">
+                        <div class="section-header">
+                            <h2>Database Explorer</h2>
+                            <p>Run read-only SQL queries to inspect the system state. (Capped to 100 rows)</p>
+                        </div>
+
+                        <div class="glass-card query-card">
+                            <div class="query-editor-wrapper">
+                                <textarea id="sql-query" placeholder="SELECT * FROM articles WHERE published_at > NOW() - INTERVAL '24 hours' ORDER BY ranking_score DESC;"></textarea>
+                                <div class="query-actions">
+                                    <button id="run-query-btn" class="btn primary">
+                                        <span class="btn-text">Execute SQL</span>
+                                        <div class="loader hidden"></div>
+                                    </button>
+                                    <button id="clear-results-btn" class="btn outline small">Clear</button>
+                                </div>
+                            </div>
+                            
+                            <div id="query-error" class="error hidden"></div>
+                            
+                            <div id="query-results-container" class="results-container hidden">
+                                <div class="results-header">
+                                    <span id="row-count-badge" class="badge">0 rows</span>
+                                    <div class="results-actions">
+                                        <button id="download-csv-btn" class="btn outline small">Download CSV</button>
+                                    </div>
+                                </div>
+                                
+                                <div class="query-content-layout">
+                                    <div class="table-wrapper">
+                                        <table id="results-table">
+                                            <thead id="table-head"></thead>
+                                            <tbody id="table-body"></tbody>
+                                        </table>
+                                    </div>
+
+                                    <div id="record-detail-panel" class="detail-panel hidden">
+                                        <div class="detail-panel-header">
+                                            <h3>Record Details</h3>
+                                            <button id="close-detail-panel" class="btn outline small">✕</button>
+                                        </div>
+                                        <div id="detail-content" class="detail-content">
+                                            <!-- Populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <section id="analytics-tab" class="tab-content hidden">
+                    <section class="analytics-section">
+                        <div class="section-header">
+                            <h2>Insights & Analytics</h2>
+                            <p>Real-time performance metrics for AI usage and content engagement.</p>
+                        </div>
+
+                        <!-- KPI Cards -->
+                        <div class="analytics-grid">
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">🤖</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">AI Messages Today</span>
+                                    <h3 id="stat-ai-messages">0</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">⚡</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">Quota Saturation</span>
+                                    <h3 id="stat-quota">0%</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">👥</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">Total Users</span>
+                                    <h3 id="stat-users">0</h3>
+                                </div>
+                            </div>
+                            <div class="glass-card kpi-card">
+                                <div class="kpi-icon">🗞️</div>
+                                <div class="kpi-info">
+                                    <span class="kpi-label">News Generated</span>
+                                    <h3 id="stat-news">0</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Charts Row -->
+                        <div class="charts-container">
+                            <div class="glass-card chart-card">
+                                <h3>Category Distribution</h3>
+                                <div class="chart-wrapper">
+                                    <canvas id="category-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="glass-card chart-card">
+                                <h3>Ingestion Health (24h)</h3>
+                                <div class="chart-wrapper">
+                                    <canvas id="health-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Top Liked Articles -->
+                        <div class="glass-card table-card">
+                            <div class="card-header">
+                                <h3>Trending Articles (7d)</h3>
+                                <span class="badge">Trending</span>
+                            </div>
+                            <div class="table-wrapper">
+                                <table id="trending-articles-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Article Title</th>
+                                            <th>Trend Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="trending-articles-body">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Success Toast -->
+    <div id="toast" class="toast hidden">
+        <span class="toast-icon">✓</span>
+        <span class="toast-msg">Article Published Successfully!</span>
+    </div>
+
+    <!-- Session Warning Modal -->
+    <div id="session-warning" class="overlay hidden">
+        <div class="glass-card session-card">
+            <div class="warning-icon">⚠️</div>
+            <h2>Session Expiring</h2>
+            <p>Your session will expire in <span id="session-countdown">5:00</span>. Would you like to stay logged in?</p>
+            <div class="modal-actions">
+                <button id="extend-session-btn" class="btn primary">Continue Session</button>
+                <button id="expire-logout-btn" class="btn outline">Logout Now</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

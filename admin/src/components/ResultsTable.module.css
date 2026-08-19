@@ -1,0 +1,10 @@
+.sortableHeader {
+    cursor: pointer;
+    user-select: none;
+}
+
+.selected td {
+    background: hsla(210, 80%, 65%, 0.15) !important;
+    color: var(--primary-color) !important;
+    border-left: 3px solid var(--primary-color);
+}

@@ -1,0 +1,38 @@
+name: Deploy admin portal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "admin/**"
+      - "wrangler.toml"
+      - ".github/workflows/deploy-admin.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: admin
+        run: npm ci
+
+      - name: Build
+        working-directory: admin
+        run: npm run build
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # Not secret — Cloudflare account IDs are visible in the dashboard
+          # URL and dashboard UI. Set explicitly since the CI token (unlike
+          # local wrangler's OAuth login) can't always infer it.
+          accountId: fb9b2108cdf3adaec8000727381680d9

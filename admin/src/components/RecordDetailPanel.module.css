@@ -1,0 +1,119 @@
+.detailPanel {
+    width: 400px;
+    background: var(--card-bg);
+    border-left: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 900px) {
+    .detailPanel {
+        width: 100%;
+        max-height: 70vh;
+        border-left: none;
+        border-top: 1px solid var(--glass-border);
+        box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+        animation: slideInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+}
+
+.detailPanelHeader {
+    padding: 1.2rem;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.detailPanelHeader h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.detailContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.detailItem {
+    margin-bottom: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 1rem;
+    transition: all 0.2s ease;
+}
+
+.detailItem:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateX(4px);
+}
+
+.detailLabel {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--accent-color);
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.08em;
+    opacity: 0.8;
+}
+
+.detailValue {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+    word-break: break-word;
+    font-family: 'Inter', sans-serif;
+}
+
+.detailValue pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.8rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+}
+
+.truncatedArray {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.6rem;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.truncatedText {
+    max-height: 100px;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+}
+
+.truncatedText:not(.expanded)::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, var(--card-bg));
+}
+
+.truncatedText.expanded {
+    max-height: none;
+}
+
+/* No .accent-link rule existed in the legacy CSS — detail-panel links to
+   article URLs etc. rendered in the browser's default blue instead of the
+   app's accent color. */
+.accentLink {
+    color: var(--accent-color);
+}

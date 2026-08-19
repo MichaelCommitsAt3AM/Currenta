@@ -1,0 +1,13 @@
+:root {
+    --bg-color: hsl(220, 30%, 2%);
+    --card-bg: hsla(220, 20%, 12%, 0.7);
+    --glass-border: hsla(220, 20%, 40%, 0.2);
+    --accent-color: hsl(265, 85%, 70%);
+    --primary-color: hsl(210, 80%, 65%);
+    --text-primary: hsl(220, 10%, 95%);
+    --text-secondary: hsl(220, 10%, 75%);
+    --error-color: hsl(0, 80%, 65%);
+    --success-color: hsl(150, 70%, 55%);
+    --radius: 12px;
+    --header-height: 56px;
+}

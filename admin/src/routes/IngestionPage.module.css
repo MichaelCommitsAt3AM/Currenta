@@ -1,0 +1,22 @@
+.urlBar {
+    display: flex;
+    gap: 1rem;
+    background: var(--card-bg);
+    padding: 1rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--glass-border);
+}
+
+.urlBar input {
+    flex: 1;
+}
+
+@media (max-width: 560px) {
+    .urlBar {
+        flex-wrap: wrap;
+    }
+
+    .urlBar input {
+        flex-basis: 100%;
+    }
+}
