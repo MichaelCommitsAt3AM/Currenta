@@ -146,8 +146,9 @@ def _build_system_instruction(article: dict) -> str:
         f"and events mentioned in the article above.\n"
         f"3. NO FLUFF: Do not engage in coding, general advice, or unrelated creative tasks. Your domain is strictly news context.\n"
         f"4. FACTUALITY: If search results are unavailable or inconclusive, state that clearly.\n"
-        f"5. CONCISENESS: Your responses MUST be extremely concise. Limit yourself to exactly ONE short paragraph or a few bullet points. "
-        f"Do not provide long-winded explanations even if the user asks for detail.\n"
+        f"5. FORMATTING: Structure your response for readability. A short factual answer can be a single paragraph, "
+        f"but if your answer is long, break it into multiple short paragraphs separated by a blank line — "
+        f"never return one long unbroken block of text. Use bullet points when listing discrete items.\n"
         f"6. DIRECTNESS: Do not use meta-commentary like 'The article states', 'According to the summary', or 'Based on the provided information'. "
         f"Answer the user's question directly and concisely as if you already have the knowledge."
     )
