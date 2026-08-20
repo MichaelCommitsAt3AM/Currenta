@@ -217,7 +217,13 @@ class AiChatNotifier extends _$AiChatNotifier {
                 receivedContent = true;
                 _throttleTimer?.cancel();
                 _chunkBuffer = '';
-                _updateLastMessage(citationsText);
+                // citations_text is always the terminal event for a response
+                // (see backend/api/chat.py) — flip isLoading in the same state
+                // update as the content swap so the bubble goes straight from
+                // plain Text to MarkdownBody (rendering the citation as a
+                // clickable link) without an intermediate frame of raw
+                // "[[1]](url)" markdown text.
+                _updateLastMessage(citationsText, isLoading: false);
               }
             }
           } catch (e) {
@@ -260,7 +266,7 @@ class AiChatNotifier extends _$AiChatNotifier {
               receivedContent = true;
               _throttleTimer?.cancel();
               _chunkBuffer = '';
-              _updateLastMessage(citationsText);
+              _updateLastMessage(citationsText, isLoading: false);
             }
           }
         } catch (e) {
@@ -395,7 +401,7 @@ class AiChatNotifier extends _$AiChatNotifier {
     _chunkBuffer = '';
   }
 
-  void _updateLastMessage(String content) {
+  void _updateLastMessage(String content, {bool? isLoading}) {
     final msgs = state.messages;
     if (msgs.isEmpty) return;
     state = state.copyWith(
@@ -403,6 +409,7 @@ class AiChatNotifier extends _$AiChatNotifier {
         ...msgs.sublist(0, msgs.length - 1),
         msgs.last.copyWith(content: content),
       ],
+      isLoading: isLoading,
     );
   }
 

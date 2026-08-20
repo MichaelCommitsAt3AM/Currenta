@@ -43,7 +43,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   int _currentIndex = 0;
   final Set<String> _viewedIdsInSession = {};
   bool _hasWarmedUpBrowser = false;
-  Timer? _viewTimer;
   Timer? _browserWarmupTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _hasScrolledOnce = false;
@@ -299,7 +298,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     WidgetsBinding.instance.removeObserver(this);
     _pageController.removeListener(_onPageScroll);
     _pageController.dispose();
-    _viewTimer?.cancel();
     _browserWarmupTimer?.cancel();
     super.dispose();
   }
@@ -524,7 +522,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   }
 
   void _trackPageView(int index) {
-    _viewTimer?.cancel();
     final feedState = ref.read(newsFeedNotifierProvider);
     final feed = feedState.hasValue ? feedState.value : null;
     if (feed != null) {
@@ -534,16 +531,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         // Only track real articles if we haven't tracked them this session
         if (article.itemType == 'article' &&
             !_viewedIdsInSession.contains(article.id)) {
-          _viewTimer = Timer(const Duration(seconds: 2), () {
-            if (!mounted) return;
-            _viewedIdsInSession.add(article.id);
-            if (_viewedIdsInSession.length > 200) {
-              _viewedIdsInSession.remove(_viewedIdsInSession.first);
-            }
-            ref
-                .read(newsFeedNotifierProvider.notifier)
-                .markArticleAsViewed(article.id);
-          });
+          _viewedIdsInSession.add(article.id);
+          if (_viewedIdsInSession.length > 200) {
+            _viewedIdsInSession.remove(_viewedIdsInSession.first);
+          }
+          ref
+              .read(newsFeedNotifierProvider.notifier)
+              .markArticleAsViewed(article.id);
         }
       }
     }

@@ -56,8 +56,8 @@ dependencies:
   flutter_secure_storage: ^10.0.0
   sqlcipher_flutter_libs: ^0.6.8
   sqlite3: ^2.9.4
-  firebase_app_check: ^0.4.3
-  google_mobile_ads: ^5.2.0
+  firebase_app_check: ^0.4.6
+  google_mobile_ads: ^7.0.0
 
 dev_dependencies:
   flutter_test:

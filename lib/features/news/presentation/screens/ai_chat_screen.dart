@@ -192,7 +192,12 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               (prevMsgs.isNotEmpty &&
                   prevMsgs.last.content != nextMsgs.last.content));
 
-      if (changed && !_pendingAnchorRequested) {
+      // Don't chase the bottom while a response is still streaming in —
+      // the user's sent message is already anchored near the top via
+      // _anchorPendingMessageNearTop, and forcing the view down on every
+      // growing chunk fights any manual scrolling the user does to read
+      // along. Only auto-follow for changes once generation has finished.
+      if (changed && !_pendingAnchorRequested && !next.isLoading) {
         _tryAutoFollowBottom();
       }
     });
