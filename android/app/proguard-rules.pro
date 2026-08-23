@@ -20,6 +20,16 @@
 # Workmanager
 -keep class com.be2ps.workmanager.** { *; }
 
+# WorkManager's WorkDatabase (and any Room database) is instantiated via
+# reflection (Room.getGeneratedImplementation -> getDeclaredConstructor()),
+# so R8 full mode doesn't see it as used and strips the no-arg constructor
+# off the generated *_Impl class, crashing with NoSuchMethodException at
+# startup. Keep the constructor so reflection can find it.
+-keep class * extends androidx.room.RoomDatabase
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
 # Flutter Custom Tabs
 -keep class com.pichillilorenzo.flutter_inappwebview.** { *; }
 
