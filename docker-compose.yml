@@ -153,14 +153,16 @@ services:
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "true"
       GOTRUE_EXTERNAL_GOOGLE_ENABLED: "true"
-      # Primary client drives the redirect-based OAuth flow (admin portal).
-      # The mobile app's native ID-token flow uses a different (Firebase-linked)
-      # web client as its serverClientId, so its audience is accepted via
-      # ADDITIONAL_CLIENT_IDS rather than switching the primary client.
-      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: 812531201277-ape80otgk9m7noocf6rqbnfq0hjidsfi.apps.googleusercontent.com
+      # ClientID is a []string in GoTrue (comma-separated here) — the redirect-
+      # based OAuth flow (admin portal) always uses element [0], so the
+      # primary client must stay first. GOTRUE_EXTERNAL_GOOGLE_ADDITIONAL_CLIENT_IDS
+      # is NOT a real GoTrue config key (checked v2.189.0 source) and was
+      # silently ignored; the mobile app's native ID-token flow uses different
+      # (Firebase-linked) web clients as serverClientId per flavor, so both
+      # need to be in this same list for their audience to be accepted.
+      GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID: 812531201277-ape80otgk9m7noocf6rqbnfq0hjidsfi.apps.googleusercontent.com,703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com,1061629660004-r8tu5ej7mle8m7emgqh1d47ut6voqhku.apps.googleusercontent.com
       GOTRUE_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
       GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI: ${SUPABASE_URL}/auth/v1/callback
-      GOTRUE_EXTERNAL_GOOGLE_ADDITIONAL_CLIENT_IDS: 703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com,1061629660004-r8tu5ej7mle8m7emgqh1d47ut6voqhku.apps.googleusercontent.com
       GOTRUE_MAILER_AUTOCONFIRM: "false"
       # Required for Google Sign-In via ID token on mobile — see
       # lib/features/auth/data/repositories/auth_repository_impl.dart signInWithIdToken.
