@@ -59,6 +59,22 @@ class AnalyticsOverview(BaseModel):
     user_growth: UserGrowth
     ingestion_health: List[IngestionHealthRow]
 
+class TrendingArticleDetail(BaseModel):
+    id: str
+    title: str
+    source_name: Optional[str] = None
+    original_url: Optional[str] = None
+    image_url: Optional[str] = None
+    categories: Optional[List[str]] = None
+    subcategory: Optional[str] = None
+    country_code: Optional[str] = None
+    published_at: Optional[datetime] = None
+    trend_score: float
+    is_major_source: Optional[bool] = None
+
+class TrendingArticlesResponse(BaseModel):
+    articles: List[TrendingArticleDetail]
+
 
 @router.get("/session/check")
 async def check_admin_session(user: User = Depends(verify_is_admin)):
@@ -510,3 +526,52 @@ async def get_analytics_overview(
             "user_growth": dict(growth),
             "ingestion_health": [dict(r) for r in ingestion]
         }
+
+
+@router.get("/trending", response_model=TrendingArticlesResponse)
+async def get_trending_articles(
+    request: Request,
+    country: Optional[str] = None,
+    hours: int = 168,
+    limit: int = 50,
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Full-detail trending list for the admin dashboard (unlike the top-5
+    title/score pair embedded in /analytics/overview).
+    """
+    hours = max(1, min(hours, 720))
+    limit = max(1, min(limit, 200))
+    pool = request.app.state.db_pool
+
+    try:
+        async with pool.acquire() as conn:
+            params: list = [hours]
+            country_clause = ""
+            if country and country.lower() != "global":
+                country_clause = "AND country_code = $2"
+                params.append(country.upper())
+            params.append(limit)
+
+            query = f"""
+                SELECT id, title, source_name, original_url, image_url, categories,
+                       subcategory, country_code, published_at, trend_score, is_major_source
+                FROM articles
+                WHERE trend_score > 0
+                AND published_at > NOW() - (INTERVAL '1 hour' * $1)
+                {country_clause}
+                ORDER BY trend_score DESC, published_at DESC
+                LIMIT ${len(params)}
+            """
+            rows = await conn.fetch(query, *params)
+
+            articles = []
+            for r in rows:
+                d = dict(r)
+                d["id"] = str(d["id"])
+                articles.append(d)
+
+            return {"articles": articles}
+    except Exception as e:
+        logger.error("Database error in get_trending_articles: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch trending articles")

@@ -1,0 +1,134 @@
+.filtersCard {
+    display: flex;
+    align-items: flex-end;
+    gap: 20px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.filterField {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 200px;
+}
+
+.filterField label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.filterField select {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+}
+
+.countBadge {
+    margin-left: auto;
+}
+
+.loadingState {
+    display: flex;
+    justify-content: center;
+    padding: 60px 0;
+}
+
+.emptyState {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-color);
+}
+
+.thumb {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+}
+
+.thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.thumbFallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    opacity: 0.5;
+}
+
+.trendScore {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    color: var(--text-primary);
+}
+
+.cardBody {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cardBody h3 {
+    font-size: 1rem;
+    line-height: 1.35;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.cardMeta {
+    display: flex;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.cardTags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}

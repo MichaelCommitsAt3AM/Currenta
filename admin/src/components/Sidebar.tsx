@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: '/ingest', icon: '📥', label: 'Manual Ingestion' },
   { to: '/query', icon: '🔍', label: 'Database Explorer' },
   { to: '/analytics', icon: '📊', label: 'Analytics' },
+  { to: '/trending', icon: '🔥', label: 'Trending' },
 ]
 
 interface Props {

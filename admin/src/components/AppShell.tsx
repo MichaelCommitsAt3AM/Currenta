@@ -5,6 +5,7 @@ import { ToastProvider } from '../hooks/useToast'
 import { AnalyticsPage } from '../routes/AnalyticsPage'
 import { IngestionPage } from '../routes/IngestionPage'
 import { QueryExplorerPage } from '../routes/QueryExplorerPage'
+import { TrendingPage } from '../routes/TrendingPage'
 import styles from './AppShell.module.css'
 import { Header } from './Header'
 import { SessionWarningModal } from './SessionWarningModal'
@@ -38,6 +39,7 @@ export function AppShell({ auth }: Props) {
               <Route path="/ingest" element={<IngestionPage token={token} />} />
               <Route path="/query" element={<QueryExplorerPage token={token} />} />
               <Route path="/analytics" element={<AnalyticsPage token={token} />} />
+              <Route path="/trending" element={<TrendingPage token={token} />} />
               <Route path="*" element={<Navigate to="/ingest" replace />} />
             </Routes>
           </main>
