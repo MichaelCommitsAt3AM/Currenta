@@ -71,7 +71,7 @@ The project includes a robust set of scripts to handle the complex dev environme
 ## Project Structure
 
 ```text
-├── admin/            # Lightweight JS portal for DB exploration
+├── admin/            # React + TypeScript admin portal (ingestion, DB explorer, analytics)
 ├── backend/          # FastAPI server, ingestion worker, and AI services
 ├── lib/              # Flutter application (Feature-first architecture)
 │   ├── core/         # Global themes, configs, and network clients

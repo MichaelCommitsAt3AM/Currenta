@@ -30,4 +30,4 @@ npm run build
 npx wrangler deploy
 ```
 
-The previous vanilla JS/HTML/CSS version of this portal is kept at `../admin-legacy/` as a rollback reference.
+The previous vanilla JS/HTML/CSS version of this portal (`admin-legacy/`) was deleted once this one reached full feature parity and was confirmed live — see git history if a rollback reference is ever needed.
