@@ -12,7 +12,7 @@ import orjson
 from pydantic import BaseModel
 from ..core.security import limiter, verify_supabase_jwt, User, get_client_ip, verify_app_check, get_feed_rate_limit
 from ..core.geo import get_country_from_ip
-from ..services.ingestion import fetch_local_news_on_demand, embed_text
+from ..services.ingestion import fetch_local_news_on_demand, embed_texts
 from ..services.personalization import schedule_debounced_personalization_update
 from ..services.taxonomy import get_taxonomy
 
@@ -38,6 +38,26 @@ ARTICLE_COLUMNS = """
 # top of the feed stays personalized/trending; filter-bubble breakers start once
 # the user has scrolled past roughly the first screen.
 DISCOVERY_START_POSITION = 12
+
+# Feed session TTL (Redis cache + the expires_at sent to the client). Must be >=
+# the Flutter app's AppConfig.hardTtlHours (lib/core/config/app_config.dart) —
+# otherwise a session can expire mid-scroll (loadNextPage's expiry check) before
+# the client's own hard-TTL refresh logic ever gets a chance to run, producing a
+# silent full session reset instead of the deliberate refresh-badge flow.
+FEED_SESSION_TTL_HOURS = 6
+
+# How long the user_seen_v2 Redis set persists once (re)populated.
+SEEN_SET_TTL_SECONDS = 259200  # 3 days
+
+# How far back to look in article_views when Redis has nothing for a user —
+# comfortably longer than common_where's 72h article window below, so the
+# fallback can never under-exclude relative to the normal Redis-fed path.
+VIEWED_LOOKBACK_DAYS = 7
+
+# Sentinel TTL marking "we already checked Postgres and this user truly has no
+# recent view history" — avoids re-querying article_views on every request for
+# a user who has genuinely viewed nothing (e.g. brand new, or between reads).
+VIEWED_HYDRATED_TTL_SECONDS = 300
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _TEXT_STOPWORDS = {
@@ -312,7 +332,7 @@ async def _seed_cold_start_interest_embedding(
         if not texts:
             return None
 
-        embeddings = [await embed_text(t) for t in texts]
+        embeddings = await embed_texts(texts)
         dims = len(embeddings[0])
         mean_embedding = [
             sum(e[i] for e in embeddings) / len(embeddings) for i in range(dims)
@@ -331,7 +351,7 @@ async def _seed_cold_start_interest_embedding(
             )
         return mean_embedding
     except Exception as e:
-        logger.warning("Cold-start interest_embedding seeding failed for user %s: %s", user_id, e)
+        logger.error("Cold-start interest_embedding seeding failed for user %s: %s", user_id, e, exc_info=True)
         return None
 
 
@@ -388,6 +408,55 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
             logger.warning("Redis user_state cache set error: %s", e)
 
     return state
+
+
+async def _get_viewed_ids(user_id: str, redis_client, db_pool: asyncpg.Pool) -> Set[str]:
+    """Recently-viewed article IDs for feed exclusion. Redis-first (the fast path
+    /feed/view writes to), falling back to the durable article_views table when
+    Redis has nothing — e.g. after a cache eviction or restart — so a lost cache
+    degrades to one extra query instead of silently re-serving seen articles."""
+    seen_key = f"user_seen_v2:{user_id}"
+    if redis_client:
+        try:
+            seen_res = await redis_client.smembers(seen_key)
+            if seen_res:
+                return set(seen_res)
+        except Exception as e:
+            logger.warning("Redis user_seen_v2 read error: %s", e)
+
+        hydrated_key = f"user_seen_hydrated:{user_id}"
+        try:
+            if await redis_client.get(hydrated_key):
+                # Already confirmed against Postgres recently — no view history, not a cache miss.
+                return set()
+        except Exception as e:
+            logger.warning("Redis user_seen_hydrated read error: %s", e)
+
+    try:
+        async with db_pool.acquire() as conn:
+            records = await conn.fetch(
+                """
+                SELECT article_id FROM article_views
+                WHERE user_id = $1 AND viewed_at > NOW() - ($2 * INTERVAL '1 day')
+                """,
+                UUID(user_id), VIEWED_LOOKBACK_DAYS,
+            )
+    except Exception as e:
+        logger.warning("article_views fallback query failed for user %s: %s", user_id, e)
+        return set()
+
+    viewed_ids = {str(r["article_id"]) for r in records}
+
+    if redis_client:
+        try:
+            if viewed_ids:
+                await redis_client.sadd(seen_key, *viewed_ids)
+                await redis_client.expire(seen_key, SEEN_SET_TTL_SECONDS)
+            await redis_client.set(f"user_seen_hydrated:{user_id}", "1", ex=VIEWED_HYDRATED_TTL_SECONDS)
+        except Exception as e:
+            logger.warning("Redis rehydrate error for user %s: %s", user_id, e)
+
+    return viewed_ids
 
 
 @router.get("")
@@ -475,7 +544,7 @@ async def get_feed(
                             )
                             final_start_idx += limit
 
-                    expires_at = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+                    expires_at = (datetime.now(timezone.utc) + timedelta(hours=FEED_SESSION_TTL_HOURS)).isoformat()
 
                     # If no articles were found after all skip attempts, the session is
                     # effectively exhausted (either truly out of IDs, or all remaining
@@ -633,18 +702,15 @@ async def get_feed(
             logger.info(f"Bucket '{label}' fetched: {len(articles)} items")
             return articles
 
-        # Seen filter for all buckets
+        # Seen filter for all buckets — Redis-first with a durable Postgres
+        # fallback (see _get_viewed_ids) so a Redis restart/eviction can't
+        # silently resurface already-seen articles.
         viewed_ids: Set[str] = set()
-        if user_id and redis_client:
-            seen_res = await redis_client.smembers(f"user_seen_v2:{user_id}")
-            if seen_res: viewed_ids = set(seen_res)
+        if user_id:
+            viewed_ids = await _get_viewed_ids(user_id, redis_client, db_pool)
 
-        common_where = "published_at > NOW() - INTERVAL '72 hours' AND (expires_at IS NULL OR expires_at > NOW())"
-        if viewed_ids:
-            common_where += f" AND id NOT IN ({','.join([f'${i+1}::uuid' for i in range(len(viewed_ids))])})"
-            viewed_params = [UUID(vid) for vid in viewed_ids]
-        else:
-            viewed_params = []
+        common_where = "published_at > NOW() - INTERVAL '72 hours' AND (expires_at IS NULL OR expires_at > NOW()) AND id <> ALL($1::uuid[])"
+        viewed_params = [[UUID(vid) for vid in viewed_ids]]
 
         # Geographic Filter: Only show global news or news from the user's country
         geo_filter = " AND (country_code IS NULL"
@@ -658,7 +724,7 @@ async def get_feed(
         async with db_pool.acquire() as conn:
             # Bucket 1: Personalized (70%)
             if user_state and user_state.get("interest_embedding"):
-                # Index calculation: viewed_params($1..$N), [interests($N+1)], embedding($N+2), country($N+3)
+                # Index calculation: viewed_ids array($1), [interests($2)], embedding($3), country($4)
                 p_params = list(viewed_params)
                 
                 if strict_primary_category:
@@ -958,12 +1024,16 @@ async def get_feed(
         if redis_client:
             session_key = f"session_articles:{new_session_id}"
             all_ids_list = [str(a['id']) for a in session_articles]
-            await redis_client.set(session_key, orjson.dumps(all_ids_list), ex=14400) # 4 Hour TTL
+            await redis_client.set(
+                session_key,
+                orjson.dumps(all_ids_list),
+                ex=FEED_SESSION_TTL_HOURS * 3600,
+            )
 
         final_result = session_articles[:limit]
         has_more = len(session_articles) > limit
         next_cursor = str(limit) if has_more else None
-        expires_at = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=FEED_SESSION_TTL_HOURS)).isoformat()
 
         logger.info(f"New Diversified Feed Session: session={new_session_id} items={len(session_articles)}")
         return {
@@ -997,8 +1067,8 @@ async def track_view(
             # 1. Store in a Redis Set for fast filtering in get_feed (no DB hits)
             seen_key = f"user_seen_v2:{user.id}"
             await redis_client.sadd(seen_key, str(article_id))
-            # Set TTL of 3 days so the set doesn't grow indefinitely
-            await redis_client.expire(seen_key, 259200)
+            # Set TTL so the set doesn't grow indefinitely
+            await redis_client.expire(seen_key, SEEN_SET_TTL_SECONDS)
 
             # 2. Buffer in a list for permanent DB flushing (Reading History)
             view_entry = f"{user.id}:{article_id}"

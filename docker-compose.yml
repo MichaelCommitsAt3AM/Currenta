@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: ./backend/Dockerfile
     environment:
+      - SERVICE_NAME=api
       - DATABASE_URL=${DATABASE_URL}
       - DB_SSL_MODE=${DB_SSL_MODE:-require}
       - JWT_SECRET=${JWT_SECRET:-}
@@ -21,6 +22,7 @@ services:
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       - TRUST_PROXY_HEADERS=true
       - TRUSTED_PROXY_IPS=*
+      - APP_LOG_DB_LEVEL=${APP_LOG_DB_LEVEL:-WARNING}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -38,6 +40,7 @@ services:
       context: .
       dockerfile: ./backend/Dockerfile
     environment:
+      - SERVICE_NAME=worker
       - DATABASE_URL=${DATABASE_URL}
       - DB_SSL_MODE=${DB_SSL_MODE:-require}
       - JWT_SECRET=${JWT_SECRET:-}
@@ -53,6 +56,7 @@ services:
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
       - VOYAGE_EMBED_MODEL=${VOYAGE_EMBED_MODEL:-voyage-4-lite}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      - APP_LOG_DB_LEVEL=${APP_LOG_DB_LEVEL:-WARNING}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -82,6 +86,16 @@ services:
 
   redis:
     image: redis:7-alpine
+    # AOF (1s fsync window) + periodic RDB snapshots, backed by the named
+    # volume below — without this, "seen article" state (user_seen_v2),
+    # pending view-history writes (pending_view_buffer), and feed sessions
+    # all vanish on any container restart, since a plain in-memory Redis has
+    # nothing to reload from. aof-load-truncated (default) auto-trims a
+    # partially-written last command from an unclean shutdown instead of
+    # refusing to start.
+    command: redis-server --appendonly yes --appendfsync everysec --save 900 1 --save 300 10 --save 60 10000
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -247,3 +261,4 @@ volumes:
   caddy_config:
   supabase_db_data:
   supabase_storage_data:
+  redis_data:
