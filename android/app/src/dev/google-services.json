@@ -30,6 +30,14 @@
           }
         },
         {
+          "client_id": "703509294568-d5opu16ug2sn0k9tld26p8f2o5cg17d3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.currenta.dev",
+            "certificate_hash": "fb829315df4aaaf8985b5092de91b9a8ba5562e4"
+          }
+        },
+        {
           "client_id": "703509294568-3sq04ddpk60iguqmal7ctfthno0rn7p4.apps.googleusercontent.com",
           "client_type": 3
         }

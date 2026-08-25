@@ -252,7 +252,9 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // triggered by Auth profile updates.
     final NewsCategory? savedCategoryId = _lastRequestedCategory;
 
-    // 4. Local Fetch (Cache-First)
+    // 4. Local Fetch (Cache-First) — instant fallback if the remote sync
+    // below fails; otherwise fully replaced by fresh data before this
+    // build() resolves.
     List<NewsArticle> articles = await _repo.fetchPage(
       category: savedCategoryId,
       preferredCategories: interests,
@@ -268,63 +270,28 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     bool hasMore = true;
     DateTime? expiresAt;
 
-    // 5. Check cache validity or sync remote if empty
-    bool needsRefresh = articles.isEmpty;
-    bool isStale = false;
-
-    final lastRefresh = _persistence.getLastRefreshTime();
-    final now = DateTime.now().toUtc();
-
-    if (lastRefresh != null) {
-      final age = now.difference(lastRefresh.toUtc());
+    // 5. Cold boot always syncs fresh content from remote, blocking this
+    // build() (and therefore the shimmer screen covering it) until it
+    // resolves — rather than showing stale cache immediately and surfacing
+    // a background refresh spinner/"Refresh" prompt afterward.
+    try {
+      final response = await _repo.syncMoreFromRemote(
+        category: savedCategoryId,
+        limit: _kPageSize,
+      );
+      _persistence.saveLastRefreshTime(DateTime.now().toUtc());
+      final freshArticles = _filterArticles(response.articles, savedCategoryId);
       _log(
-          '[Feed] Checking staleness: lastRefresh=$lastRefresh, now=$now, ageHours=${age.inHours}, softTtl=${AppConfig.softTtlHours}');
-
-      if (age.inHours >= AppConfig.hardTtlHours) {
-        _log(
-            '[Feed] Hard TTL exceeded (${age.inHours}h >= ${AppConfig.hardTtlHours}h)');
-        needsRefresh = true;
-        _persistence.saveLastForYouArticleId(null);
-      } else if (age.inHours >= AppConfig.softTtlHours) {
-        _log(
-            '[Feed] Soft TTL exceeded (${age.inHours}h >= ${AppConfig.softTtlHours}h). Setting isStale=true');
-        isStale = true;
+          '[Feed] Cold-boot remote articles: ${response.articles.length} -> ${freshArticles.length} (Interests: $interests)');
+      if (freshArticles.isNotEmpty) {
+        articles = freshArticles;
+        sessionId = response.sessionId;
+        nextCursor = response.nextCursor;
+        hasMore = response.hasMore;
+        expiresAt = response.expiresAt;
       }
-    } else if (articles.isNotEmpty) {
-      // First-time migration: cached articles exist but no sync time was ever
-      // recorded (e.g. upgrading from a version predating TTL tracking).
-      // Article publish time is not a reliable proxy for cache freshness (a
-      // feed synced seconds ago can easily contain articles published hours
-      // ago), so seed the baseline to now instead of guessing from it. Persist
-      // immediately so this doesn't re-run — and re-flag as stale — on every
-      // subsequent launch.
-      _log('[Feed] No lastRefresh recorded; seeding baseline to now.');
-      _persistence.saveLastRefreshTime(now);
-    }
-
-    if (needsRefresh) {
-      if (articles.isEmpty) {
-        // Blocking sync only if we have absolutely no data to show
-        try {
-          final response = await _repo.syncMoreFromRemote(
-            category: savedCategoryId,
-            limit: _kPageSize,
-          );
-          _persistence.saveLastRefreshTime(DateTime.now().toUtc());
-          articles = _filterArticles(response.articles, savedCategoryId);
-          _log(
-              '[Feed] Initial remote articles: ${response.articles.length} -> ${articles.length} (Interests: $interests)');
-          sessionId = response.sessionId;
-          nextCursor = response.nextCursor;
-          hasMore = response.hasMore;
-          expiresAt = response.expiresAt;
-        } catch (e) {
-          _log('[Feed] Initial sync failed: $e');
-        }
-      } else {
-        // If we have stale data, return it immediately and refresh in background
-        Future.microtask(_backgroundRefresh);
-      }
+    } catch (e) {
+      _log('[Feed] Cold-boot remote sync failed, falling back to cache: $e');
     }
 
     // 6. Position restoration (Always start at top for fresh feed)
@@ -340,7 +307,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       expiresAt: expiresAt,
       includeViewedInPaging: false,
       isServerExhausted: !hasMore,
-      isStale: isStale,
     );
 
     // 5. Initial cache seeding
@@ -1048,17 +1014,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     } finally {
       _fetchingStates.remove(category);
     }
-  }
-
-  /// Triggered by AuthNotifier when interests or country changes.
-  Future<void> _backgroundRefresh({NewsCategory? forcedCategory}) async {
-    if (_isDisposed) return;
-
-    // 1. Wipe all existing sessions (they are now based on old interests/country)
-    _clearCache();
-
-    // 2. Refresh the current active feed immediately
-    await refresh();
   }
 
   Future<void> applyPendingArticles() async {

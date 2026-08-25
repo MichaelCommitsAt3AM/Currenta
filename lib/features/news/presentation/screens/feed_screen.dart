@@ -680,6 +680,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     debugPrint(
         '[FeedScreen] Building with _selectedCategory: ${_selectedCategory?.name}');
     final feedAsync = ref.watch(newsFeedNotifierProvider);
+    // Only used by the disabled _RefreshBadge below.
+    // ignore: unused_local_variable
     final feed = feedAsync.hasValue ? feedAsync.value : null;
 
     return PopScope(
@@ -755,14 +757,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
             ),
 
             // ── Refresh Badge (Twitter Style) ──────────────────────────
-            _RefreshBadge(
-              isVisible: !_isManualShimmering &&
-                  (feed?.articles.isNotEmpty ?? false) &&
-                  ((feed?.isStale ?? false) || (feed?.isRefreshing ?? false)),
-              isRefreshing: feed?.isRefreshing ?? false,
-              onTap: () =>
-                  ref.read(newsFeedNotifierProvider.notifier).refresh(),
-            ),
+            // Disabled for now: the feed always does a fresh cold-boot sync
+            // under the shimmer screen instead, so there's no more "stale
+            // feed + tap to refresh" spinner/button prompt to show.
+            // _RefreshBadge(
+            //   isVisible: !_isManualShimmering &&
+            //       (feed?.articles.isNotEmpty ?? false) &&
+            //       ((feed?.isStale ?? false) || (feed?.isRefreshing ?? false)),
+            //   isRefreshing: feed?.isRefreshing ?? false,
+            //   onTap: () =>
+            //       ref.read(newsFeedNotifierProvider.notifier).refresh(),
+            // ),
 
             if (ref.watch(onboardingNotifierProvider) != OnboardingStep.none)
               FeedOnboardingOverlay(
