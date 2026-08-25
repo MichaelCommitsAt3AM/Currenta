@@ -64,35 +64,3 @@
     width: 100%;
 }
 
-.tableCard {
-    padding: 24px;
-}
-
-.cardHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.trendingTable th {
-    text-align: left;
-    padding: 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    color: var(--text-secondary);
-    font-weight: 500;
-}
-
-.trendingTable td {
-    padding: 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-}
-
-.trendingTable tr:hover {
-    background: rgba(255,255,255,0.02);
-}
-
-.trendScore {
-    font-weight: 600;
-    color: var(--accent-color);
-}

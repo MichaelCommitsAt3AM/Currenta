@@ -53,7 +53,7 @@ function levelClass(level: string): string {
 
 export function LogsPage({ token }: Props) {
   const [hours, setHours] = useState(24)
-  const [tab, setTab] = useState<'errors' | 'raw'>('errors')
+  const [tab, setTab] = useState<'errors' | 'raw'>('raw')
   const [live, setLive] = useState(false)
 
   const [level, setLevel] = useState('')
@@ -122,16 +122,16 @@ export function LogsPage({ token }: Props) {
       <div className={`glass-card ${styles.filtersCard}`}>
         <div className={styles.tabs}>
           <button
-            className={`${styles.tabButton} ${tab === 'errors' ? styles.tabActive : ''}`}
-            onClick={() => setTab('errors')}
-          >
-            Grouped Errors
-          </button>
-          <button
             className={`${styles.tabButton} ${tab === 'raw' ? styles.tabActive : ''}`}
             onClick={() => setTab('raw')}
           >
             Raw Entries
+          </button>
+          <button
+            className={`${styles.tabButton} ${tab === 'errors' ? styles.tabActive : ''}`}
+            onClick={() => setTab('errors')}
+          >
+            Grouped Errors
           </button>
         </div>
 

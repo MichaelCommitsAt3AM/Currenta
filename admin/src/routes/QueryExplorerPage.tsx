@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { QueryHistoryPanel } from '../components/QueryHistoryPanel'
 import { RecordDetailPanel } from '../components/RecordDetailPanel'
 import { ResultsTable } from '../components/ResultsTable'
 import { useAdminQuery } from '../hooks/useAdminQuery'
+import { useQueryHistory } from '../hooks/useQueryHistory'
 import type { SqlQueryResponse } from '../types/admin'
 import styles from './QueryExplorerPage.module.css'
 
@@ -47,14 +49,18 @@ export function QueryExplorerPage({ token }: Props) {
   const [selectedRow, setSelectedRow] = useState<Row | null>(null)
   const [queryError, setQueryError] = useState('')
   const runQuery = useAdminQuery(token)
+  const history = useQueryHistory()
+  const sqlTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   async function handleRunQuery() {
-    if (!sql.trim()) return
+    const trimmed = sql.trim()
+    if (!trimmed) return
     setQueryError('')
     try {
-      const data = await runQuery.mutateAsync(sql.trim())
+      const data = await runQuery.mutateAsync(trimmed)
       setResults(data)
       setSelectedRow(null)
+      history.add(trimmed)
     } catch (err) {
       setQueryError(err instanceof Error ? err.message : 'Query failed')
     }
@@ -67,6 +73,11 @@ export function QueryExplorerPage({ token }: Props) {
     setSelectedRow(null)
   }
 
+  function handleSelectHistory(historicalSql: string) {
+    setSql(historicalSql)
+    sqlTextareaRef.current?.focus()
+  }
+
   return (
     <section className={`tab-content ${styles.querySection}`}>
       <div className="section-header">
@@ -75,22 +86,34 @@ export function QueryExplorerPage({ token }: Props) {
       </div>
 
       <div className={`glass-card ${styles.queryCard}`}>
-        <textarea
-          className={styles.sqlQuery}
-          placeholder="SELECT * FROM articles WHERE published_at > NOW() - INTERVAL '24 hours' ORDER BY ranking_score DESC;"
-          value={sql}
-          onChange={(e) => setSql(e.target.value)}
-        />
-        <div className={styles.queryActions}>
-          <button className="btn primary" disabled={runQuery.isPending} onClick={() => void handleRunQuery()}>
-            {runQuery.isPending ? <div className="loader" /> : 'Execute SQL'}
-          </button>
-          <button className="btn outline" onClick={handleClear}>
-            Clear
-          </button>
-        </div>
+        <div className={styles.queryEditorLayout}>
+          <div className={styles.queryEditorMain}>
+            <textarea
+              ref={sqlTextareaRef}
+              className={styles.sqlQuery}
+              placeholder="SELECT * FROM articles WHERE published_at > NOW() - INTERVAL '24 hours' ORDER BY ranking_score DESC;"
+              value={sql}
+              onChange={(e) => setSql(e.target.value)}
+            />
+            <div className={styles.queryActions}>
+              <button className="btn primary" disabled={runQuery.isPending} onClick={() => void handleRunQuery()}>
+                {runQuery.isPending ? <div className="loader" /> : 'Execute SQL'}
+              </button>
+              <button className="btn outline" onClick={handleClear}>
+                Clear
+              </button>
+            </div>
 
-        {queryError && <div className="error">{queryError}</div>}
+            {queryError && <div className="error">{queryError}</div>}
+          </div>
+
+          <QueryHistoryPanel
+            entries={history.entries}
+            onSelect={handleSelectHistory}
+            onRemove={history.remove}
+            onClear={history.clear}
+          />
+        </div>
 
         {results && (
           <div className={styles.resultsContainer}>

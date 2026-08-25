@@ -1,12 +1,13 @@
 import { NavLink } from 'react-router-dom'
+import { BarChartIcon, FileTextIcon, InboxIcon, SearchIcon, TrendingUpIcon } from './icons'
 import styles from './Sidebar.module.css'
 
 const NAV_ITEMS = [
-  { to: '/ingest', icon: '📥', label: 'Manual Ingestion' },
-  { to: '/query', icon: '🔍', label: 'Database Explorer' },
-  { to: '/analytics', icon: '📊', label: 'Analytics' },
-  { to: '/trending', icon: '🔥', label: 'Trending' },
-  { to: '/logs', icon: '📜', label: 'Backend Logs' },
+  { to: '/ingest', icon: InboxIcon, label: 'Manual Ingestion' },
+  { to: '/query', icon: SearchIcon, label: 'Database Explorer' },
+  { to: '/analytics', icon: BarChartIcon, label: 'Analytics' },
+  { to: '/trending', icon: TrendingUpIcon, label: 'Trending' },
+  { to: '/logs', icon: FileTextIcon, label: 'Backend Logs' },
 ]
 
 interface Props {
@@ -24,7 +25,9 @@ export function Sidebar({ collapsed, userEmail }: Props) {
               to={item.to}
               className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
             >
-              <span className={styles.navIcon}>{item.icon}</span>
+              <span className={styles.navIcon}>
+                <item.icon />
+              </span>
               <span className={styles.navText}>{item.label}</span>
             </NavLink>
           </li>

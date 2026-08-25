@@ -1,0 +1,127 @@
+.historyPanel {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    max-height: 260px;
+}
+
+@media (max-width: 900px) {
+    .historyPanel {
+        width: 100%;
+        max-height: 200px;
+    }
+}
+
+.historyHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--glass-border);
+    flex-shrink: 0;
+}
+
+.historyTitle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.clearAll {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.3rem;
+    display: flex;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.clearAll:hover {
+    color: var(--error-color);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.emptyState {
+    padding: 1rem 0.9rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.historyList {
+    list-style: none;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.historyItem {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.historyItem:last-child {
+    border-bottom: none;
+}
+
+.historyEntryButton {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    text-align: left;
+    padding: 0.6rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    transition: background 0.2s ease;
+}
+
+.historyEntryButton:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.historySql {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.historyTime {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.historyRemove {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0 0.7rem;
+    display: flex;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.historyItem:hover .historyRemove {
+    opacity: 1;
+}
+
+.historyRemove:hover {
+    color: var(--error-color);
+}

@@ -1,4 +1,5 @@
 import type { AdminSession } from '../hooks/useAdminSession'
+import { AlertTriangleIcon } from './icons'
 import styles from './SessionWarningModal.module.css'
 
 interface Props {
@@ -17,7 +18,9 @@ export function SessionWarningModal({ auth }: Props) {
   return (
     <div className="overlay">
       <div className={`glass-card ${styles.sessionCard}`}>
-        <div className={styles.warningIcon}>⚠️</div>
+        <div className={styles.warningIcon}>
+          <AlertTriangleIcon />
+        </div>
         <h2>Session Expiring</h2>
         <p>
           Your session will expire in{' '}

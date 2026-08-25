@@ -1,4 +1,5 @@
 import { useToast } from '../hooks/useToast'
+import { CheckIcon } from './icons'
 import styles from './Toast.module.css'
 
 export function Toast() {
@@ -6,7 +7,7 @@ export function Toast() {
 
   return (
     <div className={`${styles.toast} ${message ? '' : styles.hidden}`}>
-      <span>✓</span>
+      <CheckIcon />
       <span>{message}</span>
     </div>
   )

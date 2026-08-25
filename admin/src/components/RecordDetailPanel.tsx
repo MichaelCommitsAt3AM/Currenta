@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { XIcon } from './icons'
 import styles from './RecordDetailPanel.module.css'
 
 interface Props {
@@ -56,7 +57,7 @@ export function RecordDetailPanel({ record, onClose }: Props) {
       <div className={styles.detailPanelHeader}>
         <h3>Record Details</h3>
         <button className="btn outline" onClick={onClose}>
-          ✕
+          <XIcon />
         </button>
       </div>
       <div className={styles.detailContent}>

@@ -7,6 +7,22 @@
     padding: 1.5rem !important;
 }
 
+.queryEditorLayout {
+    display: flex;
+    gap: 1.5rem;
+}
+
+@media (max-width: 900px) {
+    .queryEditorLayout {
+        flex-direction: column;
+    }
+}
+
+.queryEditorMain {
+    flex: 1;
+    min-width: 0;
+}
+
 .sqlQuery {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 0.9rem;
