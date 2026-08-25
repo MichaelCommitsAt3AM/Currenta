@@ -24,9 +24,16 @@ async def apply_migration():
     with open(migration_path, "r") as f:
         sql = f.read()
 
+    # Hosted Supabase's pooler requires SSL; the self-hosted stack's `db`
+    # container has none configured over the private docker network and
+    # actively rejects the upgrade — same DB_SSL_MODE switch as
+    # backend/core/db.py's init_db_pool().
+    ssl_mode = os.environ.get("DB_SSL_MODE", "require")
+    ssl_param = False if ssl_mode == "disable" else ssl_mode
+
     print(f"Applying migration from {migration_path}...")
     try:
-        conn = await asyncpg.connect(dsn=database_url, ssl='require')
+        conn = await asyncpg.connect(dsn=database_url, ssl=ssl_param)
         await conn.execute(sql)
         await conn.close()
         print("Migration applied successfully.")

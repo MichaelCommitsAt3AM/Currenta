@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'package:currenta/core/config/app_config.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/entities/news_article.dart';
 import '../domain/entities/news_category.dart';
@@ -128,8 +127,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
   LocalPersistenceRepository get _persistence =>
       ref.read(localPersistenceRepositoryProvider);
 
-  static const Duration _profileLoadTimeout = Duration(seconds: 3);
-
   /// In-memory cache to preserve feed state (articles, index, pagination status)
   /// for each category durante the session.
   final Map<NewsCategory?, FeedState> _feedCache = {};
@@ -244,9 +241,12 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     _log(
         '[Feed] build() triggered. isProfileLoaded=$isProfileLoaded, country=$country, interestsCount=${interests.length}');
 
-    if (!isProfileLoaded) {
-      await _waitForProfileLoad();
-    }
+    // Deliberately not blocking on profile load here: interests/country are
+    // only used for local cache ordering and the network `country` param
+    // (which already falls back to 'auto' when null, resolved server-side —
+    // see NewsRemoteDataSource.fetchArticles). Since this build() watches
+    // both above, it re-runs automatically once AuthNotifier's profile fetch
+    // resolves, without ever blocking first paint on it.
 
     // 3. Initialization: Preserve the current category across re-builds
     // triggered by Auth profile updates.
@@ -291,17 +291,15 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         isStale = true;
       }
     } else if (articles.isNotEmpty) {
-      // Fallback for first-time migration: if no lastRefresh is stored but we have articles,
-      // use the top article's age as a one-time proxy.
-      final topArticle = articles.isNotEmpty ? articles.first : null;
-      if (topArticle != null) {
-        final age = now.difference(topArticle.publishedAt.toUtc());
-        if (age.inHours >= AppConfig.hardTtlHours) {
-          needsRefresh = true;
-        } else if (age.inHours >= AppConfig.softTtlHours) {
-          isStale = true;
-        }
-      }
+      // First-time migration: cached articles exist but no sync time was ever
+      // recorded (e.g. upgrading from a version predating TTL tracking).
+      // Article publish time is not a reliable proxy for cache freshness (a
+      // feed synced seconds ago can easily contain articles published hours
+      // ago), so seed the baseline to now instead of guessing from it. Persist
+      // immediately so this doesn't re-run — and re-flag as stale — on every
+      // subsequent launch.
+      _log('[Feed] No lastRefresh recorded; seeding baseline to now.');
+      _persistence.saveLastRefreshTime(now);
     }
 
     if (needsRefresh) {
@@ -313,8 +311,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
             limit: _kPageSize,
           );
           _persistence.saveLastRefreshTime(DateTime.now().toUtc());
-          articles =
-              _filterArticles(response.articles, interests, savedCategoryId);
+          articles = _filterArticles(response.articles, savedCategoryId);
           _log(
               '[Feed] Initial remote articles: ${response.articles.length} -> ${articles.length} (Interests: $interests)');
           sessionId = response.sessionId;
@@ -382,46 +379,6 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     return finalState;
   }
 
-  Future<void> _waitForProfileLoad() async {
-    // If already loaded, proceed immediately.
-    if (ref.read(authNotifierProvider).isProfileLoaded) return;
-
-    final completer = Completer<void>();
-    Timer? timeoutTimer;
-    ProviderSubscription? subscription;
-
-    void cleanup() {
-      timeoutTimer?.cancel();
-      timeoutTimer = null;
-      subscription?.close();
-      subscription = null;
-    }
-
-    void finish() {
-      if (!completer.isCompleted) {
-        cleanup();
-        completer.complete();
-      }
-    }
-
-    // Reactive listener instead of polling reduces CPU wakeups.
-    subscription = ref.listen(authNotifierProvider, (prev, next) {
-      if (next.isProfileLoaded) {
-        finish();
-      }
-    }, fireImmediately: true);
-
-    timeoutTimer = Timer(_profileLoadTimeout, () {
-      _log(
-          '[Feed] Profile load timed out after ${_profileLoadTimeout.inSeconds}s. Proceeding with defaults.');
-      finish();
-    });
-
-    ref.onDispose(cleanup);
-
-    return completer.future;
-  }
-
   // ── Public API ──────────────────────────────────────────────────
 
   /// Appends the next batch of articles to the current list using session cursors.
@@ -446,11 +403,21 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     state = AsyncData(startState.copyWith(isLoadingMore: true));
 
     try {
-      // 2. Session Validity Check (Client-side TTL fallback)
+      // 2. Session Validity Check (Client-side TTL fallback): don't force a
+      // disruptive full reset here just because the session's expiresAt has
+      // passed — that duplicated (and was more jarring than) the Session
+      // Guard below, and disagreed with refreshIfStale()'s softer handling
+      // of the exact same condition (which only marks isStale). Just flag it
+      // and let the request proceed; if the backend session actually turned
+      // out invalid, step 4's Session Guard already reconciles that via
+      // _triggerReset.
       if (startState.expiresAt != null &&
           DateTime.now().isAfter(startState.expiresAt!)) {
-        await filterByCategory(category);
-        return;
+        final flagged = startState.copyWith(isStale: true);
+        _updateCache(category, flagged);
+        if (state.hasValue && state.value?.selectedCategory == category) {
+          state = AsyncData(flagged);
+        }
       }
 
       // 3a. If background session hasn't arrived yet, wait up to 3 s for it.
@@ -538,10 +505,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       // 6. Success: Deduplicate and Append
       final existingIds = baseState.articles.map((a) => a.id).toSet();
 
-      final authState = ref.read(authNotifierProvider);
-      final interests = authState.selectedInterests;
       final filteredNewArticles =
-          _filterArticles(response.articles, interests, category);
+          _filterArticles(response.articles, category);
 
       _log(
           '[Feed] Filtered remote articles: ${response.articles.length} -> ${filteredNewArticles.length}');
@@ -613,9 +578,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           }
         }
 
-        final interests = ref.read(authNotifierProvider).selectedInterests;
         final sanitizedArticles =
-            _filterArticles(cached.articles, interests, category);
+            _filterArticles(cached.articles, category);
         final newState = cached.copyWith(
           articles: sanitizedArticles,
           isStale: isStale,
@@ -713,9 +677,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       _persistence.saveLastRefreshTime(DateTime.now().toUtc());
 
-      final interests = ref.read(authNotifierProvider).selectedInterests;
       final filteredArticles =
-          _filterArticles(response.articles, interests, category);
+          _filterArticles(response.articles, category);
 
       debugPrint('[NewsFeedNotifier] filterByCategory: remote sync response details: sessionId=${response.sessionId}, hasMore=${response.hasMore}, responseArticlesCount=${response.articles.length}, filteredArticlesCount=${filteredArticles.length}');
 
@@ -992,10 +955,8 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
           ? current
           : (_getFromCache(category) ?? FeedState(selectedCategory: category));
 
-      final authState = ref.read(authNotifierProvider);
-      final interests = authState.selectedInterests;
       final filteredIncoming =
-          _filterArticles(response.articles, interests, category);
+          _filterArticles(response.articles, category);
 
       // Deduplicate and merge/replace based on user position
       final combinedArticles = <NewsArticle>[];
@@ -1106,52 +1067,48 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
   List<NewsArticle> _filterArticles(
     List<NewsArticle> articles,
-    List<String> interests,
     NewsCategory? category,
   ) {
-    debugPrint('[NewsFeedNotifier] _filterArticles inputs: category=${category?.name}, interests=$interests, articlesCount=${articles.length}');
-    List<NewsArticle> filtered;
-    if (category != null) {
-      // HARD GATEKEEPER: Ensure every article in a category feed actually
-      // belongs to that category. This prevents "leaks" from broader backend
-      // buckets or local cache pollution.
-      filtered = articles.where((article) {
-        final containsLocal = article.categories.contains(NewsCategory.local);
-        debugPrint('[NewsFeedNotifier] _filterArticles checking article ID: ${article.id}, Title: "${article.title}", categories: ${article.categories.map((c) => c.name).toList()}, containsLocal: $containsLocal');
-        if (category == NewsCategory.local) {
-          final isMatched = article.categories.contains(NewsCategory.local);
-          debugPrint('[NewsFeedNotifier] _filterArticles local category filter match result: $isMatched');
-          return isMatched;
-        }
+    debugPrint('[NewsFeedNotifier] _filterArticles inputs: category=${category?.name}, articlesCount=${articles.length}');
 
-        if (article.categories.isEmpty) {
-          debugPrint('[NewsFeedNotifier] _filterArticles article has empty categories - filtered out');
-          return false;
-        }
-
-        // Backend may prepend a virtual `local` marker for country-matched stories.
-        // For category tabs, we treat the first non-local category as the true primary.
-        final first = article.categories.first;
-        final effectivePrimary =
-            (first == NewsCategory.local && article.categories.length > 1)
-                ? article.categories[1]
-                : first;
-
-        final isMatched = effectivePrimary.name == category.name;
-        debugPrint('[NewsFeedNotifier] _filterArticles effectivePrimary filter match result for category ${category.name}: $isMatched (first: ${first.name}, effectivePrimary: ${effectivePrimary.name})');
-        return isMatched;
-      }).toList();
-    } else if (interests.isEmpty) {
-      debugPrint('[NewsFeedNotifier] _filterArticles category is null & interests is empty - showing all');
-      filtered = articles; // No interests selected yet, show everything
-    } else {
-      filtered = articles.where((article) {
-        // Defensive filter for 'For You' feed: Ensure at least one category matches the user's current interests.
-        final isMatched = article.categories.any((cat) => interests.contains(cat.name));
-        debugPrint('[NewsFeedNotifier] _filterArticles For You check for article ID: ${article.id}, categories: ${article.categories.map((c) => c.name).toList()}, match result: $isMatched');
-        return isMatched;
-      }).toList();
+    if (category == null) {
+      // "For You" feed: trust the backend's ranking (embeddings + interests +
+      // sub-interests + trending + country — see backend/api/feed.py
+      // get_user_state/get_feed) instead of re-filtering by the client's
+      // static interest-category list, which is strictly less information
+      // than what the server already ranked on.
+      return articles;
     }
+
+    // HARD GATEKEEPER: Ensure every article in a category feed actually
+    // belongs to that category. This prevents "leaks" from broader backend
+    // buckets or local cache pollution.
+    final filtered = articles.where((article) {
+      final containsLocal = article.categories.contains(NewsCategory.local);
+      debugPrint('[NewsFeedNotifier] _filterArticles checking article ID: ${article.id}, Title: "${article.title}", categories: ${article.categories.map((c) => c.name).toList()}, containsLocal: $containsLocal');
+      if (category == NewsCategory.local) {
+        final isMatched = article.categories.contains(NewsCategory.local);
+        debugPrint('[NewsFeedNotifier] _filterArticles local category filter match result: $isMatched');
+        return isMatched;
+      }
+
+      if (article.categories.isEmpty) {
+        debugPrint('[NewsFeedNotifier] _filterArticles article has empty categories - filtered out');
+        return false;
+      }
+
+      // Backend may prepend a virtual `local` marker for country-matched stories.
+      // For category tabs, we treat the first non-local category as the true primary.
+      final first = article.categories.first;
+      final effectivePrimary =
+          (first == NewsCategory.local && article.categories.length > 1)
+              ? article.categories[1]
+              : first;
+
+      final isMatched = effectivePrimary.name == category.name;
+      debugPrint('[NewsFeedNotifier] _filterArticles effectivePrimary filter match result for category ${category.name}: $isMatched (first: ${first.name}, effectivePrimary: ${effectivePrimary.name})');
+      return isMatched;
+    }).toList();
 
     debugPrint('[NewsFeedNotifier] _filterArticles output: filteredCount=${filtered.length}');
     return filtered;
@@ -1166,9 +1123,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     _log(
         '[Feed] Session mismatch detected for ${category?.name}. Resetting feed.');
 
-    final authState = ref.read(authNotifierProvider);
-    final interests = authState.selectedInterests;
-    final filtered = _filterArticles(response.articles, interests, category);
+    final filtered = _filterArticles(response.articles, category);
 
     final resetState = baseState.copyWith(
       articles: filtered,

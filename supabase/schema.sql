@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS articles (
     trend_score       DOUBLE PRECISION DEFAULT 0.0,
     last_trend_update TIMESTAMPTZ,
     ranking_score     DOUBLE PRECISION DEFAULT 0.0,
-    embedding         vector(768),
+    embedding         vector(1024), -- Voyage voyage-4-lite; see supabase/migrations/20260824140000_reconcile_article_embedding_dims.sql
     locality_score    DOUBLE PRECISION,
     locality_method   TEXT,
     locality_evidence TEXT,
@@ -161,6 +161,26 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Structured sink for backend application logs (api + worker), separate from
+-- ingestion_logs (per-article pipeline outcomes). See
+-- backend/core/log_sink.py and supabase/migrations/20260825150000_app_logs.sql.
+CREATE TABLE IF NOT EXISTS app_logs (
+    id          BIGSERIAL PRIMARY KEY,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    level       TEXT NOT NULL,
+    level_no    SMALLINT NOT NULL,
+    service     TEXT NOT NULL,
+    logger      TEXT NOT NULL,
+    component   TEXT,
+    message     TEXT NOT NULL,
+    module      TEXT,
+    func        TEXT,
+    line        INTEGER,
+    exc_text    TEXT,
+    signature   TEXT,
+    extra       JSONB
+);
+
 -- ==========================================
 -- 3. INDEXES
 -- ==========================================
@@ -197,14 +217,25 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_blocks_active ON ingestion_blocks (is_a
 CREATE INDEX IF NOT EXISTS trending_logs_created_at_idx ON trending_logs (created_at DESC);
 CREATE INDEX IF NOT EXISTS trending_logs_query_idx ON trending_logs (query);
 CREATE INDEX IF NOT EXISTS llm_usage_created_at_idx ON llm_usage (created_at);
+CREATE INDEX IF NOT EXISTS idx_app_logs_created_id ON app_logs (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_level_created ON app_logs (level_no, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_service_created ON app_logs (service, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_logger_created ON app_logs (logger, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_logs_signature_created ON app_logs (signature, created_at DESC);
 
 -- ==========================================
 -- 4. FUNCTIONS
 -- ==========================================
 
 -- 4.1 Match recent articles by vector similarity
+-- Dead code as of 20260824140000_reconcile_article_embedding_dims.sql — not
+-- called anywhere in backend/ (no supabase.rpc(), no Edge Functions exist in
+-- this repo). Real semantic-dedup ranking is inline SQL in
+-- backend/services/ingestion.py:find_cluster_match(). Kept for reference;
+-- query_embedding is intentionally left dimension-unconstrained so it can't
+-- drift out of sync with articles.embedding's dimension again.
 CREATE OR REPLACE FUNCTION match_recent_articles(
-  query_embedding vector(768),
+  query_embedding vector,
   similarity_threshold float,
   match_count int
 )

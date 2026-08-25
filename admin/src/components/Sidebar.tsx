@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/query', icon: '🔍', label: 'Database Explorer' },
   { to: '/analytics', icon: '📊', label: 'Analytics' },
   { to: '/trending', icon: '🔥', label: 'Trending' },
+  { to: '/logs', icon: '📜', label: 'Backend Logs' },
 ]
 
 interface Props {

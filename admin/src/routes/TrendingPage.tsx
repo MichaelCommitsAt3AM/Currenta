@@ -14,7 +14,7 @@ const WINDOW_OPTIONS = [
   { hours: 720, label: 'Last 30 days' },
 ]
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   const diffMs = Date.now() - new Date(iso).getTime()
   const minutes = Math.round(diffMs / 60_000)
@@ -65,43 +65,55 @@ export function TrendingPage({ token }: Props) {
 
       {isError && <div className="error">{error instanceof Error ? error.message : 'Failed to load trending articles'}</div>}
 
-      {!isLoading && !isError && articles.length === 0 && (
-        <div className={`glass-card ${styles.emptyState}`}>No trending articles in this window.</div>
-      )}
-
-      {!isLoading && articles.length > 0 && (
-        <div className={styles.grid}>
-          {articles.map((article) => (
-            <a
-              key={article.id}
-              className={`glass-card ${styles.card}`}
-              href={article.original_url ?? undefined}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <div className={styles.thumb}>
-                {article.image_url ? (
-                  <img src={article.image_url} alt="" loading="lazy" />
-                ) : (
-                  <div className={styles.thumbFallback}>📰</div>
-                )}
-                <span className={styles.trendScore}>🔥 {article.trend_score.toFixed(1)}</span>
-              </div>
-              <div className={styles.cardBody}>
-                <h3>{article.title}</h3>
-                <div className={styles.cardMeta}>
-                  <span>{article.source_name ?? 'Unknown source'}</span>
-                  <span>·</span>
-                  <span>{relativeTime(article.published_at)}</span>
-                </div>
-                <div className={styles.cardTags}>
-                  {article.categories?.[0] && <span className="badge">{article.categories[0]}</span>}
-                  {article.country_code && <span className="badge">{article.country_code}</span>}
-                  {article.is_major_source && <span className="badge">Major source</span>}
-                </div>
-              </div>
-            </a>
-          ))}
+      {!isLoading && !isError && (
+        <div className="table-wrapper">
+          <table className={styles.trendingTable}>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Article Title</th>
+                <th>Source</th>
+                <th>Category</th>
+                <th>Country</th>
+                <th>Trend Score</th>
+                <th>Published</th>
+              </tr>
+            </thead>
+            <tbody>
+              {articles.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className={styles.emptyCell}>
+                    No trending articles in this window.
+                  </td>
+                </tr>
+              ) : (
+                articles.map((article, i) => (
+                  <tr key={article.id}>
+                    <td className={styles.rankCell}>{i + 1}</td>
+                    <td>
+                      <a
+                        className={styles.titleLink}
+                        href={article.original_url ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {article.title}
+                      </a>
+                      {article.is_major_source && <span className={`badge ${styles.majorBadge}`}>Major source</span>}
+                    </td>
+                    <td>{article.source_name ?? '—'}</td>
+                    <td>
+                      {article.categories?.[0] ?? '—'}
+                      {article.subcategory && <span className={styles.subcategory}> / {article.subcategory}</span>}
+                    </td>
+                    <td>{article.country_code ?? '—'}</td>
+                    <td className={styles.trendScore}>{article.trend_score.toFixed(1)}</td>
+                    <td>{relativeTime(article.published_at)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

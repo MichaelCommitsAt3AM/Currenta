@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -74,6 +74,61 @@ class TrendingArticleDetail(BaseModel):
 
 class TrendingArticlesResponse(BaseModel):
     articles: List[TrendingArticleDetail]
+
+
+class LogGroup(BaseModel):
+    signature: str
+    level: str
+    service: str
+    logger: str
+    component: Optional[str] = None
+    message_sample: str
+    count: int
+    first_seen: datetime
+    last_seen: datetime
+
+
+class LogGroupsResponse(BaseModel):
+    groups: List[LogGroup]
+
+
+class LogEntry(BaseModel):
+    id: int
+    created_at: datetime
+    level: str
+    service: str
+    logger: str
+    component: Optional[str] = None
+    message: str
+    module: Optional[str] = None
+    func: Optional[str] = None
+    line: Optional[int] = None
+    exc_text: Optional[str] = None
+
+
+class LogEntriesResponse(BaseModel):
+    entries: List[LogEntry]
+    next_cursor: Optional[str] = None
+
+
+class DependencyHealth(BaseModel):
+    name: str
+    status: str  # 'ok' | 'warning' | 'error'
+    warning_count: int
+    error_count: int
+    last_seen: Optional[datetime] = None
+
+
+class LogsOverviewResponse(BaseModel):
+    health: List[DependencyHealth]
+    groups: List[LogGroup]
+
+
+class LogFacets(BaseModel):
+    services: List[str]
+    loggers: List[str]
+    components: List[str]
+    level_counts: dict
 
 
 @router.get("/session/check")
@@ -575,3 +630,225 @@ async def get_trending_articles(
     except Exception as e:
         logger.error("Database error in get_trending_articles: %s", e)
         raise HTTPException(status_code=500, detail="Failed to fetch trending articles")
+
+
+# ---------------------------------------------------------------------------
+# Backend logs (app_logs) — the DB sink populated by backend/core/log_sink.py.
+# Distinct from ingestion_logs above, which tracks per-article pipeline
+# outcomes; app_logs is the general-purpose application logger output
+# (WARNING+ everywhere, plus an allowlist of job-lifecycle INFO lines).
+# ---------------------------------------------------------------------------
+
+_LEVEL_NO = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+# Maps the [Component] tag / logger name / message conventions already used
+# across the codebase to a human dependency name, so the health strip reads
+# as "Voyage embeddings" instead of forcing the admin to know the tag scheme.
+# Done as a SQL CASE (see get_logs_overview) rather than in Python so it can
+# run against every row in the window before aggregating, cheaply.
+_DEPENDENCY_BUCKET_SQL = """
+    CASE
+        WHEN component IN ('embed_text', 'embed_texts') THEN 'Voyage embeddings'
+        WHEN component = 'Image-Storage' THEN 'Supabase Storage'
+        WHEN message ILIKE '%gemini api%' OR message ILIKE '%vertex ai%' THEN 'Gemini / Vertex AI'
+        WHEN message ILIKE '%google trends rss%' THEN 'Google Trends RSS'
+        WHEN logger LIKE 'backend.core.db%' THEN 'Postgres'
+        WHEN logger LIKE 'backend.services.email%' THEN 'Email (Mailtrap)'
+        WHEN message ILIKE '%redis%' THEN 'Redis'
+        ELSE logger
+    END
+"""
+
+
+def _level_floor(level: Optional[str]) -> int:
+    if not level:
+        return _LEVEL_NO["WARNING"]
+    return _LEVEL_NO.get(level.upper(), _LEVEL_NO["WARNING"])
+
+
+@router.get("/logs/overview", response_model=LogsOverviewResponse)
+async def get_logs_overview(
+    request: Request,
+    hours: int = 24,
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Default landing view for the admin Logs page: a dependency health strip
+    (error/warning counts per external dependency) plus signature-grouped
+    error/warning clusters, so a retry storm shows as one row with a count
+    instead of thousands of near-identical lines.
+    """
+    hours = max(1, min(hours, 720))
+    pool = request.app.state.db_pool
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT signature,
+                   (array_agg(level ORDER BY created_at DESC))[1] AS level,
+                   (array_agg(service ORDER BY created_at DESC))[1] AS service,
+                   (array_agg(logger ORDER BY created_at DESC))[1] AS logger,
+                   (array_agg(component ORDER BY created_at DESC))[1] AS component,
+                   (array_agg(message ORDER BY created_at DESC))[1] AS message_sample,
+                   COUNT(*) AS count,
+                   MIN(created_at) AS first_seen,
+                   MAX(created_at) AS last_seen
+            FROM app_logs
+            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+              AND level_no >= 30
+            GROUP BY signature
+            ORDER BY last_seen DESC
+            LIMIT 100
+            """,
+            hours,
+        )
+        groups = [LogGroup(**dict(r)) for r in rows]
+
+        dep_rows = await conn.fetch(
+            f"""
+            SELECT {_DEPENDENCY_BUCKET_SQL} AS name,
+                   SUM(CASE WHEN level_no >= 40 THEN 1 ELSE 0 END) AS error_count,
+                   SUM(CASE WHEN level_no < 40 THEN 1 ELSE 0 END) AS warning_count,
+                   MAX(created_at) AS last_seen
+            FROM app_logs
+            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+              AND level_no >= 30
+            GROUP BY 1
+            """,
+            hours,
+        )
+
+    health = []
+    for r in dep_rows:
+        status = "error" if r["error_count"] > 0 else ("warning" if r["warning_count"] > 0 else "ok")
+        health.append(DependencyHealth(
+            name=r["name"],
+            status=status,
+            warning_count=r["warning_count"],
+            error_count=r["error_count"],
+            last_seen=r["last_seen"],
+        ))
+    health.sort(key=lambda d: (d.status != "error", d.status != "warning", -d.error_count - d.warning_count))
+
+    return {"health": health, "groups": groups}
+
+
+@router.get("/logs/entries", response_model=LogEntriesResponse)
+async def get_log_entries(
+    request: Request,
+    hours: int = 24,
+    level: Optional[str] = None,
+    service: Optional[str] = None,
+    component: Optional[str] = None,
+    logger_name: Optional[str] = Query(None, alias="logger"),
+    q: Optional[str] = None,
+    signature: Optional[str] = None,
+    cursor: Optional[str] = None,
+    limit: int = 100,
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Raw, individually-listed log entries — used for the drill-down when an
+    admin clicks a grouped row on /logs/overview, and for the optional
+    unfiltered tail. Keyset-paginated on (created_at, id) since new rows
+    arrive continuously and OFFSET paging would skip/duplicate under that.
+    """
+    hours = max(1, min(hours, 720))
+    limit = max(1, min(limit, 500))
+    pool = request.app.state.db_pool
+
+    clauses = ["created_at > NOW() - (INTERVAL '1 hour' * $1)"]
+    params: list = [hours]
+
+    def add(clause_tpl: str, value):
+        params.append(value)
+        clauses.append(clause_tpl.format(n=len(params)))
+
+    if level:
+        add("level_no >= ${n}", _level_floor(level))
+    if service:
+        add("service = ${n}", service)
+    if component:
+        add("component = ${n}", component)
+    if logger_name:
+        add("logger LIKE ${n}", f"{logger_name}%")
+    if q:
+        add("message ILIKE ${n}", f"%{q}%")
+    if signature:
+        add("signature = ${n}", signature)
+
+    if cursor:
+        try:
+            cursor_ts_raw, cursor_id_raw = cursor.split("_", 1)
+            cursor_ts = datetime.fromisoformat(cursor_ts_raw)
+            cursor_id = int(cursor_id_raw)
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+        params.append(cursor_ts)
+        params.append(cursor_id)
+        clauses.append(f"(created_at, id) < (${len(params) - 1}, ${len(params)})")
+
+    params.append(limit)
+    query = f"""
+        SELECT id, created_at, level, service, logger, component, message,
+               module, func, line, exc_text
+        FROM app_logs
+        WHERE {' AND '.join(clauses)}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ${len(params)}
+    """
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, *params)
+
+    entries = [LogEntry(**dict(r)) for r in rows]
+    next_cursor = None
+    if len(entries) == limit:
+        last = entries[-1]
+        next_cursor = f"{last.created_at.isoformat()}_{last.id}"
+
+    return {"entries": entries, "next_cursor": next_cursor}
+
+
+@router.get("/logs/facets", response_model=LogFacets)
+async def get_log_facets(
+    request: Request,
+    hours: int = 24,
+    user: User = Depends(verify_is_admin)
+):
+    """Distinct services/loggers/components seen in the window, to populate
+    filter dropdowns with only values that actually occur — an empty
+    dropdown option is worse than a short one."""
+    hours = max(1, min(hours, 720))
+    pool = request.app.state.db_pool
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT service, logger, component
+            FROM app_logs
+            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+            """,
+            hours,
+        )
+        level_rows = await conn.fetch(
+            """
+            SELECT level, COUNT(*) as count
+            FROM app_logs
+            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+            GROUP BY level
+            """,
+            hours,
+        )
+
+    services = sorted({r["service"] for r in rows if r["service"]})
+    loggers = sorted({r["logger"] for r in rows if r["logger"]})
+    components = sorted({r["component"] for r in rows if r["component"]})
+    level_counts = {r["level"]: r["count"] for r in level_rows}
+
+    return {
+        "services": services,
+        "loggers": loggers,
+        "components": components,
+        "level_counts": level_counts,
+    }

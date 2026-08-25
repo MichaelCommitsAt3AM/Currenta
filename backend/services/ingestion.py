@@ -1356,6 +1356,79 @@ async def embed_text(text: str, http_client: Optional[httpx.AsyncClient] = None)
         if client_ctx:
             await client_ctx.aclose()
 
+
+async def embed_texts(texts: list[str], http_client: Optional[httpx.AsyncClient] = None) -> list[list[float]]:
+    """Batched variant of embed_text — one round-trip for N inputs instead of N.
+    Voyage's endpoint takes a list natively; other providers fall back to
+    sequential embed_text() calls."""
+    if not texts:
+        return []
+
+    provider = EMBEDDING_PROVIDER
+    if provider != "voyage":
+        return [await embed_text(t, http_client) for t in texts]
+
+    if not VOYAGE_API_KEY:
+        raise ValueError("VOYAGE_API_KEY is required when EMBEDDING_PROVIDER=voyage.")
+
+    max_retries = 5
+    base_delay = 2.0
+    client_ctx = None
+    if not http_client:
+        client_ctx = httpx.AsyncClient(timeout=60.0)
+    client = http_client or client_ctx
+
+    try:
+        for attempt in range(max_retries + 1):
+            try:
+                res = await client.post(
+                    "https://api.voyageai.com/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {VOYAGE_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"model": VOYAGE_EMBED_MODEL, "input": texts, "input_type": "document"}
+                )
+
+                if res.status_code == 429:
+                    if attempt < max_retries:
+                        import random
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"[embed_texts] Voyage AI rate limit hit (429). Retrying in {delay:.2f}s... (Attempt {attempt+1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"[embed_texts] Voyage AI rate limit hit (429) and exhausted retries.")
+                        res.raise_for_status()
+
+                res.raise_for_status()
+                data = res.json()
+                # Voyage returns entries in input order with an `index` field; sort
+                # defensively rather than assume ordering is guaranteed.
+                ordered = sorted(data["data"], key=lambda d: d.get("index", 0))
+                return [[float(x) for x in d["embedding"]] for d in ordered]
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    if attempt < max_retries:
+                        continue
+                    raise e
+                raise e
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"[embed_texts] Connection/Timeout error: {e}. Retrying in {delay:.2f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                raise e
+
+        raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
+
+    finally:
+        if client_ctx:
+            await client_ctx.aclose()
+
+
 async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
     if not supabase_client:
         print("[Image-Storage] CRITICAL: Supabase client not initialized. Cannot upload.")

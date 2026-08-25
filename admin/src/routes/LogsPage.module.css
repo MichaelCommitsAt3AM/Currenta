@@ -1,0 +1,234 @@
+.healthStrip {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.healthCard {
+    min-width: 160px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.health_ok {
+    border-color: hsla(150, 70%, 55%, 0.3);
+}
+
+.health_warning {
+    border-color: hsla(45, 90%, 60%, 0.4);
+    background: hsla(45, 90%, 60%, 0.06);
+}
+
+.health_error {
+    border-color: hsla(0, 80%, 65%, 0.5);
+    background: hsla(0, 80%, 65%, 0.08);
+}
+
+.healthName {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.healthCounts {
+    display: flex;
+    gap: 8px;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.healthError {
+    color: var(--error-color);
+    font-weight: 700;
+}
+
+.healthWarning {
+    color: hsl(45, 90%, 60%);
+    font-weight: 700;
+}
+
+.healthLastSeen {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-top: 4px;
+}
+
+.filtersCard {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.tabButton {
+    padding: 0.4rem 0.9rem;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.tabActive {
+    background: var(--card-bg);
+    color: var(--text-primary);
+}
+
+.filterField {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 150px;
+}
+
+.filterField label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.filterField select,
+.filterField input {
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    color-scheme: dark;
+}
+
+.filterField select option {
+    background: var(--bg-color);
+    color: var(--text-primary);
+}
+
+.liveToggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+    cursor: pointer;
+}
+
+.drillBanner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--glass-border);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.loadingState {
+    display: flex;
+    justify-content: center;
+    padding: 60px 0;
+}
+
+.logTable {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.logTable th {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.logTable td {
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: middle;
+    font-size: 0.85rem;
+}
+
+.clickableRow {
+    cursor: pointer;
+}
+
+.clickableRow:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.messageCell {
+    max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+}
+
+.timeCell {
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
+.countCell {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.emptyCell {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.levelError {
+    background: hsla(0, 80%, 65%, 0.15);
+    color: var(--error-color);
+}
+
+.levelWarning {
+    background: hsla(45, 90%, 60%, 0.15);
+    color: hsl(45, 90%, 60%);
+}
+
+.levelInfo {
+    background: hsla(210, 80%, 65%, 0.15);
+    color: var(--primary-color);
+}
+
+.rawLayout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.rawTableColumn {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+@media (max-width: 900px) {
+    .rawLayout {
+        flex-direction: column;
+    }
+}

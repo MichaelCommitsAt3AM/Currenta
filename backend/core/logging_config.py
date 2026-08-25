@@ -1,9 +1,13 @@
 import logging
 import sys
 import os
+from typing import Optional
 from pythonjsonlogger import jsonlogger
 
+from .log_sink import PostgresLogHandler
+
 _logging_initialized = False
+_db_log_handler: Optional[PostgresLogHandler] = None
 
 def setup_logging():
     """
@@ -52,3 +56,35 @@ def setup_logging():
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+
+def attach_db_log_handler(service_name: str, get_pool) -> PostgresLogHandler:
+    """
+    Adds the app_logs Postgres sink to the root logger. Called separately from
+    setup_logging() (and after it) because the DB pool isn't ready until the
+    app's lifespan/startup runs — `get_pool` is a zero-arg callable so the
+    handler can pick up the pool once it exists rather than needing it at
+    construction time.
+    """
+    global _db_log_handler
+    if _db_log_handler is not None:
+        return _db_log_handler
+
+    level_name = os.environ.get("APP_LOG_DB_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, logging.WARNING)
+
+    handler = PostgresLogHandler(service_name=service_name, get_pool=get_pool, level=level)
+    handler.setFormatter(logging.Formatter())  # only used for exc_text formatting
+    handler.start()
+
+    logging.getLogger().addHandler(handler)
+    _db_log_handler = handler
+    return handler
+
+
+async def stop_db_log_handler():
+    global _db_log_handler
+    if _db_log_handler is not None:
+        logging.getLogger().removeHandler(_db_log_handler)
+        await _db_log_handler.stop()
+        _db_log_handler = None

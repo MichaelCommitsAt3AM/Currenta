@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-from .core.logging_config import setup_logging
+from .core.logging_config import setup_logging, attach_db_log_handler, stop_db_log_handler
 from .core import db
+from .core.log_sink import cleanup_old_app_logs
 from .services.ingestion import orchestrate_and_trend, cleanup_old_ingestion_logs
 from .services.trending import update_trending_scores
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -72,6 +73,8 @@ async def main():
         logger.error("Failed to initialize database pool. Worker exiting.")
         return
 
+    attach_db_log_handler(os.environ.get("SERVICE_NAME", "worker"), lambda: db.db_pool)
+
     # Initialize APScheduler for standalone worker
     scheduler = AsyncIOScheduler()
     
@@ -106,6 +109,19 @@ async def main():
         replace_existing=True
     )
 
+    # 4. app_logs cleanup (daily at midnight UTC, offset 10m from the
+    # ingestion_logs cleanup above so they don't contend for the table lock
+    # at the exact same instant)
+    scheduler.add_job(
+        cleanup_old_app_logs,
+        'cron',
+        hour=0,
+        minute=10,
+        id='cleanup_old_app_logs',
+        args=[db.db_pool],
+        replace_existing=True
+    )
+
     # Run once immediately on startup
     scheduler.add_job(orchestrate_and_trend, id='worker_startup_sync')
 
@@ -128,6 +144,7 @@ async def main():
         except asyncio.CancelledError:
             pass
         scheduler.shutdown()
+        await stop_db_log_handler()
         await db.close_connections()
 
 if __name__ == "__main__":

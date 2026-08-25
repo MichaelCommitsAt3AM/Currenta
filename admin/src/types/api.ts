@@ -419,6 +419,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/trending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trending Articles
+         * @description Full-detail trending list for the admin dashboard (unlike the top-5
+         *     title/score pair embedded in /analytics/overview).
+         */
+        get: operations["get_trending_articles_api_admin_trending_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/send-otp": {
         parameters: {
             query?: never;
@@ -700,6 +721,36 @@ export interface components {
             title: string;
             /** Trend Score */
             trend_score: number;
+        };
+        /** TrendingArticleDetail */
+        TrendingArticleDetail: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Source Name */
+            source_name?: string | null;
+            /** Original Url */
+            original_url?: string | null;
+            /** Image Url */
+            image_url?: string | null;
+            /** Categories */
+            categories?: string[] | null;
+            /** Subcategory */
+            subcategory?: string | null;
+            /** Country Code */
+            country_code?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Trend Score */
+            trend_score: number;
+            /** Is Major Source */
+            is_major_source?: boolean | null;
+        };
+        /** TrendingArticlesResponse */
+        TrendingArticlesResponse: {
+            /** Articles */
+            articles: components["schemas"]["TrendingArticleDetail"][];
         };
         /** UserGrowth */
         UserGrowth: {
@@ -1339,6 +1390,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AnalyticsOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trending_articles_api_admin_trending_get: {
+        parameters: {
+            query?: {
+                country?: string | null;
+                hours?: number;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendingArticlesResponse"];
                 };
             };
             /** @description Validation Error */

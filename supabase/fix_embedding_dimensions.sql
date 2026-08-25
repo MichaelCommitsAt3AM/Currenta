@@ -1,4 +1,16 @@
 -- supabase/fix_embedding_dimensions.sql
+--
+-- SUPERSEDED — do not run this file. It was originally run out-of-band
+-- directly in the Supabase SQL Editor, never captured as a dated migration,
+-- and its own IVFFlat index doesn't even match what ended up live (an HNSW
+-- index instead — some later, still-undocumented manual step created that).
+-- That process gap (schema changes applied outside supabase/migrations/) is
+-- also what caused the interest_embedding dimension bug fixed in
+-- 20260824120000_fix_interest_embedding_dims.sql. This file's actual
+-- intended effect is now captured properly, idempotently, and safely
+-- guarded against re-running on already-correct data in
+-- supabase/migrations/20260824140000_reconcile_article_embedding_dims.sql —
+-- kept here only for historical reference.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- MIGRATION: Fix embedding column + switch to voyage-3.5-lite (1024 dims)
 --

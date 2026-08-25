@@ -29,7 +29,7 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import redis.asyncio as redis
 from brotli_asgi import BrotliMiddleware
 
-from .core.logging_config import setup_logging
+from .core.logging_config import setup_logging, attach_db_log_handler, stop_db_log_handler
 from .core.db import init_db_pool, init_redis, close_connections
 import backend.core.db as db_state
 from .version import VERSION
@@ -64,6 +64,10 @@ async def lifespan(app: FastAPI):
     app.state.db_pool = await init_db_pool()
     app.state.redis_client = await init_redis()
 
+    # Attach the app_logs DB sink now that the pool exists (setup_logging()
+    # ran at import time, before any pool was available).
+    attach_db_log_handler(os.environ.get("SERVICE_NAME", "api"), lambda: db_state.db_pool)
+
     if ENABLE_INTERNAL_SCHEDULER:
         # Pass the pool and client to the scheduler (simplified)
         start_scheduler()
@@ -72,6 +76,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    await stop_db_log_handler()
     await close_connections()
 
 app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
