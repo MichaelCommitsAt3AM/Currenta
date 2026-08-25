@@ -681,42 +681,46 @@ async def get_logs_overview(
     hours = max(1, min(hours, 720))
     pool = request.app.state.db_pool
 
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT signature,
-                   (array_agg(level ORDER BY created_at DESC))[1] AS level,
-                   (array_agg(service ORDER BY created_at DESC))[1] AS service,
-                   (array_agg(logger ORDER BY created_at DESC))[1] AS logger,
-                   (array_agg(component ORDER BY created_at DESC))[1] AS component,
-                   (array_agg(message ORDER BY created_at DESC))[1] AS message_sample,
-                   COUNT(*) AS count,
-                   MIN(created_at) AS first_seen,
-                   MAX(created_at) AS last_seen
-            FROM app_logs
-            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
-              AND level_no >= 30
-            GROUP BY signature
-            ORDER BY last_seen DESC
-            LIMIT 100
-            """,
-            hours,
-        )
-        groups = [LogGroup(**dict(r)) for r in rows]
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT signature,
+                       (array_agg(level ORDER BY created_at DESC))[1] AS level,
+                       (array_agg(service ORDER BY created_at DESC))[1] AS service,
+                       (array_agg(logger ORDER BY created_at DESC))[1] AS logger,
+                       (array_agg(component ORDER BY created_at DESC))[1] AS component,
+                       (array_agg(message ORDER BY created_at DESC))[1] AS message_sample,
+                       COUNT(*) AS count,
+                       MIN(created_at) AS first_seen,
+                       MAX(created_at) AS last_seen
+                FROM app_logs
+                WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+                  AND level_no >= 30
+                GROUP BY signature
+                ORDER BY last_seen DESC
+                LIMIT 100
+                """,
+                hours,
+            )
+            groups = [LogGroup(**dict(r)) for r in rows]
 
-        dep_rows = await conn.fetch(
-            f"""
-            SELECT {_DEPENDENCY_BUCKET_SQL} AS name,
-                   SUM(CASE WHEN level_no >= 40 THEN 1 ELSE 0 END) AS error_count,
-                   SUM(CASE WHEN level_no < 40 THEN 1 ELSE 0 END) AS warning_count,
-                   MAX(created_at) AS last_seen
-            FROM app_logs
-            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
-              AND level_no >= 30
-            GROUP BY 1
-            """,
-            hours,
-        )
+            dep_rows = await conn.fetch(
+                f"""
+                SELECT {_DEPENDENCY_BUCKET_SQL} AS name,
+                       SUM(CASE WHEN level_no >= 40 THEN 1 ELSE 0 END) AS error_count,
+                       SUM(CASE WHEN level_no < 40 THEN 1 ELSE 0 END) AS warning_count,
+                       MAX(created_at) AS last_seen
+                FROM app_logs
+                WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+                  AND level_no >= 30
+                GROUP BY 1
+                """,
+                hours,
+            )
+    except Exception as e:
+        logger.error("Database error in get_logs_overview: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch logs overview")
 
     health = []
     for r in dep_rows:
@@ -798,8 +802,12 @@ async def get_log_entries(
         LIMIT ${len(params)}
     """
 
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(query, *params)
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+    except Exception as e:
+        logger.error("Database error in get_log_entries: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch log entries")
 
     entries = [LogEntry(**dict(r)) for r in rows]
     next_cursor = None
@@ -822,24 +830,28 @@ async def get_log_facets(
     hours = max(1, min(hours, 720))
     pool = request.app.state.db_pool
 
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT DISTINCT service, logger, component
-            FROM app_logs
-            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
-            """,
-            hours,
-        )
-        level_rows = await conn.fetch(
-            """
-            SELECT level, COUNT(*) as count
-            FROM app_logs
-            WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
-            GROUP BY level
-            """,
-            hours,
-        )
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT service, logger, component
+                FROM app_logs
+                WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+                """,
+                hours,
+            )
+            level_rows = await conn.fetch(
+                """
+                SELECT level, COUNT(*) as count
+                FROM app_logs
+                WHERE created_at > NOW() - (INTERVAL '1 hour' * $1)
+                GROUP BY level
+                """,
+                hours,
+            )
+    except Exception as e:
+        logger.error("Database error in get_log_facets: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch log facets")
 
     services = sorted({r["service"] for r in rows if r["service"]})
     loggers = sorted({r["logger"] for r in rows if r["logger"]})
