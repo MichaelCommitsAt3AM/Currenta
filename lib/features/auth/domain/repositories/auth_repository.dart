@@ -69,6 +69,17 @@ abstract class AuthRepository {
   /// Clears all sub-interests for the current user.
   Future<void> clearUserSubInterests();
 
+  /// Mutes a single subcategory — the user will stop seeing articles tagged
+  /// with it in their feed (see common_where in backend/api/feed.py).
+  /// Additive: does not affect any other muted subcategory.
+  Future<void> muteSubCategory(String subCategory);
+
+  /// Un-mutes a previously-muted subcategory.
+  Future<void> unmuteSubCategory(String subCategory);
+
+  /// Fetches the user's muted subcategories.
+  Future<List<String>> getMutedSubCategories();
+
   /// Updates the current user's password.
   Future<void> updatePassword(String newPassword);
 

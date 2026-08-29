@@ -22,6 +22,7 @@ _NewsArticle _$NewsArticleFromJson(Map<String, dynamic> json) => _NewsArticle(
       subCategories: json['subcategories'] == null
           ? const []
           : _subCategoriesFromJson(json['subcategories']),
+      primarySubcategorySlug: json['subcategory'] as String?,
       isPaywalled: json['is_paywalled'] as bool? ?? false,
       isLiked: json['is_liked'] as bool? ?? false,
       likesCount: (json['likes_count'] as num?)?.toInt() ?? 0,
@@ -50,6 +51,7 @@ Map<String, dynamic> _$NewsArticleToJson(_NewsArticle instance) =>
       'created_at': instance.createdAt.toIso8601String(),
       'categories': _categoriesToJson(instance.categories),
       'subcategories': _subCategoriesToJson(instance.subCategories),
+      'subcategory': instance.primarySubcategorySlug,
       'is_paywalled': instance.isPaywalled,
       'is_liked': instance.isLiked,
       'likes_count': instance.likesCount,

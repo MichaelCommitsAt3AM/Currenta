@@ -102,6 +102,7 @@ async def delete_account_endpoint(request: Request, user: User = Depends(verify_
                     "DELETE FROM article_dislikes WHERE user_id = $1",
                     "DELETE FROM article_views WHERE user_id = $1",
                     "DELETE FROM user_sub_interests WHERE user_id = $1",
+                    "DELETE FROM user_muted_subcategories WHERE user_id = $1",
                     "DELETE FROM user_interests WHERE user_id = $1",
                     "DELETE FROM user_profiles WHERE user_id = $1",
                 ):

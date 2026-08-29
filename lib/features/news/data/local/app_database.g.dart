@@ -168,6 +168,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
   late final GeneratedColumn<DateTime> expiresAt = GeneratedColumn<DateTime>(
       'expires_at', aliasedName, true,
       type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _primarySubcategorySlugMeta =
+      const VerificationMeta('primarySubcategorySlug');
+  @override
+  late final GeneratedColumn<String> primarySubcategorySlug =
+      GeneratedColumn<String>('primary_subcategory_slug', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   List<GeneratedColumn> get $columns => [
         id,
@@ -191,7 +197,8 @@ class $NewsArticlesTableTable extends NewsArticlesTable
         lastTrendUpdate,
         rankingScore,
         isMajorSource,
-        expiresAt
+        expiresAt,
+        primarySubcategorySlug
       ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -319,6 +326,12 @@ class $NewsArticlesTableTable extends NewsArticlesTable
       context.handle(_expiresAtMeta,
           expiresAt.isAcceptableOrUnknown(data['expires_at']!, _expiresAtMeta));
     }
+    if (data.containsKey('primary_subcategory_slug')) {
+      context.handle(
+          _primarySubcategorySlugMeta,
+          primarySubcategorySlug.isAcceptableOrUnknown(
+              data['primary_subcategory_slug']!, _primarySubcategorySlugMeta));
+    }
     return context;
   }
 
@@ -374,6 +387,9 @@ class $NewsArticlesTableTable extends NewsArticlesTable
           .read(DriftSqlType.bool, data['${effectivePrefix}is_major_source'])!,
       expiresAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}expires_at']),
+      primarySubcategorySlug: attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}primary_subcategory_slug']),
     );
   }
 
@@ -416,6 +432,11 @@ class NewsArticlesTableData extends DataClass
   final double rankingScore;
   final bool isMajorSource;
   final DateTime? expiresAt;
+
+  /// Raw canonical taxonomy slug (e.g. 'ai_research') — see
+  /// NewsArticle.primarySubcategorySlug for why this exists alongside the
+  /// (currently unusable) subCategories column above.
+  final String? primarySubcategorySlug;
   const NewsArticlesTableData(
       {required this.id,
       required this.title,
@@ -438,7 +459,8 @@ class NewsArticlesTableData extends DataClass
       this.lastTrendUpdate,
       required this.rankingScore,
       required this.isMajorSource,
-      this.expiresAt});
+      this.expiresAt,
+      this.primarySubcategorySlug});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
@@ -482,6 +504,10 @@ class NewsArticlesTableData extends DataClass
     if (!nullToAbsent || expiresAt != null) {
       map['expires_at'] = Variable<DateTime>(expiresAt);
     }
+    if (!nullToAbsent || primarySubcategorySlug != null) {
+      map['primary_subcategory_slug'] =
+          Variable<String>(primarySubcategorySlug);
+    }
     return map;
   }
 
@@ -521,6 +547,9 @@ class NewsArticlesTableData extends DataClass
       expiresAt: expiresAt == null && nullToAbsent
           ? const Value.absent()
           : Value(expiresAt),
+      primarySubcategorySlug: primarySubcategorySlug == null && nullToAbsent
+          ? const Value.absent()
+          : Value(primarySubcategorySlug),
     );
   }
 
@@ -551,6 +580,8 @@ class NewsArticlesTableData extends DataClass
       rankingScore: serializer.fromJson<double>(json['rankingScore']),
       isMajorSource: serializer.fromJson<bool>(json['isMajorSource']),
       expiresAt: serializer.fromJson<DateTime?>(json['expiresAt']),
+      primarySubcategorySlug:
+          serializer.fromJson<String?>(json['primarySubcategorySlug']),
     );
   }
   @override
@@ -579,6 +610,8 @@ class NewsArticlesTableData extends DataClass
       'rankingScore': serializer.toJson<double>(rankingScore),
       'isMajorSource': serializer.toJson<bool>(isMajorSource),
       'expiresAt': serializer.toJson<DateTime?>(expiresAt),
+      'primarySubcategorySlug':
+          serializer.toJson<String?>(primarySubcategorySlug),
     };
   }
 
@@ -604,7 +637,8 @@ class NewsArticlesTableData extends DataClass
           Value<DateTime?> lastTrendUpdate = const Value.absent(),
           double? rankingScore,
           bool? isMajorSource,
-          Value<DateTime?> expiresAt = const Value.absent()}) =>
+          Value<DateTime?> expiresAt = const Value.absent(),
+          Value<String?> primarySubcategorySlug = const Value.absent()}) =>
       NewsArticlesTableData(
         id: id ?? this.id,
         title: title ?? this.title,
@@ -632,6 +666,9 @@ class NewsArticlesTableData extends DataClass
         rankingScore: rankingScore ?? this.rankingScore,
         isMajorSource: isMajorSource ?? this.isMajorSource,
         expiresAt: expiresAt.present ? expiresAt.value : this.expiresAt,
+        primarySubcategorySlug: primarySubcategorySlug.present
+            ? primarySubcategorySlug.value
+            : this.primarySubcategorySlug,
       );
   NewsArticlesTableData copyWithCompanion(NewsArticlesTableCompanion data) {
     return NewsArticlesTableData(
@@ -676,6 +713,9 @@ class NewsArticlesTableData extends DataClass
           ? data.isMajorSource.value
           : this.isMajorSource,
       expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
+      primarySubcategorySlug: data.primarySubcategorySlug.present
+          ? data.primarySubcategorySlug.value
+          : this.primarySubcategorySlug,
     );
   }
 
@@ -703,7 +743,8 @@ class NewsArticlesTableData extends DataClass
           ..write('lastTrendUpdate: $lastTrendUpdate, ')
           ..write('rankingScore: $rankingScore, ')
           ..write('isMajorSource: $isMajorSource, ')
-          ..write('expiresAt: $expiresAt')
+          ..write('expiresAt: $expiresAt, ')
+          ..write('primarySubcategorySlug: $primarySubcategorySlug')
           ..write(')'))
         .toString();
   }
@@ -731,7 +772,8 @@ class NewsArticlesTableData extends DataClass
         lastTrendUpdate,
         rankingScore,
         isMajorSource,
-        expiresAt
+        expiresAt,
+        primarySubcategorySlug
       ]);
   @override
   bool operator ==(Object other) =>
@@ -758,7 +800,8 @@ class NewsArticlesTableData extends DataClass
           other.lastTrendUpdate == this.lastTrendUpdate &&
           other.rankingScore == this.rankingScore &&
           other.isMajorSource == this.isMajorSource &&
-          other.expiresAt == this.expiresAt);
+          other.expiresAt == this.expiresAt &&
+          other.primarySubcategorySlug == this.primarySubcategorySlug);
 }
 
 class NewsArticlesTableCompanion
@@ -785,6 +828,7 @@ class NewsArticlesTableCompanion
   final Value<double> rankingScore;
   final Value<bool> isMajorSource;
   final Value<DateTime?> expiresAt;
+  final Value<String?> primarySubcategorySlug;
   final Value<int> rowid;
   const NewsArticlesTableCompanion({
     this.id = const Value.absent(),
@@ -809,6 +853,7 @@ class NewsArticlesTableCompanion
     this.rankingScore = const Value.absent(),
     this.isMajorSource = const Value.absent(),
     this.expiresAt = const Value.absent(),
+    this.primarySubcategorySlug = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NewsArticlesTableCompanion.insert({
@@ -834,6 +879,7 @@ class NewsArticlesTableCompanion
     this.rankingScore = const Value.absent(),
     this.isMajorSource = const Value.absent(),
     this.expiresAt = const Value.absent(),
+    this.primarySubcategorySlug = const Value.absent(),
     this.rowid = const Value.absent(),
   })  : id = Value(id),
         title = Value(title),
@@ -864,6 +910,7 @@ class NewsArticlesTableCompanion
     Expression<double>? rankingScore,
     Expression<bool>? isMajorSource,
     Expression<DateTime>? expiresAt,
+    Expression<String>? primarySubcategorySlug,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -889,6 +936,8 @@ class NewsArticlesTableCompanion
       if (rankingScore != null) 'ranking_score': rankingScore,
       if (isMajorSource != null) 'is_major_source': isMajorSource,
       if (expiresAt != null) 'expires_at': expiresAt,
+      if (primarySubcategorySlug != null)
+        'primary_subcategory_slug': primarySubcategorySlug,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -916,6 +965,7 @@ class NewsArticlesTableCompanion
       Value<double>? rankingScore,
       Value<bool>? isMajorSource,
       Value<DateTime?>? expiresAt,
+      Value<String?>? primarySubcategorySlug,
       Value<int>? rowid}) {
     return NewsArticlesTableCompanion(
       id: id ?? this.id,
@@ -940,6 +990,8 @@ class NewsArticlesTableCompanion
       rankingScore: rankingScore ?? this.rankingScore,
       isMajorSource: isMajorSource ?? this.isMajorSource,
       expiresAt: expiresAt ?? this.expiresAt,
+      primarySubcategorySlug:
+          primarySubcategorySlug ?? this.primarySubcategorySlug,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1016,6 +1068,10 @@ class NewsArticlesTableCompanion
     if (expiresAt.present) {
       map['expires_at'] = Variable<DateTime>(expiresAt.value);
     }
+    if (primarySubcategorySlug.present) {
+      map['primary_subcategory_slug'] =
+          Variable<String>(primarySubcategorySlug.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1047,6 +1103,7 @@ class NewsArticlesTableCompanion
           ..write('rankingScore: $rankingScore, ')
           ..write('isMajorSource: $isMajorSource, ')
           ..write('expiresAt: $expiresAt, ')
+          ..write('primarySubcategorySlug: $primarySubcategorySlug, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1909,6 +1966,7 @@ typedef $$NewsArticlesTableTableCreateCompanionBuilder
   Value<double> rankingScore,
   Value<bool> isMajorSource,
   Value<DateTime?> expiresAt,
+  Value<String?> primarySubcategorySlug,
   Value<int> rowid,
 });
 typedef $$NewsArticlesTableTableUpdateCompanionBuilder
@@ -1935,6 +1993,7 @@ typedef $$NewsArticlesTableTableUpdateCompanionBuilder
   Value<double> rankingScore,
   Value<bool> isMajorSource,
   Value<DateTime?> expiresAt,
+  Value<String?> primarySubcategorySlug,
   Value<int> rowid,
 });
 
@@ -2019,6 +2078,10 @@ class $$NewsArticlesTableTableFilterComposer
 
   ColumnFilters<DateTime> get expiresAt => $composableBuilder(
       column: $table.expiresAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get primarySubcategorySlug => $composableBuilder(
+      column: $table.primarySubcategorySlug,
+      builder: (column) => ColumnFilters(column));
 }
 
 class $$NewsArticlesTableTableOrderingComposer
@@ -2100,6 +2163,10 @@ class $$NewsArticlesTableTableOrderingComposer
 
   ColumnOrderings<DateTime> get expiresAt => $composableBuilder(
       column: $table.expiresAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get primarySubcategorySlug => $composableBuilder(
+      column: $table.primarySubcategorySlug,
+      builder: (column) => ColumnOrderings(column));
 }
 
 class $$NewsArticlesTableTableAnnotationComposer
@@ -2178,6 +2245,9 @@ class $$NewsArticlesTableTableAnnotationComposer
 
   GeneratedColumn<DateTime> get expiresAt =>
       $composableBuilder(column: $table.expiresAt, builder: (column) => column);
+
+  GeneratedColumn<String> get primarySubcategorySlug => $composableBuilder(
+      column: $table.primarySubcategorySlug, builder: (column) => column);
 }
 
 class $$NewsArticlesTableTableTableManager extends RootTableManager<
@@ -2231,6 +2301,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<double> rankingScore = const Value.absent(),
             Value<bool> isMajorSource = const Value.absent(),
             Value<DateTime?> expiresAt = const Value.absent(),
+            Value<String?> primarySubcategorySlug = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion(
@@ -2256,6 +2327,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             rankingScore: rankingScore,
             isMajorSource: isMajorSource,
             expiresAt: expiresAt,
+            primarySubcategorySlug: primarySubcategorySlug,
             rowid: rowid,
           ),
           createCompanionCallback: ({
@@ -2281,6 +2353,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             Value<double> rankingScore = const Value.absent(),
             Value<bool> isMajorSource = const Value.absent(),
             Value<DateTime?> expiresAt = const Value.absent(),
+            Value<String?> primarySubcategorySlug = const Value.absent(),
             Value<int> rowid = const Value.absent(),
           }) =>
               NewsArticlesTableCompanion.insert(
@@ -2306,6 +2379,7 @@ class $$NewsArticlesTableTableTableManager extends RootTableManager<
             rankingScore: rankingScore,
             isMajorSource: isMajorSource,
             expiresAt: expiresAt,
+            primarySubcategorySlug: primarySubcategorySlug,
             rowid: rowid,
           ),
           withReferenceMapper: (p0) => p0

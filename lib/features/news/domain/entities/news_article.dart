@@ -95,6 +95,17 @@ abstract class NewsArticle with _$NewsArticle {
     @Default([])
     List<NewsSubCategory> subCategories,
 
+    /// The article's primary subcategory as a raw canonical taxonomy slug
+    /// (e.g. 'ai_research', or 'artificial_intelligence.ai_research' for an
+    /// L3 node — see taxonomy/taxonomy.json). Always just subcategories[0]
+    /// server-side (backend/services/ingestion.py). Exists because
+    /// [subCategories] above is currently unusable client-side; used for
+    /// the "Not interested" mute-this-topic flow — format it for display
+    /// rather than showing the raw slug to a user, and pass it through
+    /// as-is (not reformatted) when actually muting, since the backend
+    /// exclusion filter matches on this exact raw string.
+    @JsonKey(name: 'subcategory') String? primarySubcategorySlug,
+
     /// Whether this article is behind a paywall
     @JsonKey(name: 'is_paywalled') @Default(false) bool isPaywalled,
 

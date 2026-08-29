@@ -356,7 +356,9 @@ async def _seed_cold_start_interest_embedding(
 
 
 async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> dict:
-    """Fetch user country preference + interests, with Redis caching."""
+    """Fetch user country preference + interests (+ muted subcategories and
+    disliked article ids, for the exclusion filters in common_where), with
+    Redis caching."""
     cache_key = f"user_state:{user_id}"
     if redis_client:
         try:
@@ -376,6 +378,12 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
         )
         sub_interest_records = await conn.fetch(
             "SELECT sub_category FROM user_sub_interests WHERE user_id = $1", user_id
+        )
+        muted_subcategory_records = await conn.fetch(
+            "SELECT sub_category FROM user_muted_subcategories WHERE user_id = $1", user_id
+        )
+        disliked_article_records = await conn.fetch(
+            "SELECT article_id FROM article_dislikes WHERE user_id = $1", user_id
         )
 
     # Parse interest_embedding string (e.g. "[0.1, 0.2]") to list
@@ -399,6 +407,8 @@ async def get_user_state(user_id: str, db_pool: asyncpg.Pool, redis_client) -> d
         "interest_embedding": interest_embedding,
         "interests": categories,
         "sub_interests": sorted([r["sub_category"] for r in sub_interest_records]),
+        "muted_subcategories": sorted([r["sub_category"] for r in muted_subcategory_records]),
+        "disliked_article_ids": sorted([str(r["article_id"]) for r in disliked_article_records]),
     }
 
     if redis_client:
@@ -635,6 +645,14 @@ async def get_feed(
         # would starve the bucket, defeating the portfolio-interleave design.
         sub_interests = user_state.get("sub_interests", []) if user_state else []
 
+        # Muted subcategories / disliked articles ARE hard WHERE filters (unlike
+        # sub_interests above) — the user explicitly asked to stop seeing this
+        # topic/article, so unlike a soft ranking boost, every bucket (including
+        # Discovery, whose whole point is otherwise to ignore preferences for
+        # variety) must respect them. Wired into common_where below.
+        muted_subcategories = user_state.get("muted_subcategories", []) if user_state else []
+        disliked_article_ids = user_state.get("disliked_article_ids", []) if user_state else []
+
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
         async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None, subcategory_boost: Optional[List[str]] = None, trending_first: bool = False):
             params = list(params)  # local copy — subcategory_boost below appends to it
@@ -709,8 +727,24 @@ async def get_feed(
         if user_id:
             viewed_ids = await _get_viewed_ids(user_id, redis_client, db_pool)
 
-        common_where = "published_at > NOW() - INTERVAL '72 hours' AND (expires_at IS NULL OR expires_at > NOW()) AND id <> ALL($1::uuid[])"
-        viewed_params = [[UUID(vid) for vid in viewed_ids]]
+        # $1 excludes seen articles (TTL'd — see _get_viewed_ids). $2/$3 exclude
+        # explicitly-disliked articles and muted subcategories — permanent
+        # opt-outs, not TTL'd, and (unlike sub_interests) hard filters applied
+        # to every bucket. Empty arrays are safe/no-op here (id <> ALL('{}') and
+        # NOT (x && '{}') are both always-true), so no conditional branching
+        # is needed for users with nothing muted/disliked yet.
+        common_where = (
+            "published_at > NOW() - INTERVAL '72 hours' "
+            "AND (expires_at IS NULL OR expires_at > NOW()) "
+            "AND id <> ALL($1::uuid[]) "
+            "AND id <> ALL($2::uuid[]) "
+            "AND NOT (subcategories && $3::text[])"
+        )
+        base_params = [
+            [UUID(vid) for vid in viewed_ids],
+            [UUID(aid) for aid in disliked_article_ids],
+            muted_subcategories,
+        ]
 
         # Geographic Filter: Only show global news or news from the user's country
         geo_filter = " AND (country_code IS NULL"
@@ -725,7 +759,7 @@ async def get_feed(
             # Bucket 1: Personalized (70%)
             if user_state and user_state.get("interest_embedding"):
                 # Index calculation: viewed_ids array($1), [interests($2)], embedding($3), country($4)
-                p_params = list(viewed_params)
+                p_params = list(base_params)
                 
                 if strict_primary_category:
                     p_where = f"{common_where} AND categories[1] = ${len(p_params)+1}::text"
@@ -761,7 +795,7 @@ async def get_feed(
                 )
             else:
                 # Cold start: rely on category matches
-                p_params = list(viewed_params)
+                p_params = list(base_params)
                 if strict_primary_category:
                     p_where = f"{common_where} AND categories[1] = ${len(p_params)+1}::text"
                     p_params.append(category)
@@ -791,7 +825,7 @@ async def get_feed(
 
             # Bucket 2: Trending (20%)
             # Must respect user interests while being high-ranking
-            t_params = list(viewed_params)
+            t_params = list(base_params)
             if strict_primary_category:
                 t_where = f"{common_where} AND trend_score > 0 AND categories[1] = ${len(t_params)+1}::text"
                 t_params.append(category)
@@ -820,7 +854,7 @@ async def get_feed(
             # Bucket 3: Discovery (10%)
             # Random selection to break the filter bubble.
             # When on a category page, we must still respect the category choice.
-            d_params = list(viewed_params)
+            d_params = list(base_params)
             if strict_primary_category:
                 d_where = f"{common_where} AND categories[1] = ${len(d_params)+1}::text"
                 d_params.append(category)
@@ -849,7 +883,7 @@ async def get_feed(
 
             # Bucket 4: Global Trending (Phase 2 fallback / Cold start filler)
             # High quality trending news. Constrained by category if requested.
-            gt_params = list(viewed_params)
+            gt_params = list(base_params)
             if strict_primary_category:
                 gt_where = f"{common_where} AND ranking_score > 0.3 AND categories[1] = ${len(gt_params)+1}::text"
                 gt_params.append(category)
@@ -1223,6 +1257,62 @@ async def toggle_like(
             # Debounced background update
             schedule_debounced_personalization_update(user.id)
             return {"status": "liked"}
+
+
+@router.post("/dislike")
+@limiter.limit("60/minute")
+async def toggle_dislike(
+    request: Request,
+    article_id: UUID,
+    db_pool: asyncpg.Pool = Depends(get_db),
+    user: User = Depends(verify_supabase_jwt)
+):
+    """
+    Toggles the dislike ("Not interested") status of an article for the
+    user. Disliked articles are permanently excluded from that user's feed
+    via common_where in get_feed — unlike the seen-filter, this doesn't
+    expire, and unlike Like it doesn't currently feed into the interest
+    embedding (see the 20260829220000 migration's notes on why that's
+    deliberately deferred, not an oversight).
+
+    Toggle-shaped (mirrors /like) mainly so a future Undo affordance is
+    free — just call this again with the same article_id.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    async with db_pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM article_dislikes WHERE user_id = $1 AND article_id = $2",
+            user.id, str(article_id)
+        )
+
+        if exists:
+            await conn.execute(
+                "DELETE FROM article_dislikes WHERE user_id = $1 AND article_id = $2",
+                user.id, str(article_id)
+            )
+            status = "undisliked"
+        else:
+            await conn.execute(
+                "INSERT INTO article_dislikes (user_id, article_id) VALUES ($1, $2)",
+                user.id, str(article_id)
+            )
+            status = "disliked"
+
+    # Unlike /like, disliked_article_ids lives inside the cached user_state
+    # blob itself (it's a hard WHERE filter, not a background-recomputed
+    # embedding) — so the cache MUST be busted here, immediately, or the
+    # same article could keep resurfacing for up to the 5-minute TTL right
+    # after the user explicitly said they don't want to see it again.
+    redis_client = getattr(request.app.state, "redis_client", None)
+    if redis_client:
+        try:
+            await redis_client.delete(f"user_state:{user.id}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate user_state cache after dislike: {e}")
+
+    return {"status": status}
 
 
 class LikeAction(BaseModel):

@@ -18,6 +18,7 @@ import '../../../../core/utils/browser_service.dart';
 import 'ai_quick_chat_sheet.dart';
 import '../../application/pending_activity_provider.dart';
 import 'share_card_sheet.dart';
+import 'mute_subcategory_sheet.dart';
 
 const bool _hideFeedIndicators =
     bool.fromEnvironment('CURRENTA_HIDE_FEED_INDICATORS', defaultValue: false);
@@ -771,17 +772,32 @@ class _NewsCardState extends ConsumerState<NewsCard>
     );
   }
 
-  void _handleNotInterested() {
+  Future<void> _handleNotInterested() async {
     HapticFeedback.mediumImpact();
-    // TODO: this is UI scaffolding only — nothing is persisted yet. The real
-    // feature (deselect/mute a subcategory via a bottom sheet, backed by a
-    // new user_muted_subcategories table + NOT (subcategories && $n) in
-    // feed.py's common_where) is tracked as a separate follow-up.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Got it — we'll use this to fine-tune your feed soon"),
-        behavior: SnackBarBehavior.floating,
+
+    // Instant skip (removes the article from the pager immediately) +
+    // fire-and-forget dislike write — see NewsFeedNotifier.dislikeArticle
+    // for why this is a removal, not just a flag like toggleLike/
+    // toggleFavorite. No snackbar: the skip itself is the confirmation.
+    ref
+        .read(newsFeedNotifierProvider.notifier)
+        .dislikeArticle(widget.article.id);
+
+    // Offer the stronger "mute this whole topic" action, but only if this
+    // article actually has a subcategory and the user hasn't opted out of
+    // seeing this prompt.
+    final slug = widget.article.primarySubcategorySlug;
+    if (slug == null || slug.isEmpty) return;
+    if (!await NotInterestedSheetPrefs.shouldShow()) return;
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1E2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      builder: (context) => MuteSubCategorySheet(subcategorySlug: slug),
     );
   }
 

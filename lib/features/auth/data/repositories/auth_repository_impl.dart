@@ -400,6 +400,70 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> muteSubCategory(String subCategory) async {
+    var user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      debugPrint('[Auth] No user found for muteSubCategory. Signing in anonymously...');
+      await _supabase.auth.signInAnonymously();
+      user = _supabase.auth.currentUser;
+    }
+
+    final uid = user?.id;
+    if (uid == null) {
+      throw const ServerException(
+          'Unable to establish a session to mute this topic.');
+    }
+
+    try {
+      await _supabase.from('user_muted_subcategories').upsert(
+        {'user_id': uid, 'sub_category': subCategory},
+        onConflict: 'user_id, sub_category',
+      );
+    } catch (e) {
+      debugPrint('[Auth] Error muting subcategory: $e');
+      throw ServerException('Failed to mute topic: $e');
+    }
+  }
+
+  @override
+  Future<void> unmuteSubCategory(String subCategory) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await _supabase
+          .from('user_muted_subcategories')
+          .delete()
+          .eq('user_id', uid)
+          .eq('sub_category', subCategory);
+    } catch (e) {
+      debugPrint('[Auth] Error unmuting subcategory: $e');
+      throw ServerException('Failed to unmute topic: $e');
+    }
+  }
+
+  @override
+  Future<List<String>> getMutedSubCategories() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final response = await _supabase
+          .from('user_muted_subcategories')
+          .select('sub_category')
+          .eq('user_id', uid);
+
+      return (response as List<dynamic>)
+          .map((item) => item['sub_category'] as String)
+          .toList();
+    } catch (e) {
+      debugPrint('[Auth] Error fetching muted subcategories: $e');
+      return [];
+    }
+  }
+
+  @override
   Future<void> savePreferredCountry(String countryCode) async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) {

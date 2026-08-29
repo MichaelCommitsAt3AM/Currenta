@@ -281,6 +281,11 @@ class NewsRepositoryImpl implements NewsRepository {
   }
 
   @override
+  Future<void> dislikeArticle(String articleId) async {
+    await _remote.toggleArticleDislike(articleId);
+  }
+
+  @override
   Stream<List<NewsArticle>> watchFavorites() {
     return _dao
         .watchFavorites()

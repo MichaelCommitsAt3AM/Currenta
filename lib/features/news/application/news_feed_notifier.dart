@@ -831,6 +831,37 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     await _repo.toggleFavorite(articleId);
   }
 
+  /// "Not interested" — unlike toggleLike/toggleFavorite, this REMOVES the
+  /// article from the currently-displayed feed instead of just flagging it,
+  /// so the pager immediately reveals whatever now sits at the same index
+  /// (i.e. what used to be the next article) with no extra scroll needed.
+  ///
+  /// Only mutates the current feed's in-memory list — unlike
+  /// _updateArticleInAllFeeds's per-attribute updates, a removal can't be
+  /// lazily replayed onto other cached category tabs via
+  /// _pendingArticleUpdates (that map assumes stable list length/order), so
+  /// this article could still briefly reappear if the user switches to a
+  /// category tab that already had it cached, until that tab's own TTL
+  /// refresh runs. The backend permanently excludes it from every future
+  /// fetch regardless (see common_where in backend/api/feed.py).
+  Future<void> dislikeArticle(String articleId) async {
+    final current = (state.hasValue ? state.value : null);
+    if (current == null) return;
+
+    final index = current.articles.indexWhere((a) => a.id == articleId);
+    if (index == -1) return;
+
+    final newArticles = [...current.articles]..removeAt(index);
+    final newIndex = current.currentIndex >= newArticles.length
+        ? (newArticles.isEmpty ? 0 : newArticles.length - 1)
+        : current.currentIndex;
+
+    state = AsyncData(
+        current.copyWith(articles: newArticles, currentIndex: newIndex));
+
+    await _repo.dislikeArticle(articleId);
+  }
+
   /// Marks an article as viewed.
   Future<void> markArticleAsViewed(String articleId) async {
     final current = (state.hasValue ? state.value : null);

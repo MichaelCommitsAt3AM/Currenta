@@ -70,6 +70,13 @@ abstract class NewsRepository {
   /// Toggles the favorite status of an article.
   Future<void> toggleFavorite(String articleId);
 
+  /// Records "Not interested" for an article — permanently excluded from
+  /// this user's feed from here on. Unlike toggleLike/toggleFavorite there's
+  /// no persistent UI state to keep in sync locally (no icon reflects
+  /// "disliked"), so this is a simple fire-to-remote call, not routed
+  /// through the local DAO/cache.
+  Future<void> dislikeArticle(String articleId);
+
   /// Returns a stream of favorited articles.
   Stream<List<NewsArticle>> watchFavorites();
 

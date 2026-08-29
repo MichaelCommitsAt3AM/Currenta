@@ -124,6 +124,12 @@ class NewsArticlesTable extends Table {
       boolean().named('is_major_source').withDefault(const Constant(false))();
   DateTimeColumn get expiresAt => dateTime().named('expires_at').nullable()();
 
+  /// Raw canonical taxonomy slug (e.g. 'ai_research') — see
+  /// NewsArticle.primarySubcategorySlug for why this exists alongside the
+  /// (currently unusable) subCategories column above.
+  TextColumn get primarySubcategorySlug =>
+      text().named('primary_subcategory_slug').nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -180,7 +186,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? connection]) : super(connection ?? _openConnection());
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -225,6 +231,10 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 12) {
             await m.addColumn(newsArticlesTable, newsArticlesTable.expiresAt);
+          }
+          if (from < 13) {
+            await m.addColumn(
+                newsArticlesTable, newsArticlesTable.primarySubcategorySlug);
           }
         },
       );

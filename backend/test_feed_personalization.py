@@ -309,3 +309,40 @@ def test_subcategory_boost_is_parameterized_not_string_interpolated():
     assert malicious_value not in order_by
     assert order_by == "(subcategories && $2::text[]) DESC, ranking_score DESC"
     assert local_params[-1] == [malicious_value]
+
+
+def test_common_where_excludes_disliked_articles_and_muted_subcategories():
+    """Regression guard for the 20260829220000 migration's "Not interested"
+    feature: every bucket shares common_where, so a hard filter added there
+    (rather than per-bucket) is guaranteed to apply everywhere, including
+    Discovery — which otherwise deliberately ignores personalization for
+    variety, but must still respect an explicit opt-out. Both filters must
+    be parameterized (array binds), not string-interpolated — mirrors
+    test_subcategory_boost_is_parameterized_not_string_interpolated's
+    reasoning: muted_subcategories/disliked_article_ids both ultimately
+    trace back to user-writable data."""
+    import inspect
+
+    source = inspect.getsource(feed.get_feed)
+    assert "AND id <> ALL($2::uuid[])" in source
+    assert "AND NOT (subcategories && $3::text[])" in source
+
+    # base_params[1]/[2] must feed those two placeholders, in that order,
+    # and be present in every bucket's params (since every bucket does
+    # `X_params = list(base_params)` before appending its own filters) —
+    # not just assembled once and forgotten.
+    assert source.count("list(base_params)") >= 5
+
+
+def test_get_user_state_includes_muted_subcategories_and_disliked_ids():
+    """Regression guard: these two keys must survive the Redis round-trip
+    (get_user_state caches its return value verbatim via orjson), or a
+    cache-hit would silently serve a user_state missing the fields
+    common_where depends on."""
+    import inspect
+
+    source = inspect.getsource(feed.get_user_state)
+    assert '"muted_subcategories"' in source
+    assert '"disliked_article_ids"' in source
+    assert "user_muted_subcategories" in source
+    assert "article_dislikes" in source

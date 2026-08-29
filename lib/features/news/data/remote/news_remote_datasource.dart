@@ -179,6 +179,27 @@ class NewsRemoteDataSource {
     }
   }
 
+  /// Records "Not interested" — the article is permanently excluded from
+  /// this user's feed from here on (see common_where in backend/api/feed.py).
+  Future<void> toggleArticleDislike(String articleId) async {
+    try {
+      final url = '${AppConfig.apiBaseUrl}/api/feed/dislike';
+      final session = await _getValidSession();
+
+      final options = Options(
+        headers: {
+          if (session != null) 'Authorization': 'Bearer ${session.accessToken}',
+        },
+      );
+
+      await _dio.post(url,
+          queryParameters: {'article_id': articleId}, options: options);
+    } catch (e) {
+      debugPrint('[Remote] Failed to toggle dislike for $articleId: $e');
+      rethrow;
+    }
+  }
+
   Future<void> toggleArticleLike(String articleId) async {
     try {
       final url = '${AppConfig.apiBaseUrl}/api/feed/like';

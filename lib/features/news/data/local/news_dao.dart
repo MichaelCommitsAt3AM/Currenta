@@ -481,6 +481,7 @@ extension NewsArticleMapper on NewsArticlesTableData {
         rankingScore: rankingScore,
         isMajorSource: isMajorSource,
         expiresAt: expiresAt,
+        primarySubcategorySlug: primarySubcategorySlug,
       );
 }
 
@@ -507,5 +508,6 @@ extension NewsArticleDboMapper on NewsArticle {
         rankingScore: Value(rankingScore),
         isMajorSource: Value(isMajorSource),
         expiresAt: Value(expiresAt),
+        primarySubcategorySlug: Value(primarySubcategorySlug),
       );
 }
