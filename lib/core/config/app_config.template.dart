@@ -40,4 +40,11 @@ class AppConfig {
   static const String supportEmail = 'support@currenta.tech';
   static const String privacyPolicyUrl = 'https://currenta.tech/privacy.html';
   static const String termsOfServiceUrl = 'https://currenta.tech/terms.html';
+
+  // ── Sharing ─────────────────────────────────────────────────────
+  /// Shown in the article share card's "Get it on Google Play" CTA. If the
+  /// app is still in closed testing, this must be the opt-in testing link
+  /// (`https://play.google.com/apps/testing/<applicationId>`) rather than
+  /// the public listing URL — the listing 404s for anyone not opted in yet.
+  static const String playStoreUrl = 'YOUR_PLAY_STORE_URL';
 }

@@ -17,9 +17,12 @@ import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../../core/utils/browser_service.dart';
 import 'ai_quick_chat_sheet.dart';
 import '../../application/pending_activity_provider.dart';
+import 'share_card_sheet.dart';
 
 const bool _hideFeedIndicators =
     bool.fromEnvironment('CURRENTA_HIDE_FEED_INDICATORS', defaultValue: false);
+
+enum _ArticleMenuAction { share, notInterested }
 
 class NewsCard extends ConsumerStatefulWidget {
   final NewsArticle article;
@@ -584,81 +587,201 @@ class _NewsCardState extends ConsumerState<NewsCard>
   Widget _buildFooterActions(Color catColor) {
     return Row(
       children: [
-        IconButton(
-          onPressed: _handleIconPress,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          icon: Icon(
-            _isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: _isLiked
-                ? Colors.redAccent
-                : Colors.white.withValues(alpha: 0.6),
-            size: 24,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          _likesCount.toString(),
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-        ),
-        const SizedBox(width: 24),
-        ScaleTransition(
-          scale: Tween<double>(begin: 1.0, end: 1.3).animate(
-            CurvedAnimation(
-              parent: _bookmarkController,
-              curve: Curves.easeOutBack,
-            ),
-          ),
-          child: IconButton(
-            onPressed: _handleFavoritePress,
+        _buildActionPill(),
+        const Spacer(),
+        _buildMoreMenuButton(),
+      ],
+    );
+  }
+
+  Widget _pillDivider() {
+    return Container(
+      width: 1,
+      height: 15,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      color: Colors.white.withValues(alpha: 0.14),
+    );
+  }
+
+  // Like + Save + AI grouped under one pill, per the redesign — the 3-dot
+  // menu (Share / Not interested) takes the pill's old standalone spot on
+  // the far right, where the AI button used to sit alone.
+  //
+  // Icon size and padding are balanced against each other so the pill's
+  // overall footprint stays put even as the icons themselves grow — see
+  // the icon `size:` values below.
+  Widget _buildActionPill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: _handleIconPress,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
+            tooltip: _isLiked ? 'Unlike' : 'Like',
             icon: Icon(
-              _isFavorited
-                  ? Icons.bookmark_rounded
-                  : Icons.bookmark_border_rounded,
-              color: _isFavorited
-                  ? const Color(0xFFFFD700)
-                  : Colors.white.withValues(alpha: 0.6),
-              size: 24,
+              _isLiked
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              color: _isLiked
+                  ? Colors.redAccent
+                  : Colors.white.withValues(alpha: 0.75),
+              size: 20,
             ),
           ),
-        ),
-        const SizedBox(width: 24),
-        IconButton(
-          onPressed: () {
-            HapticFeedback.lightImpact();
-            final isAuth = ref.read(authNotifierProvider).isAuthenticated;
-            if (!isAuth) {
-              ref
-                  .read(pendingActivityNotifierProvider.notifier)
-                  .set(PendingAction.chat, widget.article.id);
-              _showAuthSheet();
-              return;
-            }
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (context) => AiQuickChatSheet(article: widget.article),
-            );
-          },
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          icon: Icon(
-            Icons.auto_awesome,
-            color: Colors.white.withValues(alpha: 0.6),
-            size: 22,
+          _pillDivider(),
+          ScaleTransition(
+            scale: Tween<double>(begin: 1.0, end: 1.3).animate(
+              CurvedAnimation(
+                parent: _bookmarkController,
+                curve: Curves.easeOutBack,
+              ),
+            ),
+            child: IconButton(
+              onPressed: _handleFavoritePress,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: _isFavorited ? 'Remove from Saved' : 'Save',
+              icon: Icon(
+                _isFavorited
+                    ? Icons.bookmark_rounded
+                    : Icons.bookmark_border_rounded,
+                color: _isFavorited
+                    ? const Color(0xFFFFD700)
+                    : Colors.white.withValues(alpha: 0.75),
+                size: 20,
+              ),
+            ),
+          ),
+          _pillDivider(),
+          _buildAiButton(),
+        ],
+      ),
+    );
+  }
+
+  // Standalone at the far right — the pill's old spot before AI joined it.
+  // 3-dot dropdown: Share (functional) and Not interested (UI scaffolding
+  // for now — see _handleNotInterested).
+  Widget _buildMoreMenuButton() {
+    return PopupMenuButton<_ArticleMenuAction>(
+      padding: EdgeInsets.zero,
+      splashRadius: 20,
+      // PopupMenuButton anchors the menu's top edge to the button's top
+      // edge by default (it only clamps to stay on-screen, it never moves
+      // away from the button to avoid covering it) — with the button this
+      // close to the bottom of the card, that clamping pinned the menu
+      // right on top of the button instead of beside it. Shifting the
+      // anchor up by roughly the menu's own height (2 items ~48px each +
+      // 16px surface padding) plus a gap opens it just above the button.
+      offset: const Offset(0, -140),
+      icon: Icon(
+        Icons.more_vert_rounded,
+        color: Colors.white.withValues(alpha: 0.75),
+        size: 18,
+      ),
+      color: const Color(0xFF1A1E2E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      onSelected: _handleMenuAction,
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _ArticleMenuAction.share,
+          child: Row(
+            children: [
+              Icon(Icons.ios_share_rounded, color: Colors.white70, size: 20),
+              SizedBox(width: 12),
+              Text('Share', style: TextStyle(color: Colors.white)),
+            ],
           ),
         ),
-        const Spacer(),
-        if (widget.index < widget.total - 1)
-          Icon(
-            Icons.keyboard_double_arrow_up_rounded,
-            color: catColor.withValues(alpha: 0.4),
-            size: 20,
+        PopupMenuItem(
+          value: _ArticleMenuAction.notInterested,
+          child: Row(
+            children: [
+              Icon(Icons.not_interested_rounded,
+                  color: Colors.white70, size: 20),
+              SizedBox(width: 12),
+              Text('Not interested', style: TextStyle(color: Colors.white)),
+            ],
           ),
+        ),
       ],
+    );
+  }
+
+  // Third icon inside the action pill, alongside Like and Save.
+  Widget _buildAiButton() {
+    return IconButton(
+      onPressed: () {
+        HapticFeedback.lightImpact();
+        final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+        if (!isAuth) {
+          ref
+              .read(pendingActivityNotifierProvider.notifier)
+              .set(PendingAction.chat, widget.article.id);
+          _showAuthSheet();
+          return;
+        }
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => AiQuickChatSheet(article: widget.article),
+        );
+      },
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      icon: Icon(
+        Icons.auto_awesome,
+        color: Colors.white.withValues(alpha: 0.75),
+        size: 20,
+      ),
+    );
+  }
+
+  void _handleMenuAction(_ArticleMenuAction action) {
+    switch (action) {
+      case _ArticleMenuAction.share:
+        _shareArticle();
+      case _ArticleMenuAction.notInterested:
+        _handleNotInterested();
+    }
+  }
+
+  void _shareArticle() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1A1E2E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => ShareCardSheet(article: widget.article),
+    );
+  }
+
+  void _handleNotInterested() {
+    HapticFeedback.mediumImpact();
+    // TODO: this is UI scaffolding only — nothing is persisted yet. The real
+    // feature (deselect/mute a subcategory via a bottom sheet, backed by a
+    // new user_muted_subcategories table + NOT (subcategories && $n) in
+    // feed.py's common_where) is tracked as a separate follow-up.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Got it — we'll use this to fine-tune your feed soon"),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 

@@ -265,6 +265,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await _handleSignInResult(oldGuestUid);
       debugPrint('[Auth] signInWithGoogle completed (isAuthenticated=${state.isAuthenticated}, isAnonymous=${state.isAnonymous})');
       state = state.copyWith(isLoading: false);
+    } on AuthCancelledException {
+      // User backed out of the Google account picker — not an error, so
+      // don't populate `state.error` (screens show that as a snackbar).
+      debugPrint('[Auth] signInWithGoogle canceled by user.');
+      state = state.copyWith(isLoading: false);
     } on AppException catch (e) {
       state = state.copyWith(isLoading: false, error: e.toDisplayMessage());
     } catch (e) {

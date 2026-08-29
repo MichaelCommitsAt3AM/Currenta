@@ -59,6 +59,16 @@ class AuthActionException extends AppException {
   const AuthActionException(super.message);
 }
 
+/// The user dismissed a native auth flow (e.g. backed out of the Google
+/// account picker) rather than it failing. Callers must NOT treat this like
+/// a normal `Future<void>` completion — that previously let callers march
+/// on into "sign-in succeeded" logic (e.g. finalizing onboarding) even
+/// though no session was actually established. Never surfaced as an error
+/// banner; catch it separately and just reset loading state.
+class AuthCancelledException extends AppException {
+  const AuthCancelledException() : super('Sign-in was canceled.');
+}
+
 /// Extension to provide consistent user-friendly error messages across the app.
 extension ErrorFormatter on Object {
   String toDisplayMessage() {

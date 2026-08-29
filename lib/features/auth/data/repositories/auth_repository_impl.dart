@@ -186,7 +186,13 @@ class AuthRepositoryImpl implements AuthRepository {
       debugPrint('[Auth] GoogleSignInException: ${e.code}, $e');
       if (e.code == GoogleSignInExceptionCode.canceled) {
         debugPrint('[Auth] Google sign-in canceled by user.');
-        return;
+        // Must NOT return normally here — a plain return looks like success
+        // to callers (they see a completed Future<void> with no exception)
+        // and some of them (AuthBridgeScreen) proceed straight into
+        // "finalize sign-in" logic on that basis, silently falling through
+        // to whatever session happens to already exist (e.g. a stale guest
+        // session) instead of leaving the user on the sign-in screen.
+        throw const AuthCancelledException();
       }
       throw ServerException(
           'Google Sign-In failed (${e.code}): ${e.toString()}');

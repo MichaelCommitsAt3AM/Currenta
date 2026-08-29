@@ -7,6 +7,7 @@ import '../../../news/domain/entities/news_category.dart';
 import '../../../news/presentation/screens/feed_screen.dart';
 import '../../application/auth_notifier.dart';
 import '../../../../core/utils/snackbar_utils.dart';
+import '../../../../core/errors/app_exception.dart';
 
 class AuthBridgeScreen extends ConsumerStatefulWidget {
   const AuthBridgeScreen({super.key, required this.selectedInterests});
@@ -127,14 +128,24 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
 
     try {
       await ref.read(authRepositoryProvider).signInWithGoogle();
-      
+
       setState(() {
         _loadingMessage = 'Personalizing your experience...';
       });
-      
+
       // After sign in and migration (handled internally by AuthRepo), finalize preferences.
       await _completeOnboardingFlow();
-      
+
+    } on AuthCancelledException {
+      // User backed out of the Google account picker — this is not an
+      // error and no session was established. Just return to the sign-in
+      // screen; do NOT fall through to _completeOnboardingFlow (that was
+      // the bug: it would silently finalize onboarding against whatever
+      // session happened to already exist, e.g. a stale guest session).
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
     } catch (e) {
       if (!mounted) return;
       AppSnackbar.showError(context, 'Failed to sign in: $e');
