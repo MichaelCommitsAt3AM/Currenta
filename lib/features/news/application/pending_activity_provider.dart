@@ -3,7 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'pending_activity_provider.g.dart';
 
-enum PendingAction { like, favorite, chat }
+enum PendingAction { like, favorite, chat, notInterested }
 
 class PendingActivity {
   final PendingAction action;

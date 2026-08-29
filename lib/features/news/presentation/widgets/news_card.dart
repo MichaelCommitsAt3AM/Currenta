@@ -218,7 +218,7 @@ class _NewsCardState extends ConsumerState<NewsCard>
               ),
               const SizedBox(height: 12),
               const Text(
-                'You need to be signed in to like, favorite, or chat with AI. Join us to personalize your experience.',
+                'You need to be signed in to like, favorite, mark articles as not interested, or chat with AI. Join us to personalize your experience.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF8890B5),
@@ -774,6 +774,15 @@ class _NewsCardState extends ConsumerState<NewsCard>
 
   Future<void> _handleNotInterested() async {
     HapticFeedback.mediumImpact();
+
+    final isAuth = ref.read(authNotifierProvider).isAuthenticated;
+    if (!isAuth) {
+      ref
+          .read(pendingActivityNotifierProvider.notifier)
+          .set(PendingAction.notInterested, widget.article.id);
+      _showAuthSheet();
+      return;
+    }
 
     // Instant skip (removes the article from the pager immediately) +
     // fire-and-forget dislike write — see NewsFeedNotifier.dislikeArticle
