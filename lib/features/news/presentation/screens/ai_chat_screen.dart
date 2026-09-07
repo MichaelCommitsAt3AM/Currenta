@@ -453,6 +453,11 @@ class _ChatBubble extends StatelessWidget {
               ),
             ],
           ),
+          if (message.searchSourceCount != null &&
+              message.searchSourceCount! > 0) ...[
+            const SizedBox(height: 8),
+            _SearchSourcesChip(count: message.searchSourceCount!),
+          ],
           const SizedBox(height: 12),
           if (isStreaming)
             Text(
@@ -535,6 +540,43 @@ class _ChatBubble extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchSourcesChip extends StatelessWidget {
+  final int count;
+
+  const _SearchSourcesChip({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.travel_explore_rounded,
+            size: 13,
+            color: Colors.white.withValues(alpha: 0.5),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'Searched $count ${count == 1 ? 'source' : 'sources'}',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ],

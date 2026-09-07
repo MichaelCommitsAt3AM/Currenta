@@ -1651,6 +1651,12 @@ class $ChatMessagesTableTable extends ChatMessagesTable
   late final GeneratedColumn<String> content = GeneratedColumn<String>(
       'content', aliasedName, false,
       type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _searchSourceCountMeta =
+      const VerificationMeta('searchSourceCount');
+  @override
+  late final GeneratedColumn<int> searchSourceCount = GeneratedColumn<int>(
+      'search_source_count', aliasedName, true,
+      type: DriftSqlType.int, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -1661,7 +1667,7 @@ class $ChatMessagesTableTable extends ChatMessagesTable
       defaultValue: currentDateAndTime);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, sessionId, role, content, createdAt];
+      [id, sessionId, role, content, searchSourceCount, createdAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1694,6 +1700,12 @@ class $ChatMessagesTableTable extends ChatMessagesTable
     } else if (isInserting) {
       context.missing(_contentMeta);
     }
+    if (data.containsKey('search_source_count')) {
+      context.handle(
+          _searchSourceCountMeta,
+          searchSourceCount.isAcceptableOrUnknown(
+              data['search_source_count']!, _searchSourceCountMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -1715,6 +1727,8 @@ class $ChatMessagesTableTable extends ChatMessagesTable
           .read(DriftSqlType.string, data['${effectivePrefix}role'])!,
       content: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      searchSourceCount: attachedDatabase.typeMapping.read(
+          DriftSqlType.int, data['${effectivePrefix}search_source_count']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
     );
@@ -1732,12 +1746,14 @@ class ChatMessagesTableData extends DataClass
   final String sessionId;
   final String role;
   final String content;
+  final int? searchSourceCount;
   final DateTime createdAt;
   const ChatMessagesTableData(
       {required this.id,
       required this.sessionId,
       required this.role,
       required this.content,
+      this.searchSourceCount,
       required this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1746,6 +1762,9 @@ class ChatMessagesTableData extends DataClass
     map['session_id'] = Variable<String>(sessionId);
     map['role'] = Variable<String>(role);
     map['content'] = Variable<String>(content);
+    if (!nullToAbsent || searchSourceCount != null) {
+      map['search_source_count'] = Variable<int>(searchSourceCount);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -1756,6 +1775,9 @@ class ChatMessagesTableData extends DataClass
       sessionId: Value(sessionId),
       role: Value(role),
       content: Value(content),
+      searchSourceCount: searchSourceCount == null && nullToAbsent
+          ? const Value.absent()
+          : Value(searchSourceCount),
       createdAt: Value(createdAt),
     );
   }
@@ -1768,6 +1790,7 @@ class ChatMessagesTableData extends DataClass
       sessionId: serializer.fromJson<String>(json['sessionId']),
       role: serializer.fromJson<String>(json['role']),
       content: serializer.fromJson<String>(json['content']),
+      searchSourceCount: serializer.fromJson<int?>(json['searchSourceCount']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -1779,6 +1802,7 @@ class ChatMessagesTableData extends DataClass
       'sessionId': serializer.toJson<String>(sessionId),
       'role': serializer.toJson<String>(role),
       'content': serializer.toJson<String>(content),
+      'searchSourceCount': serializer.toJson<int?>(searchSourceCount),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -1788,12 +1812,16 @@ class ChatMessagesTableData extends DataClass
           String? sessionId,
           String? role,
           String? content,
+          Value<int?> searchSourceCount = const Value.absent(),
           DateTime? createdAt}) =>
       ChatMessagesTableData(
         id: id ?? this.id,
         sessionId: sessionId ?? this.sessionId,
         role: role ?? this.role,
         content: content ?? this.content,
+        searchSourceCount: searchSourceCount.present
+            ? searchSourceCount.value
+            : this.searchSourceCount,
         createdAt: createdAt ?? this.createdAt,
       );
   ChatMessagesTableData copyWithCompanion(ChatMessagesTableCompanion data) {
@@ -1802,6 +1830,9 @@ class ChatMessagesTableData extends DataClass
       sessionId: data.sessionId.present ? data.sessionId.value : this.sessionId,
       role: data.role.present ? data.role.value : this.role,
       content: data.content.present ? data.content.value : this.content,
+      searchSourceCount: data.searchSourceCount.present
+          ? data.searchSourceCount.value
+          : this.searchSourceCount,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -1813,13 +1844,15 @@ class ChatMessagesTableData extends DataClass
           ..write('sessionId: $sessionId, ')
           ..write('role: $role, ')
           ..write('content: $content, ')
+          ..write('searchSourceCount: $searchSourceCount, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, sessionId, role, content, createdAt);
+  int get hashCode =>
+      Object.hash(id, sessionId, role, content, searchSourceCount, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1828,6 +1861,7 @@ class ChatMessagesTableData extends DataClass
           other.sessionId == this.sessionId &&
           other.role == this.role &&
           other.content == this.content &&
+          other.searchSourceCount == this.searchSourceCount &&
           other.createdAt == this.createdAt);
 }
 
@@ -1837,12 +1871,14 @@ class ChatMessagesTableCompanion
   final Value<String> sessionId;
   final Value<String> role;
   final Value<String> content;
+  final Value<int?> searchSourceCount;
   final Value<DateTime> createdAt;
   const ChatMessagesTableCompanion({
     this.id = const Value.absent(),
     this.sessionId = const Value.absent(),
     this.role = const Value.absent(),
     this.content = const Value.absent(),
+    this.searchSourceCount = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   ChatMessagesTableCompanion.insert({
@@ -1850,6 +1886,7 @@ class ChatMessagesTableCompanion
     required String sessionId,
     required String role,
     required String content,
+    this.searchSourceCount = const Value.absent(),
     this.createdAt = const Value.absent(),
   })  : sessionId = Value(sessionId),
         role = Value(role),
@@ -1859,6 +1896,7 @@ class ChatMessagesTableCompanion
     Expression<String>? sessionId,
     Expression<String>? role,
     Expression<String>? content,
+    Expression<int>? searchSourceCount,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -1866,6 +1904,7 @@ class ChatMessagesTableCompanion
       if (sessionId != null) 'session_id': sessionId,
       if (role != null) 'role': role,
       if (content != null) 'content': content,
+      if (searchSourceCount != null) 'search_source_count': searchSourceCount,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -1875,12 +1914,14 @@ class ChatMessagesTableCompanion
       Value<String>? sessionId,
       Value<String>? role,
       Value<String>? content,
+      Value<int?>? searchSourceCount,
       Value<DateTime>? createdAt}) {
     return ChatMessagesTableCompanion(
       id: id ?? this.id,
       sessionId: sessionId ?? this.sessionId,
       role: role ?? this.role,
       content: content ?? this.content,
+      searchSourceCount: searchSourceCount ?? this.searchSourceCount,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -1900,6 +1941,9 @@ class ChatMessagesTableCompanion
     if (content.present) {
       map['content'] = Variable<String>(content.value);
     }
+    if (searchSourceCount.present) {
+      map['search_source_count'] = Variable<int>(searchSourceCount.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -1913,6 +1957,7 @@ class ChatMessagesTableCompanion
           ..write('sessionId: $sessionId, ')
           ..write('role: $role, ')
           ..write('content: $content, ')
+          ..write('searchSourceCount: $searchSourceCount, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2722,6 +2767,7 @@ typedef $$ChatMessagesTableTableCreateCompanionBuilder
   required String sessionId,
   required String role,
   required String content,
+  Value<int?> searchSourceCount,
   Value<DateTime> createdAt,
 });
 typedef $$ChatMessagesTableTableUpdateCompanionBuilder
@@ -2730,6 +2776,7 @@ typedef $$ChatMessagesTableTableUpdateCompanionBuilder
   Value<String> sessionId,
   Value<String> role,
   Value<String> content,
+  Value<int?> searchSourceCount,
   Value<DateTime> createdAt,
 });
 
@@ -2753,6 +2800,10 @@ class $$ChatMessagesTableTableFilterComposer
 
   ColumnFilters<String> get content => $composableBuilder(
       column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get searchSourceCount => $composableBuilder(
+      column: $table.searchSourceCount,
+      builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -2779,6 +2830,10 @@ class $$ChatMessagesTableTableOrderingComposer
   ColumnOrderings<String> get content => $composableBuilder(
       column: $table.content, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<int> get searchSourceCount => $composableBuilder(
+      column: $table.searchSourceCount,
+      builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 }
@@ -2803,6 +2858,9 @@ class $$ChatMessagesTableTableAnnotationComposer
 
   GeneratedColumn<String> get content =>
       $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<int> get searchSourceCount => $composableBuilder(
+      column: $table.searchSourceCount, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -2841,6 +2899,7 @@ class $$ChatMessagesTableTableTableManager extends RootTableManager<
             Value<String> sessionId = const Value.absent(),
             Value<String> role = const Value.absent(),
             Value<String> content = const Value.absent(),
+            Value<int?> searchSourceCount = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               ChatMessagesTableCompanion(
@@ -2848,6 +2907,7 @@ class $$ChatMessagesTableTableTableManager extends RootTableManager<
             sessionId: sessionId,
             role: role,
             content: content,
+            searchSourceCount: searchSourceCount,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
@@ -2855,6 +2915,7 @@ class $$ChatMessagesTableTableTableManager extends RootTableManager<
             required String sessionId,
             required String role,
             required String content,
+            Value<int?> searchSourceCount = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               ChatMessagesTableCompanion.insert(
@@ -2862,6 +2923,7 @@ class $$ChatMessagesTableTableTableManager extends RootTableManager<
             sessionId: sessionId,
             role: role,
             content: content,
+            searchSourceCount: searchSourceCount,
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0

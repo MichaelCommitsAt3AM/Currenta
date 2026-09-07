@@ -170,6 +170,8 @@ class ChatMessagesTable extends Table {
   TextColumn get sessionId => text().named('session_id')();
   TextColumn get role => text()();
   TextColumn get content => text()();
+  IntColumn get searchSourceCount =>
+      integer().named('search_source_count').nullable()();
   DateTimeColumn get createdAt =>
       dateTime().named('created_at').withDefault(currentDateAndTime)();
 }
@@ -186,7 +188,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? connection]) : super(connection ?? _openConnection());
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -235,6 +237,10 @@ class AppDatabase extends _$AppDatabase {
           if (from < 13) {
             await m.addColumn(
                 newsArticlesTable, newsArticlesTable.primarySubcategorySlug);
+          }
+          if (from < 14) {
+            await m.addColumn(
+                chatMessagesTable, chatMessagesTable.searchSourceCount);
           }
         },
       );

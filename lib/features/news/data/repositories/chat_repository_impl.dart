@@ -48,6 +48,7 @@ class ChatRepositoryImpl implements ChatRepository {
       messages: messageRows.map((m) => ChatMessage(
         role: m.role,
         content: m.content,
+        searchSourceCount: m.searchSourceCount,
       )).toList(),
     );
   }
@@ -72,6 +73,7 @@ class ChatRepositoryImpl implements ChatRepository {
         sessionId: sessionId,
         role: message.role,
         content: message.content,
+        searchSourceCount: Value(message.searchSourceCount),
       ),
     );
     

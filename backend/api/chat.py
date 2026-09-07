@@ -317,6 +317,25 @@ async def chat_with_article(
                 if not received_any_text:
                     yield json.dumps({"error": "The assistant was unable to generate a response. Please try rephrasing your question."}) + "\n"
                 elif grounding_metadata:
+                    # Emit a lightweight "searched the web" summary. Grounding
+                    # metadata is only populated when the model actually chose to
+                    # search, so this event is absent for answers drawn purely
+                    # from the model's own knowledge.
+                    try:
+                        source_count = 0
+                        if getattr(grounding_metadata, 'grounding_chunks', None):
+                            source_count = sum(
+                                1 for c in grounding_metadata.grounding_chunks
+                                if c.web and c.web.uri
+                            )
+                        queries = list(getattr(grounding_metadata, 'web_search_queries', None) or [])
+                        if source_count > 0 or queries:
+                            yield json.dumps({"search_meta": {
+                                "source_count": source_count,
+                                "queries": queries,
+                            }}) + "\n"
+                    except Exception as e:
+                        logger.error("Error emitting search meta: %s", e)
                     try:
                         modified_text = add_citations_to_text(full_text, grounding_metadata)
                         if modified_text != full_text:

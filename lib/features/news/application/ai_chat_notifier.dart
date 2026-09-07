@@ -211,6 +211,8 @@ class AiChatNotifier extends _$AiChatNotifier {
               } else {
                 _appendToLastMessage(token);
               }
+            } else if (data.containsKey('search_meta')) {
+              _applySearchMeta(data['search_meta']);
             } else if (data.containsKey('citations_text')) {
               final String citationsText = data['citations_text'];
               if (citationsText.isNotEmpty) {
@@ -260,6 +262,8 @@ class AiChatNotifier extends _$AiChatNotifier {
                 _flushBuffer(); // Flush trailing immediately
               }
             }
+          } else if (data.containsKey('search_meta')) {
+            _applySearchMeta(data['search_meta']);
           } else if (data.containsKey('citations_text')) {
             final String citationsText = data['citations_text'];
             if (citationsText.isNotEmpty) {
@@ -399,6 +403,29 @@ class AiChatNotifier extends _$AiChatNotifier {
       ],
     );
     _chunkBuffer = '';
+  }
+
+  /// Attaches the "searched the web" summary to the in-flight model message.
+  /// Sent by the backend just before `citations_text` when Google Search
+  /// grounding was used; absent when the model answered without searching.
+  void _applySearchMeta(dynamic meta) {
+    if (meta is! Map) return;
+    final count = meta['source_count'];
+    if (count is! int || count <= 0) return;
+
+    // Make sure any buffered tokens are folded in first so we don't overwrite
+    // them when we rebuild the last message.
+    _throttleTimer?.cancel();
+    _flushBuffer();
+
+    final msgs = state.messages;
+    if (msgs.isEmpty || msgs.last.role != 'model') return;
+    state = state.copyWith(
+      messages: [
+        ...msgs.sublist(0, msgs.length - 1),
+        msgs.last.copyWith(searchSourceCount: count),
+      ],
+    );
   }
 
   void _updateLastMessage(String content, {bool? isLoading}) {
