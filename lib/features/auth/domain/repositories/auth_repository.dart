@@ -80,6 +80,12 @@ abstract class AuthRepository {
   /// Fetches the user's muted subcategories.
   Future<List<String>> getMutedSubCategories();
 
+  /// Replaces the user's entire set of muted subcategories with [subCategories]
+  /// (delete-all-then-insert). Used by the Personalization screen, which is
+  /// authoritative over subcategory on/off state; callers must include any L3
+  /// ("Not interested") mutes they want to keep.
+  Future<void> replaceMutedSubCategories(List<String> subCategories);
+
   /// Updates the current user's password.
   Future<void> updatePassword(String newPassword);
 

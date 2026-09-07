@@ -1,0 +1,1229 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "slug": "elections_voting",
+      "display_name": "Elections & Voting",
+      "parent": "politics",
+      "popular": true,
+      "aliases": [
+        "Elections",
+        "By-election",
+        "Local Elections",
+        "Mayoral Election",
+        "Gubernatorial Election",
+        "US Senate Race"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "national_politics",
+      "display_name": "National Politics",
+      "parent": "politics",
+      "popular": true,
+      "aliases": [
+        "Kenyan Politics",
+        "US Politics",
+        "UK Politics",
+        "Local Politics",
+        "White House",
+        "Labour Party",
+        "Northern Ireland",
+        "Party Politics"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "government_policy",
+      "display_name": "Government & Policy",
+      "parent": "politics",
+      "popular": true,
+      "aliases": [
+        "Policy",
+        "Government",
+        "Government Funding",
+        "Government Spending",
+        "Government Appointments",
+        "Government Appointment"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "international_relations",
+      "display_name": "International Relations",
+      "parent": "politics",
+      "additional_categories": [
+        "world"
+      ],
+      "popular": true,
+      "aliases": [
+        "International Relations",
+        "Diplomacy",
+        "Geopolitics",
+        "US-Iran Relations",
+        "Iran Deal",
+        "Sanctions",
+        "NATO Summit",
+        "Foreign Policy",
+        "Foreign Aid"
+      ]
+    },
+    {
+      "slug": "law_justice",
+      "display_name": "Law & Justice",
+      "parent": "politics",
+      "aliases": [
+        "Legal",
+        "Legal Dispute",
+        "Legal Case",
+        "Legal Proceedings",
+        "Legal proceedings",
+        "Supreme Court",
+        "Law Enforcement"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "corruption_political_violence",
+      "display_name": "Corruption & Political Violence",
+      "parent": "politics",
+      "additional_categories": [
+        "world"
+      ],
+      "aliases": [
+        "Corruption",
+        "Political Violence"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "military_defense",
+      "display_name": "Military & Defense",
+      "parent": "politics",
+      "additional_categories": [
+        "world"
+      ],
+      "aliases": [
+        "Military",
+        "Defense Spending",
+        "Military Drones",
+        "Military AI",
+        "National Security"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "immigration",
+      "display_name": "Immigration",
+      "parent": "politics",
+      "additional_categories": [
+        "world"
+      ],
+      "popular": true,
+      "aliases": [
+        "Immigration",
+        "Immigration Policy",
+        "Immigration Enforcement",
+        "Immigration Law"
+      ]
+    },
+    {
+      "slug": "civil_liberties_protests",
+      "display_name": "Civil Liberties & Protests",
+      "parent": "politics",
+      "aliases": [
+        "Human Rights",
+        "Protests",
+        "Hate Crime",
+        "Gun Control"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "artificial_intelligence",
+      "display_name": "AI & Machine Learning",
+      "parent": "tech",
+      "additional_categories": [
+        "business",
+        "science"
+      ],
+      "popular": true,
+      "aliases": [
+        "AI",
+        "Artificial Intelligence"
+      ],
+      "children": [
+        {
+          "slug": "ai_research",
+          "display_name": "AI Research & Models",
+          "aliases": [
+            "AI Models",
+            "AI Training",
+            "AI Agents",
+            "Enterprise AI"
+          ]
+        },
+        {
+          "slug": "ai_policy_regulation",
+          "display_name": "AI Policy & Regulation",
+          "aliases": [
+            "AI Regulation",
+            "AI Policy",
+            "AI Law",
+            "AI Governance"
+          ]
+        },
+        {
+          "slug": "ai_safety_ethics",
+          "display_name": "AI Safety & Ethics",
+          "aliases": [
+            "AI Safety",
+            "AI Ethics",
+            "AI Bias",
+            "AI Security"
+          ]
+        },
+        {
+          "slug": "ai_infrastructure",
+          "display_name": "AI Infrastructure & Chips",
+          "aliases": [
+            "Data Centers",
+            "AI Chips",
+            "AI Cloud",
+            "AI Infrastructure",
+            "AI Hardware"
+          ]
+        },
+        {
+          "slug": "ai_industry_applications",
+          "display_name": "AI in Industry",
+          "aliases": [
+            "AI Stocks",
+            "AI Lawsuit",
+            "AI Music",
+            "AI Healthcare",
+            "AI Education",
+            "AI in Education"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "gaming",
+      "display_name": "Gaming",
+      "parent": "tech",
+      "additional_categories": [
+        "entertainment"
+      ],
+      "popular": true,
+      "aliases": [
+        "Gaming"
+      ],
+      "children": [
+        {
+          "slug": "core_gaming",
+          "display_name": "Console & PC Gaming",
+          "aliases": [
+            "Video Games",
+            "Retro Gaming",
+            "Indie Games"
+          ]
+        },
+        {
+          "slug": "mobile_gaming",
+          "display_name": "Mobile Gaming",
+          "aliases": [
+            "Mobile Gaming"
+          ]
+        },
+        {
+          "slug": "gaming_hardware",
+          "display_name": "Gaming Hardware",
+          "aliases": [
+            "Gaming Hardware"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "cybersecurity_privacy",
+      "display_name": "Cybersecurity & Privacy",
+      "parent": "tech",
+      "popular": true,
+      "aliases": [
+        "Cybersecurity",
+        "Data Privacy",
+        "Data Breach",
+        "Privacy",
+        "Surveillance",
+        "Surveillance Tech",
+        "Cybercrime",
+        "Mobile Security",
+        "Online Safety"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "consumer_devices",
+      "display_name": "Consumer Devices",
+      "parent": "tech",
+      "popular": true,
+      "aliases": [
+        "Smartphones",
+        "Smartphone",
+        "Smartphone Market",
+        "Wearable Tech",
+        "Wearables",
+        "Smartwatches",
+        "Smartwatch",
+        "Smart Home",
+        "Smart Glasses",
+        "Consumer Electronics",
+        "Consumer Tech",
+        "Laptops",
+        "AirPods",
+        "iPhone",
+        "Foldable Phones"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "software_platforms",
+      "display_name": "Software & Platforms",
+      "parent": "tech",
+      "aliases": [
+        "Software",
+        "Software Update",
+        "iOS",
+        "macOS",
+        "Mobile OS",
+        "App Store",
+        "App Stores",
+        "Messaging Apps",
+        "Mobile Apps",
+        "Cloud Storage"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "social_media",
+      "display_name": "Social Media",
+      "parent": "tech",
+      "popular": true,
+      "aliases": [
+        "Social Media",
+        "Social Media Regulation"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "autonomous_electric_vehicles",
+      "display_name": "Autonomous & Electric Vehicles",
+      "parent": "tech",
+      "aliases": [
+        "Autonomous Vehicles",
+        "Electric Vehicles",
+        "Electric Vehicle",
+        "Automotive Tech"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "space_tech",
+      "display_name": "Space Tech",
+      "parent": "tech",
+      "additional_categories": [
+        "science"
+      ],
+      "aliases": [
+        "Space Tech"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "semiconductors_hardware",
+      "display_name": "Semiconductors & Hardware",
+      "parent": "tech",
+      "aliases": [
+        "Semiconductors"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "robotics",
+      "display_name": "Robotics",
+      "parent": "tech",
+      "additional_categories": [
+        "science"
+      ],
+      "aliases": [
+        "Robotics"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "crypto",
+      "display_name": "Crypto & Web3",
+      "parent": "tech",
+      "additional_categories": [
+        "business"
+      ],
+      "aliases": [
+        "Cryptocurrency"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "startups_venture",
+      "display_name": "Startups & Venture Capital",
+      "parent": "tech",
+      "additional_categories": [
+        "business"
+      ],
+      "aliases": [
+        "Startups",
+        "Venture Capital",
+        "IPO"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "space_astronomy",
+      "display_name": "Space & Astronomy",
+      "parent": "science",
+      "popular": true,
+      "aliases": [
+        "Space",
+        "Spacecraft"
+      ],
+      "children": [
+        {
+          "slug": "astronomy_observation",
+          "display_name": "Astronomy & Observation",
+          "aliases": [
+            "Astronomy",
+            "Astrophysics",
+            "Cosmology",
+            "Solar Eclipse",
+            "Space Telescope",
+            "Exoplanets",
+            "Space Weather"
+          ]
+        },
+        {
+          "slug": "spaceflight_launches",
+          "display_name": "Spaceflight & Launches",
+          "aliases": [
+            "Spaceflight",
+            "Space Exploration",
+            "SpaceX",
+            "Space Station",
+            "Space Launch"
+          ]
+        },
+        {
+          "slug": "planetary_exploration",
+          "display_name": "Planetary Exploration",
+          "aliases": [
+            "Planetary Science",
+            "Lunar Exploration",
+            "Mars Exploration",
+            "Astrobiology"
+          ]
+        }
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "earth_geology",
+      "display_name": "Earth Science & Geology",
+      "parent": "science",
+      "aliases": [
+        "Geology",
+        "Volcanology",
+        "Geophysics",
+        "Oceanography",
+        "Earth Observation"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "paleontology_archaeology",
+      "display_name": "Paleontology & Archaeology",
+      "parent": "science",
+      "popular": true,
+      "aliases": [
+        "Paleontology",
+        "Archaeology",
+        "Human Evolution",
+        "Evolution"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "physics_quantum",
+      "display_name": "Physics & Quantum",
+      "parent": "science",
+      "aliases": [
+        "Physics",
+        "Quantum Physics",
+        "Quantum Computing",
+        "Particle Physics",
+        "Materials Science"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "biology_genetics",
+      "display_name": "Biology & Genetics",
+      "parent": "science",
+      "aliases": [
+        "Biology",
+        "Genetics",
+        "Marine Biology",
+        "Animal Behavior",
+        "Microbiology",
+        "Wildlife"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "neuroscience_psychology",
+      "display_name": "Neuroscience & Psychology",
+      "parent": "science",
+      "aliases": [
+        "Neuroscience",
+        "Psychology"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "markets_investing",
+      "display_name": "Markets & Investing",
+      "parent": "business",
+      "popular": true,
+      "aliases": [
+        "Stock Market",
+        "Stock Analysis",
+        "Stock Markets",
+        "Investment",
+        "Commodities",
+        "Personal Finance"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "real_estate",
+      "display_name": "Real Estate",
+      "parent": "business",
+      "popular": true,
+      "aliases": [
+        "Real Estate",
+        "Commercial Real Estate",
+        "Housing Market",
+        "Housing Development",
+        "Housing Crisis",
+        "Property Dispute",
+        "Real Estate Dispute"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "urban_development",
+      "display_name": "Urban Development",
+      "parent": "business",
+      "additional_categories": [
+        "world",
+        "local"
+      ],
+      "aliases": [
+        "Urban Development",
+        "Urban Regeneration",
+        "Infrastructure",
+        "Transport Disruption",
+        "Public Transport",
+        "Transportation",
+        "Transport"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "economy_macro",
+      "display_name": "Economy & Macro",
+      "parent": "business",
+      "popular": true,
+      "aliases": [
+        "Economy",
+        "Monetary Policy",
+        "Inflation",
+        "Interest Rates",
+        "Federal Reserve",
+        "Taxation",
+        "Tax Policy",
+        "Property Tax",
+        "Gas Prices",
+        "Oil Prices",
+        "Fuel Prices",
+        "Cost of Living",
+        "Social Security"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "corporate_finance",
+      "display_name": "Corporate & Finance",
+      "parent": "business",
+      "popular": true,
+      "aliases": [
+        "Mergers and Acquisitions",
+        "Mergers & Acquisitions",
+        "Corporate Governance",
+        "Banking",
+        "Banking Regulation",
+        "Entrepreneurship",
+        "Layoffs",
+        "Finance"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "fintech",
+      "display_name": "Fintech",
+      "parent": "business",
+      "additional_categories": [
+        "tech"
+      ],
+      "aliases": [
+        "Fintech"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "trade_labor",
+      "display_name": "Trade & Labor",
+      "parent": "business",
+      "aliases": [
+        "International Trade",
+        "Trade Deal",
+        "Labor Dispute"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "agriculture_retail",
+      "display_name": "Agriculture & Retail",
+      "parent": "business",
+      "aliases": [
+        "Retail",
+        "Agriculture",
+        "Food Safety",
+        "Restaurant Opening",
+        "Restaurant Closures",
+        "Restaurant Awards"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "industry_transport",
+      "display_name": "Industry & Transport",
+      "parent": "business",
+      "aliases": [
+        "Aviation",
+        "Automotive",
+        "Aerospace",
+        "Philanthropy"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "football_soccer",
+      "display_name": "Football & Soccer",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "Football",
+        "Soccer"
+      ],
+      "children": [
+        {
+          "slug": "transfers",
+          "display_name": "Transfers",
+          "aliases": [
+            "Football Transfers",
+            "Football Transfer",
+            "Soccer Transfers"
+          ]
+        },
+        {
+          "slug": "top_leagues",
+          "display_name": "Top Leagues",
+          "aliases": [
+            "Premier League",
+            "Champions League"
+          ]
+        },
+        {
+          "slug": "international_competitions",
+          "display_name": "International Competitions",
+          "aliases": [
+            "World Cup"
+          ]
+        }
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "american_football",
+      "display_name": "American Football",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "NFL",
+        "College Football"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "basketball",
+      "display_name": "Basketball",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "NBA",
+        "WNBA",
+        "NBA Playoffs",
+        "NBA Finals",
+        "NBA Free Agency",
+        "NBA Trade",
+        "College Basketball"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "baseball",
+      "display_name": "Baseball",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "MLB",
+        "Baseball",
+        "MLB Trade",
+        "MLB Draft",
+        "College Baseball",
+        "College Softball"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "tennis",
+      "display_name": "Tennis",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "Tennis",
+        "Wimbledon"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "golf",
+      "display_name": "Golf",
+      "parent": "sports",
+      "aliases": [
+        "Golf"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "combat_sports",
+      "display_name": "Combat Sports",
+      "parent": "sports",
+      "popular": true,
+      "aliases": [
+        "MMA",
+        "UFC",
+        "Boxing",
+        "Wrestling"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "motorsport",
+      "display_name": "Motorsport",
+      "parent": "sports",
+      "aliases": [
+        "Formula 1",
+        "NASCAR"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "cricket",
+      "display_name": "Cricket",
+      "parent": "sports",
+      "aliases": [
+        "Cricket"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "rugby",
+      "display_name": "Rugby",
+      "parent": "sports",
+      "aliases": [
+        "Rugby Union",
+        "Rugby League",
+        "Rugby Sevens"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "athletics_olympics",
+      "display_name": "Athletics & Olympics",
+      "parent": "sports",
+      "aliases": [
+        "Athletics",
+        "Olympics",
+        "Swimming",
+        "Horse Racing",
+        "Darts",
+        "Cycling"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "celebrity_culture",
+      "display_name": "Celebrity Culture",
+      "parent": "entertainment",
+      "popular": true,
+      "aliases": [
+        "Celebrity",
+        "Celebrity News",
+        "Celebrity Gossip",
+        "Celebrity Style",
+        "Celebrity Wedding",
+        "Celebrity Health",
+        "Celebrity Death",
+        "Celebrity Marriage",
+        "Celebrity Lawsuit",
+        "Royal Family",
+        "Obituary"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "film_movies",
+      "display_name": "Film & Movies",
+      "parent": "entertainment",
+      "popular": true,
+      "aliases": [
+        "Film",
+        "Movies",
+        "Box Office",
+        "Film Festival",
+        "Film Production",
+        "Film Industry",
+        "Film Casting",
+        "Star Wars"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "tv_streaming",
+      "display_name": "TV & Streaming",
+      "parent": "entertainment",
+      "popular": true,
+      "aliases": [
+        "TV Series",
+        "TV Show",
+        "TV Shows",
+        "TV Drama",
+        "Soap Opera",
+        "Streaming",
+        "Streaming TV",
+        "Streaming Services",
+        "Television",
+        "Reality TV"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "music",
+      "display_name": "Music",
+      "parent": "entertainment",
+      "popular": true,
+      "aliases": [
+        "Music",
+        "Music Festival",
+        "Music Charts",
+        "Music Awards",
+        "Music Industry",
+        "Music Tour",
+        "Live Music",
+        "Concert",
+        "Concert Review",
+        "Festival",
+        "Festivals"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "anime",
+      "display_name": "Anime",
+      "parent": "entertainment",
+      "popular": true,
+      "aliases": [
+        "Anime"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "theatre_arts",
+      "display_name": "Theatre & Arts",
+      "parent": "entertainment",
+      "aliases": [
+        "Theatre",
+        "Theater",
+        "Musical Theatre",
+        "Art Exhibition",
+        "Public Art",
+        "Edinburgh Fringe",
+        "Arts Festival",
+        "Comedy"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "fashion",
+      "display_name": "Fashion",
+      "parent": "entertainment",
+      "aliases": [
+        "Fashion"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "awards_events",
+      "display_name": "Awards & Events",
+      "parent": "entertainment",
+      "aliases": [
+        "Awards",
+        "Tony Awards",
+        "London Events"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "public_health_outbreaks",
+      "display_name": "Public Health & Outbreaks",
+      "parent": "health",
+      "popular": true,
+      "aliases": [
+        "Public Health",
+        "Ebola Outbreak",
+        "Ebola",
+        "Ebola Preparedness",
+        "Ebola preparedness",
+        "Measles Outbreak",
+        "Disease Outbreak",
+        "Outbreak",
+        "Foodborne Illness",
+        "West Nile Virus",
+        "Rabies",
+        "COVID-19",
+        "HIV Prevention",
+        "Infectious Disease"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "medical_research",
+      "display_name": "Medical Research",
+      "parent": "health",
+      "additional_categories": [
+        "science"
+      ],
+      "popular": true,
+      "aliases": [
+        "Cancer Research",
+        "Cancer Therapy",
+        "Cancer",
+        "Cancer Vaccines",
+        "Medical Diagnostics",
+        "Medical Training",
+        "Oncology",
+        "Breast Cancer",
+        "Skin Cancer",
+        "Kidney Disease",
+        "GLP-1 Drugs"
+      ]
+    },
+    {
+      "slug": "mental_health",
+      "display_name": "Mental Health",
+      "parent": "health",
+      "popular": true,
+      "aliases": [
+        "Mental Health",
+        "Dementia Prevention",
+        "Alzheimer's",
+        "Alzheimer's Disease",
+        "Brain Health",
+        "ADHD",
+        "Perimenopause"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "nutrition_fitness",
+      "display_name": "Nutrition & Fitness",
+      "parent": "health",
+      "popular": true,
+      "aliases": [
+        "Nutrition",
+        "Gut Health",
+        "Fitness",
+        "Cardiovascular Health",
+        "Cardiology"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "maternal_child_health",
+      "display_name": "Maternal Health & Aging",
+      "parent": "health",
+      "aliases": [
+        "Maternal Health",
+        "Allergies",
+        "Aging",
+        "Longevity"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "healthcare_system_policy",
+      "display_name": "Healthcare System & Policy",
+      "parent": "health",
+      "aliases": [
+        "Healthcare",
+        "Healthcare System",
+        "Healthcare Regulation",
+        "Global Health",
+        "Global Health Policy",
+        "Drug Safety",
+        "Healthcare Strike"
+      ],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "crime_justice",
+      "display_name": "Crime & Justice",
+      "parent": "world",
+      "additional_categories": [
+        "politics",
+        "local"
+      ],
+      "popular": true,
+      "aliases": [
+        "Crime",
+        "Murder Trial",
+        "Murder Investigation",
+        "Cold Case",
+        "Theft"
+      ]
+    },
+    {
+      "slug": "conflict_security",
+      "display_name": "Conflict & Security",
+      "parent": "world",
+      "additional_categories": [
+        "politics"
+      ],
+      "popular": true,
+      "aliases": [
+        "Ukraine War",
+        "Ukraine conflict",
+        "Middle East Conflict",
+        "Gaza Conflict",
+        "Gaza conflict",
+        "Terrorism",
+        "Strait of Hormuz"
+      ]
+    },
+    {
+      "slug": "accidents_disasters",
+      "display_name": "Accidents & Disasters",
+      "parent": "world",
+      "additional_categories": [
+        "environment"
+      ],
+      "popular": true,
+      "aliases": [
+        "Accident",
+        "Road Accident",
+        "Traffic Incident",
+        "Traffic Accident",
+        "Natural Disaster",
+        "Earthquake",
+        "Flooding",
+        "Typhoon",
+        "Fire",
+        "Building Fire",
+        "Missing Person",
+        "Mass Shooting"
+      ]
+    },
+    {
+      "slug": "climate_change",
+      "display_name": "Climate Change & Policy",
+      "parent": "environment",
+      "additional_categories": [
+        "science"
+      ],
+      "popular": true,
+      "aliases": [
+        "Climate Change",
+        "Climate Science",
+        "Climate Policy",
+        "Climate Adaptation",
+        "Climate Migration",
+        "Climate Action",
+        "Climate Communication",
+        "El Ni\u00f1o"
+      ]
+    },
+    {
+      "slug": "weather_extreme",
+      "display_name": "Weather & Extreme Events",
+      "parent": "environment",
+      "popular": true,
+      "aliases": [
+        "Weather",
+        "Weather Forecast",
+        "Heatwave",
+        "Severe Weather",
+        "Hurricanes",
+        "Drought"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "wildfires",
+      "display_name": "Wildfires",
+      "parent": "environment",
+      "additional_categories": [
+        "world"
+      ],
+      "popular": true,
+      "aliases": [
+        "Wildfires",
+        "Wildfire",
+        "Wildfire Smoke",
+        "Fires"
+      ]
+    },
+    {
+      "slug": "conservation_wildlife",
+      "display_name": "Conservation & Wildlife",
+      "parent": "environment",
+      "popular": true,
+      "aliases": [
+        "Wildlife Conservation",
+        "Wildlife",
+        "Animal Welfare",
+        "Invasive Species",
+        "Conservation",
+        "Water Conservation"
+      ],
+      "additional_categories": []
+    },
+    {
+      "slug": "sustainable_urban_living",
+      "display_name": "Sustainable & Urban Living",
+      "parent": "environment",
+      "additional_categories": [
+        "politics",
+        "world"
+      ],
+      "aliases": [
+        "Urban Planning",
+        "Urban Farming",
+        "Water Scarcity",
+        "Soil Health",
+        "Forever Chemicals",
+        "Microplastics Pollution",
+        "Ocean Health"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "energy_environment",
+      "display_name": "Energy",
+      "parent": "environment",
+      "additional_categories": [
+        "business"
+      ],
+      "aliases": [
+        "Nuclear Energy",
+        "Renewable Energy",
+        "Energy Storage",
+        "Energy Policy"
+      ],
+      "popular": false
+    },
+    {
+      "slug": "community",
+      "display_name": "Community",
+      "parent": "local",
+      "aliases": [],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "events",
+      "display_name": "Events",
+      "parent": "local",
+      "aliases": [],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "traffic",
+      "display_name": "Traffic",
+      "parent": "local",
+      "aliases": [],
+      "popular": false,
+      "additional_categories": []
+    },
+    {
+      "slug": "local_government",
+      "display_name": "Local Government",
+      "parent": "local",
+      "aliases": [],
+      "popular": false,
+      "additional_categories": []
+    }
+  ]
+}

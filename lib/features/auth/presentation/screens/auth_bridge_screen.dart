@@ -51,16 +51,11 @@ class _AuthBridgeScreenState extends ConsumerState<AuthBridgeScreen> {
         widget.selectedInterests.map((c) => c.name).toList(),
       );
 
-      // Save implied sub-interests (Smart Defaults)
-      final allSubCategories = widget.selectedInterests
-          .expand((cat) => cat.subCategories)
-          .map((sub) => sub.name)
-          .toList();
-      
-      if (allSubCategories.isNotEmpty) {
-        await authRepo.saveUserSubInterests(allSubCategories);
-      }
-      
+      // No sub-interests are written at onboarding: with nothing muted, every
+      // subcategory of a chosen category is already active (the smart default),
+      // and boosting all of them carries no ranking signal. The user fine-tunes
+      // later in the Personalization screen.
+
       // 2. Save detected/preferred country to backend
       final detectedCountry = ref.read(authNotifierProvider).preferredCountry;
       if (detectedCountry != null) {

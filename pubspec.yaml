@@ -79,6 +79,7 @@ flutter:
     - assets/icons/
     - assets/fonts/
     - assets/images/
+    - assets/taxonomy/taxonomy.json
   fonts:
     - family: Inter
       fonts:

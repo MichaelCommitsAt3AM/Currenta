@@ -788,12 +788,22 @@ async def get_feed(
         # to every bucket. Empty arrays are safe/no-op here (id <> ALL('{}') and
         # NOT (x && '{}') are both always-true), so no conditional branching
         # is needed for users with nothing muted/disliked yet.
+        #
+        # The muted-subcategory check has two parts: (1) an exact array-overlap
+        # against $3 (catches a muted L2 slug, or an exact L3 slug muted via
+        # "Not interested"), and (2) an L2-prefix match so muting an L2 slug
+        # (e.g. `football_soccer`) also hides articles tagged with one of its L3
+        # children (`football_soccer.transfers`). split_part(s,'.',1) returns s
+        # unchanged when there is no dot, so (2) subsumes (1) for L2 mutes; (1)
+        # is still needed for the exact-L3-mute case.
         common_where = (
             "published_at > NOW() - INTERVAL '72 hours' "
             "AND (expires_at IS NULL OR expires_at > NOW()) "
             "AND id <> ALL($1::uuid[]) "
             "AND id <> ALL($2::uuid[]) "
-            "AND NOT (subcategories && $3::text[])"
+            "AND NOT (subcategories && $3::text[]) "
+            "AND NOT EXISTS (SELECT 1 FROM unnest(subcategories) AS _msub "
+            "WHERE split_part(_msub, '.', 1) = ANY($3::text[]))"
         )
         base_params = [
             [UUID(vid) for vid in viewed_ids],
@@ -907,13 +917,18 @@ async def get_feed(
             )
 
             # Bucket 3: Discovery (10%)
-            # Random selection to break the filter bubble.
-            # When on a category page, we must still respect the category choice.
+            # Random selection for serendipity within the user's enabled topics.
+            # Disabling a category is a hard opt-out (Personalization screen), so
+            # Discovery — like every other bucket — stays inside `interests`.
+            # Cold-start users (no interests) still get everything.
             d_params = list(base_params)
             if strict_primary_category:
                 d_where = f"{common_where} AND categories[1] = ${len(d_params)+1}::text"
                 d_params.append(category)
             elif is_category_page and not is_local_request:
+                d_where = f"{common_where} AND categories && ${len(d_params)+1}::text[]"
+                d_params.append(interests)
+            elif interests and not is_local_request:
                 d_where = f"{common_where} AND categories && ${len(d_params)+1}::text[]"
                 d_params.append(interests)
             else:
@@ -945,8 +960,10 @@ async def get_feed(
             else:
                 gt_where = f"{common_where} AND ranking_score > 0.3"
                 if interests and not is_local_request:
-                    # For general feed, we specifically look for trending news OUTSIDE their interests for variety
-                    gt_where += f" AND NOT (categories && ${len(gt_params)+1}::text[])"
+                    # Disabling a category is a hard opt-out (Personalization
+                    # screen), so trending filler stays within the user's
+                    # enabled topics rather than reaching outside them.
+                    gt_where += f" AND categories && ${len(gt_params)+1}::text[]"
                     gt_params.append(interests)
             
             # Global Trending should NOT be restricted by country — it's the source for world variety.

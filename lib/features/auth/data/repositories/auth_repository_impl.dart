@@ -444,6 +444,46 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> replaceMutedSubCategories(List<String> subCategories) async {
+    var user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      debugPrint(
+          '[Auth] No user found for replaceMutedSubCategories. Signing in anonymously...');
+      await _supabase.auth.signInAnonymously();
+      user = _supabase.auth.currentUser;
+    }
+
+    final uid = user?.id;
+    if (uid == null) {
+      throw const ServerException(
+          'Unable to establish a session to save muted topics.');
+    }
+
+    try {
+      // Authoritative rewrite: clear then re-insert. Matches the
+      // clear-then-save pattern used for interests / sub-interests.
+      await _supabase
+          .from('user_muted_subcategories')
+          .delete()
+          .eq('user_id', uid);
+
+      final unique = subCategories.toSet().toList();
+      if (unique.isEmpty) return;
+
+      await _supabase.from('user_muted_subcategories').upsert(
+            [
+              for (final sub in unique) {'user_id': uid, 'sub_category': sub},
+            ],
+            onConflict: 'user_id, sub_category',
+          );
+    } catch (e) {
+      debugPrint('[Auth] Error replacing muted subcategories: $e');
+      throw ServerException('Failed to save muted topics: $e');
+    }
+  }
+
+  @override
   Future<List<String>> getMutedSubCategories() async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return [];

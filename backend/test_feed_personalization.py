@@ -326,12 +326,35 @@ def test_common_where_excludes_disliked_articles_and_muted_subcategories():
     source = inspect.getsource(feed.get_feed)
     assert "AND id <> ALL($2::uuid[])" in source
     assert "AND NOT (subcategories && $3::text[])" in source
+    # L2-prefix match: muting an L2 slug also hides articles tagged with one of
+    # its L3 children (e.g. `football_soccer` also hides
+    # `football_soccer.transfers`).
+    assert "split_part(_msub, '.', 1) = ANY($3::text[])" in source
 
     # base_params[1]/[2] must feed those two placeholders, in that order,
     # and be present in every bucket's params (since every bucket does
     # `X_params = list(base_params)` before appending its own filters) —
     # not just assembled once and forgotten.
     assert source.count("list(base_params)") >= 5
+
+
+def test_disabled_categories_are_hard_filtered_in_every_bucket():
+    """Disabling a category in the Personalization screen is a hard opt-out:
+    it removes that category from `user_interests`, and the general feed must
+    then exclude it from EVERY bucket — including Discovery and Global Trending,
+    which previously reached *outside* `interests` for variety. Cold-start
+    users (empty `interests`) are exempt."""
+    import inspect
+
+    source = inspect.getsource(feed.get_feed)
+
+    # Global Trending must no longer seek content outside the user's interests.
+    assert "AND NOT (categories &&" not in source
+
+    # Discovery, on the general feed, is now constrained to `interests` via a
+    # dedicated branch (distinct from the existing category-page branch).
+    assert "elif interests and not is_local_request:" in source
+    assert source.count("AND categories && ${len(d_params)+1}::text[]") >= 2
 
 
 def test_get_user_state_includes_muted_subcategories_and_disliked_ids():

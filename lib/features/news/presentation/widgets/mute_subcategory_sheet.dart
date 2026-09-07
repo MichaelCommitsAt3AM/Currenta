@@ -4,23 +4,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/taxonomy/taxonomy.dart';
 
 /// Formats a raw canonical taxonomy slug (e.g. 'ai_research', or
 /// 'artificial_intelligence.ai_research' for an L3 node — see
-/// taxonomy/taxonomy.json) into something readable, without needing the
-/// taxonomy file itself bundled client-side (it isn't, yet — every slug
-/// does have a proper `display_name` there; a follow-up could bundle it as
-/// a Flutter asset and look names up exactly instead of this heuristic).
+/// taxonomy/taxonomy.json) into something readable. Prefers the exact
+/// `display_name` from the bundled taxonomy asset; falls back to a
+/// title-cased rendering of the slug when it isn't loaded yet or is unknown.
 String formatSubcategorySlug(String slug) {
-  final leaf = slug.contains('.') ? slug.split('.').last : slug;
-  const smallCaps = {'ai', 'us', 'uk', 'eu', 'un', 'nba', 'nfl', 'ai '};
-  return leaf
-      .split('_')
-      .where((w) => w.isNotEmpty)
-      .map((w) => smallCaps.contains(w.toLowerCase())
-          ? w.toUpperCase()
-          : w[0].toUpperCase() + w.substring(1).toLowerCase())
-      .join(' ');
+  if (Taxonomy.isLoaded) return Taxonomy.instance.displayNameForSlug(slug);
+  return Taxonomy.humanizeSlug(slug);
 }
 
 /// Local-only (per-device) preference for whether to keep showing this
@@ -60,6 +53,18 @@ class MuteSubCategorySheet extends ConsumerStatefulWidget {
 class _MuteSubCategorySheetState extends ConsumerState<MuteSubCategorySheet> {
   bool _dontAskAgain = false;
   bool _isMuting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensures the taxonomy asset is available so the label reads as the exact
+    // display name rather than the slug heuristic.
+    if (!Taxonomy.isLoaded) {
+      Taxonomy.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
+  }
 
   Future<void> _saveDontAskAgainIfSet() async {
     if (_dontAskAgain) {

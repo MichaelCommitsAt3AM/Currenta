@@ -72,11 +72,22 @@ Currenta uses a "Bucketized Interleave" strategy to maintain feed quality and va
 User interactions (likes, views) are used to compute an "Interest Vector." When fetching the feed, the system performs a cosine similarity search against the `articles` table to find stories semantically similar to the user's past interests.
 
 ### 2. Portfolio Interleave
-To prevent filter bubbles, the `Diversifier` engine interleaves articles from four distinct buckets:
+The `Diversifier` engine interleaves articles from four distinct buckets:
 -   **Personalized (70%)**: Vector-matched stories.
--   **Trending (20%)**: High-momentum stories across all categories.
--   **Discovery (10%)**: Random high-quality stories from outside the user's primary interests.
+-   **Trending (20%)**: High-momentum stories within the user's enabled categories.
+-   **Discovery (10%)**: Random high-quality stories for serendipity within the user's enabled categories.
 -   **Global Trending (Fallback)**: Top-tier global news used during cold starts.
+
+For a user with interests set, **every** bucket is constrained to their enabled
+categories — disabling a category in the Personalization screen is a hard
+opt-out, not just a de-prioritisation. Cold-start users (no interests yet) see
+all categories. Subcategory chips work the same way: a de-selected subcategory
+under an enabled category is written to `user_muted_subcategories` and hard-filtered
+from every bucket (`common_where` in `backend/api/feed.py`, with an L2-prefix
+match so muting an L2 slug also hides its L3 children); selected subcategories are
+a soft ranking boost (`user_sub_interests`). Both tables speak the canonical
+`taxonomy/taxonomy.json` vocabulary — the app bundles that file as an asset
+(`assets/taxonomy/taxonomy.json`, kept in sync by `test/taxonomy_asset_parity_test.dart`).
 
 ---
 

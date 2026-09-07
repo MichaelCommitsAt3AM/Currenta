@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/providers.dart';
+import '../../../../core/taxonomy/taxonomy.dart';
 import '../../domain/entities/news_category.dart';
+import '../../domain/subcategory_preferences.dart';
 import 'empty_state_screen.dart';
 import 'country_selection_screen.dart';
 import '../../../auth/application/auth_notifier.dart';
@@ -21,13 +23,17 @@ class PersonalizationScreen extends ConsumerStatefulWidget {
 
 class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   final Set<NewsCategory> _selectedCategories = {};
-  final Set<NewsSubCategory> _selectedSubCategories = {};
+  final Set<String> _selectedSubSlugs = {};
   String? _selectedCountry;
-  
+
   // Track initial state to detect changes
   final Set<NewsCategory> _initialCategories = {};
-  final Set<NewsSubCategory> _initialSubCategories = {};
+  final Set<String> _initialSubSlugs = {};
   String? _initialCountry;
+
+  /// Muted L3 (dotted) slugs from the "Not interested" flow. The screen only
+  /// manages L2 mutes, so these are preserved verbatim when saving.
+  List<String> _preservedMutes = const [];
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -41,57 +47,51 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
 
   Future<void> _loadInterests() async {
     try {
+      await Taxonomy.ensureLoaded();
+      final taxonomy = Taxonomy.instance;
       final repository = ref.read(authRepositoryProvider);
       final interests = await repository.getUserInterests();
-      final subInterests = await repository.getUserSubInterests();
+      final muted = await repository.getMutedSubCategories();
       final preferredCountry = await repository.getPreferredCountry();
 
-      if (mounted) {
-        setState(() {
-          // First, load all specific sub-interests
-          for (final subName in subInterests) {
-            try {
-              final subCategory = NewsSubCategory.values.firstWhere(
-                (s) => s.name == subName,
-              );
-              _selectedSubCategories.add(subCategory);
-            } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        // The screen manages L2 mutes only; L3 ("Not interested") mutes are
+        // kept aside and re-written untouched on save.
+        _preservedMutes = muted.where((m) => m.contains('.')).toList();
+        final mutedL2 = muted.where((m) => !m.contains('.')).toSet();
+
+        for (final catName in interests) {
+          final category = NewsCategory.values.firstWhere(
+            (c) => c.name == catName,
+            orElse: () => NewsCategory.world,
+          );
+          _selectedCategories.add(category);
+          if (category == NewsCategory.local) continue;
+
+          // A subcategory is "on" unless the user has muted it. Nothing muted
+          // for a category → every subcategory selected (the smart default).
+          for (final slug in taxonomy.subcategorySlugsFor(category.name)) {
+            if (!mutedL2.contains(slug)) _selectedSubSlugs.add(slug);
           }
+        }
 
-          // Then, load categories and apply smart defaults for missing sub-interests
-          for (final catName in interests) {
-            final category = NewsCategory.values.firstWhere(
-              (c) => c.name == catName,
-              orElse: () => NewsCategory.world,
-            );
-            _selectedCategories.add(category);
+        _selectedCountry = preferredCountry;
 
-            // Per user request: If a category is selected but has NO stored sub-interests,
-            // we automatically select all its sub-categories.
-            final categorySubNames = category.subCategories.toSet();
-            final hasStoredSubInterests = categorySubNames
-                .any((sub) => _selectedSubCategories.contains(sub));
+        // Capture initial state for change tracking
+        _initialCategories
+          ..clear()
+          ..addAll(_selectedCategories);
+        _initialSubSlugs
+          ..clear()
+          ..addAll(_selectedSubSlugs);
+        _initialCountry = _selectedCountry;
 
-            if (!hasStoredSubInterests && categorySubNames.isNotEmpty) {
-              _selectedSubCategories.addAll(category.subCategories);
-            }
-          }
+        _isLoading = false;
 
-          _selectedCountry = preferredCountry;
-          
-          // Capture initial state for change tracking
-          _initialCategories.clear();
-          _initialCategories.addAll(_selectedCategories);
-          _initialSubCategories.clear();
-          _initialSubCategories.addAll(_selectedSubCategories);
-          _initialCountry = _selectedCountry;
-
-          _isLoading = false;
-
-          // Per user request: categories remain collapsed by default.
-          _expandedIndex = -1;
-        });
-      }
+        // Per user request: categories remain collapsed by default.
+        _expandedIndex = -1;
+      });
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -99,6 +99,10 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       }
     }
   }
+
+  List<TaxonomyNode> _subNodesFor(NewsCategory cat) => cat == NewsCategory.local
+      ? const []
+      : Taxonomy.instance.subcategoriesFor(cat.name);
 
   void _toggleExpansion(int index) {
     if (NewsCategory.values[index] == NewsCategory.local) return;
@@ -113,31 +117,33 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
 
   void _toggleCategory(NewsCategory category) {
     setState(() {
+      final subs = category == NewsCategory.local
+          ? const <String>[]
+          : Taxonomy.instance.subcategorySlugsFor(category.name);
       if (_selectedCategories.contains(category)) {
         _selectedCategories.remove(category);
-        for (final sub in category.subCategories) {
-          _selectedSubCategories.remove(sub);
-        }
+        _selectedSubSlugs.removeAll(subs);
       } else {
+        // Re-enabling a category starts it fully selected (smart default).
         _selectedCategories.add(category);
-        for (final sub in category.subCategories) {
-          _selectedSubCategories.add(sub);
-        }
+        _selectedSubSlugs.addAll(subs);
       }
     });
   }
 
-  void _toggleSubCategory(NewsSubCategory subCategory) {
+  void _toggleSubCategory(String slug) {
     setState(() {
-      if (_selectedSubCategories.contains(subCategory)) {
-        _selectedSubCategories.remove(subCategory);
+      if (_selectedSubSlugs.contains(slug)) {
+        _selectedSubSlugs.remove(slug);
       } else {
-        _selectedSubCategories.add(subCategory);
-        
-        // Auto-select parent category if a sub-category is picked
+        _selectedSubSlugs.add(slug);
+
+        // Auto-select the parent category if a sub-category is picked.
         final parent = NewsCategory.values.firstWhere(
-          (c) => c.subCategories.contains(subCategory),
-          orElse: () => NewsCategory.world, // Should not happen based on news_category.dart
+          (c) =>
+              c != NewsCategory.local &&
+              Taxonomy.instance.subcategorySlugsFor(c.name).contains(slug),
+          orElse: () => NewsCategory.world,
         );
         _selectedCategories.add(parent);
       }
@@ -145,9 +151,9 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
   }
 
   bool get _hasChanges {
-    final categorySetsEqual = setEquals(_initialCategories, _selectedCategories);
-    final subCategorySetsEqual = setEquals(_initialSubCategories, _selectedSubCategories);
-    return _initialCountry != _selectedCountry || !categorySetsEqual || !subCategorySetsEqual;
+    return _initialCountry != _selectedCountry ||
+        !setEquals(_initialCategories, _selectedCategories) ||
+        !setEquals(_initialSubSlugs, _selectedSubSlugs);
   }
 
   Future<void> _onSave() async {
@@ -167,23 +173,29 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
       await repository
           .saveUserInterests(_selectedCategories.map((e) => e.name).toList());
 
-      // Save Sub Categories
-      await repository.clearUserSubInterests();
-      if (_selectedSubCategories.isNotEmpty) {
-        // Only save sub-categories whose parents are selected
-        final validSubCategories = _selectedSubCategories
-            .where((sub) {
-              return NewsCategory.values.any((cat) =>
-                  _selectedCategories.contains(cat) &&
-                  cat.subCategories.contains(sub));
-            })
-            .map((e) => e.name)
-            .toList();
+      // Subcategory preferences. Selected chips are a soft ranking boost
+      // (user_sub_interests); chips de-selected under an enabled category are a
+      // HARD feed filter (user_muted_subcategories — the same table the
+      // "Not interested" mute sheet writes to). L3 "Not interested" mutes are
+      // carried through untouched.
+      final taxonomy = Taxonomy.instance;
+      final boost = SubcategoryPreferences.boostSlugs(
+        taxonomy: taxonomy,
+        enabledCategories: _selectedCategories,
+        selectedSlugs: _selectedSubSlugs,
+      );
+      final mutedL2 = SubcategoryPreferences.mutedL2(
+        taxonomy: taxonomy,
+        enabledCategories: _selectedCategories,
+        selectedSlugs: _selectedSubSlugs,
+      );
 
-        if (validSubCategories.isNotEmpty) {
-          await repository.saveUserSubInterests(validSubCategories);
-        }
+      await repository.clearUserSubInterests();
+      if (boost.isNotEmpty) {
+        await repository.saveUserSubInterests(boost.toList());
       }
+      await repository
+          .replaceMutedSubCategories([..._preservedMutes, ...mutedL2]);
 
       // Save Country Preference
       if (_selectedCountry != null) {
@@ -636,7 +648,7 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                                     duration: const Duration(milliseconds: 300),
                                     curve: Curves.easeInOut,
                                     alignment: Alignment.topCenter,
-                                    child: isExpanded && cat.subCategories.isNotEmpty
+                                    child: isExpanded && _subNodesFor(cat).isNotEmpty
                                         ? Padding(
                                             padding: const EdgeInsets.only(
                                                 left: 8, bottom: 24, right: 8),
@@ -659,11 +671,11 @@ class _PersonalizationScreenState extends ConsumerState<PersonalizationScreen> {
                                                 Wrap(
                                                   spacing: 10,
                                                   runSpacing: 10,
-                                                  children: cat.subCategories.map((sub) {
+                                                  children: _subNodesFor(cat).map((sub) {
                                                     final isSubSelected =
-                                                        _selectedSubCategories.contains(sub);
+                                                        _selectedSubSlugs.contains(sub.slug);
                                                     return GestureDetector(
-                                                      onTap: () => _toggleSubCategory(sub),
+                                                      onTap: () => _toggleSubCategory(sub.slug),
                                                       child: AnimatedContainer(
                                                         duration:
                                                             const Duration(milliseconds: 200),
