@@ -13,6 +13,7 @@ AI-first news app: Flutter frontend, FastAPI backend (`backend/`), Supabase/Post
 ## Build & Test
 
 - Flutter: `flutter analyze`, `flutter test`, `flutter run --flavor dev --dart-define-from-file=config/dev.json` (the app has `dev`/`prod` Android product flavors — `--flavor dev` is required or Gradle produces `app-dev-debug.apk` but Flutter looks for the unflavored name and fails with "Gradle build failed to produce an .apk file")
+- Flutter Release / Play Store AAB: `flutter build appbundle --flavor prod --dart-define-from-file=config/prod.json` (outputs to `build/app/outputs/bundle/prodRelease/app-prod-release.aab`). Release signing is configured in `android/app/build.gradle.kts` via `android/key.properties`. To increment the version for Play Store uploads, either bump `version: x.y.z+build` in `pubspec.yaml` or pass `--build-name=<version> --build-number=<number>`. Verify `AppConfig.isProd` and backend/Supabase URLs in `lib/core/config/app_config.dart` match target environment before building.
 - Backend: run pytest from repo root, e.g. `python -m pytest backend/test_ingestion_pipeline.py -q` (this specific file is also the pre-deploy smoke check run by `scripts/deploy-gcp.sh`)
 - Local full-stack dev: `bash scripts/dev-start.sh` (Docker + ngrok + optional Ollama), `scripts/dev-stop.sh` to tear down
 
