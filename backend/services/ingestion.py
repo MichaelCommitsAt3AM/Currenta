@@ -62,6 +62,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 SIMILARITY_THRESHOLD = float(os.environ.get("DUPLICATE_SIMILARITY_THRESHOLD", "0.75"))
 DUPLICATE_LOOKBACK_DAYS = int(os.environ.get("DUPLICATE_LOOKBACK_DAYS", "7"))
+INGESTION_ADVISORY_LOCK_ID = 84210924
 
 VALID_CATEGORIES = ["politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment"]
 VALID_LOCAL_RELEVANCE = {"local", "non_local", "uncertain"}
@@ -753,10 +754,50 @@ _TITLE_DEDUPE_STOPWORDS = {
     "that", "from", "after", "amid", "over", "into", "new", "says", "say",
     "vs", "how", "what", "why",
 }
+_TITLE_TOKEN_MAP = {
+    "acquires": "acquire",
+    "acquired": "acquire",
+    "acquiring": "acquire",
+    "acquisition": "acquire",
+    "announces": "announce",
+    "announced": "announce",
+    "announcement": "announce",
+    "agrees": "agree",
+    "agreed": "agree",
+    "agreement": "agree",
+    "launches": "launch",
+    "launched": "launch",
+    "launching": "launch",
+    "unveils": "unveil",
+    "unveiled": "unveil",
+    "unveiling": "unveil",
+    "reveals": "reveal",
+    "revealed": "reveal",
+    "revealing": "reveal",
+    "confirms": "confirm",
+    "confirmed": "confirm",
+    "confirming": "confirm",
+    "reports": "report",
+    "reported": "report",
+    "reporting": "report",
+}
+
+def _stem_title_token(token: str) -> str:
+    if token in _TITLE_TOKEN_MAP:
+        return _TITLE_TOKEN_MAP[token]
+    if len(token) > 6 and token.endswith("ing"):
+        token = token[:-3]
+    elif len(token) > 5 and token.endswith("ed"):
+        token = token[:-2]
+    elif len(token) > 5 and token.endswith("es"):
+        token = token[:-2]
+    elif len(token) > 4 and token.endswith("s"):
+        token = token[:-1]
+    return token
 
 def _normalize_title_tokens(title: str) -> frozenset:
     tokens = re.findall(r"[a-z0-9']+", (title or "").lower())
-    return frozenset(t for t in tokens if t not in _TITLE_DEDUPE_STOPWORDS and len(t) > 1)
+    return frozenset(_stem_title_token(t) for t in tokens if t not in _TITLE_DEDUPE_STOPWORDS and len(t) > 1)
 
 def _titles_are_near_duplicate(a: frozenset, b: frozenset) -> bool:
     if len(a) < 3 or len(b) < 3:
@@ -2096,24 +2137,74 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                         if relevance != "local" or confidence < LOCALITY_LOCAL_MIN_CONFIDENCE:
                             db_country_code = None
 
-                    await conn.execute(
-                    '''
-                    INSERT INTO articles (
-                        id, title, summary, original_url, image_url, source_name, source_favicon_url,
-                        published_at, categories, subcategory, subcategories, embedding, content_hash,
-                        summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source,
-                        expires_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19, $20)
-                    ON CONFLICT (original_url) DO UPDATE SET
-                        is_major_source = CASE WHEN articles.is_major_source = FALSE THEN EXCLUDED.is_major_source ELSE articles.is_major_source END,
-                        expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
-                    ''',
-                    article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
-                    item_pub_date, categories, subcategory, subcategories, embedding, content_hash,
-                    get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major,
-                    llm_res.get("expires_at")
-                )
+                    concurrent_dup_skipped = False
+                    async with conn.transaction():
+                        await conn.execute("SELECT pg_advisory_xact_lock($1)", INGESTION_ADVISORY_LOCK_ID)
+                        # Re-verify find_cluster_match under advisory lock in case a concurrent feed committed this story
+                        post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, embedding)
+                        if post_lock_cluster_id:
+                            concurrent_dup_skipped = True
+                            if is_major and post_lock_match_id:
+                                try:
+                                    await conn.execute(
+                                        "UPDATE articles SET is_major_source = TRUE WHERE id = $1 AND is_major_source = FALSE",
+                                        post_lock_match_id
+                                    )
+                                except Exception as e:
+                                    logger.warning("Failed to upgrade is_major_source for concurrent match %s: %s", post_lock_match_id, e)
+                            logger.info(
+                                "[Ingest] Skipping concurrent duplicate: Article similar to cluster %s (similarity=%.4f, threshold=%.2f, best_match=%s)",
+                                post_lock_cluster_id,
+                                post_lock_similarity if post_lock_similarity is not None else 0.0,
+                                SIMILARITY_THRESHOLD,
+                                post_lock_match_id,
+                            )
+                            await log_ingestion_event(
+                                conn,
+                                item["link"],
+                                "SKIPPED",
+                                source_name=item.get("source"),
+                                dedup_stage="semantic",
+                                dedup_decision="skipped",
+                                semantic_similarity=post_lock_similarity,
+                                similarity_threshold=SIMILARITY_THRESHOLD,
+                                matched_article_id=post_lock_match_id,
+                                matched_cluster_id=post_lock_cluster_id,
+                                error_type="CONCURRENT_DUPLICATE_EMBEDDING",
+                                error_message=(
+                                    f"Skipped because concurrent article was committed while processing. "
+                                    f"Matched cluster {post_lock_cluster_id}. Matched article {post_lock_match_id}. "
+                                    f"Best similarity: {post_lock_similarity:.4f}"
+                                ) if post_lock_similarity is not None else (
+                                    f"Skipped because concurrent article was committed while processing. "
+                                    f"Matched cluster {post_lock_cluster_id}."
+                                ),
+                                content_preview=f"{llm_res['title']}\n\n{llm_res['summary']}"[:500]
+                            )
+                            await _mark_rejection(item["link"])
+                            results["skipped"] += 1
+                        else:
+                            await conn.execute(
+                                '''
+                                INSERT INTO articles (
+                                    id, title, summary, original_url, image_url, source_name, source_favicon_url,
+                                    published_at, categories, subcategory, subcategories, embedding, content_hash,
+                                    summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source,
+                                    expires_at
+                                )
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19, $20)
+                                ON CONFLICT (original_url) DO UPDATE SET
+                                    is_major_source = CASE WHEN articles.is_major_source = FALSE THEN EXCLUDED.is_major_source ELSE articles.is_major_source END,
+                                    expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
+                                ''',
+                                article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
+                                item_pub_date, categories, subcategory, subcategories, embedding, content_hash,
+                                get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major,
+                                llm_res.get("expires_at")
+                            )
+
+                    if concurrent_dup_skipped:
+                        continue
                     
                     # Log successful ingestion with details
                     final_status = scraper_status
@@ -2570,25 +2661,57 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             subcategories = llm_res["subcategories"]
             subcategory = subcategories[0] if subcategories else ""
 
-            # We use a CTE to ensure we get the ID even if it exists.
-            result = await conn.fetchrow('''
-                INSERT INTO articles (
-                    id, title, summary, original_url, image_url, source_name,
-                    published_at, categories, subcategory, subcategories, embedding, content_hash,
-                    summary_model, country_code, is_paywalled, ingestion_method, created_at,
-                    ranking_score, cluster_id, expires_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10::float8[]::vector, $11, $12, $13, $14, $15, NOW(), $16, $17, $18)
-                ON CONFLICT (original_url) DO UPDATE SET
-                    last_trend_update = NOW(), -- Dummy update to trigger RETURNING
-                    expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
-                RETURNING id
-            ''',
-            article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
-            llm_res["categories"], subcategory, subcategories,
-            embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code,
-            scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"))
-            
-            article_id = result["id"] if result else None
+            concurrent_dup_skipped = False
+            async with conn.transaction():
+                await conn.execute("SELECT pg_advisory_xact_lock($1)", INGESTION_ADVISORY_LOCK_ID)
+                post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, embedding)
+                if post_lock_cluster_id:
+                    concurrent_dup_skipped = True
+                    await log_ingestion_event(
+                        conn,
+                        url,
+                        "SKIPPED",
+                        source_name=source_name,
+                        dedup_stage="semantic",
+                        dedup_decision="skipped",
+                        semantic_similarity=post_lock_similarity,
+                        similarity_threshold=SIMILARITY_THRESHOLD,
+                        matched_article_id=post_lock_match_id,
+                        matched_cluster_id=post_lock_cluster_id,
+                        error_type="CONCURRENT_DUPLICATE_EMBEDDING",
+                        error_message=(
+                            f"Skipped because concurrent article was committed while processing. "
+                            f"Matched cluster {post_lock_cluster_id}. Matched article {post_lock_match_id}. "
+                            f"Best similarity: {post_lock_similarity:.4f}"
+                        ) if post_lock_similarity is not None else (
+                            f"Skipped because concurrent article was committed while processing. "
+                            f"Matched cluster {post_lock_cluster_id}."
+                        )
+                    )
+                    await _mark_rejection(url)
+                else:
+                    # We use a CTE to ensure we get the ID even if it exists.
+                    result = await conn.fetchrow('''
+                        INSERT INTO articles (
+                            id, title, summary, original_url, image_url, source_name,
+                            published_at, categories, subcategory, subcategories, embedding, content_hash,
+                            summary_model, country_code, is_paywalled, ingestion_method, created_at,
+                            ranking_score, cluster_id, expires_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10::float8[]::vector, $11, $12, $13, $14, $15, NOW(), $16, $17, $18)
+                        ON CONFLICT (original_url) DO UPDATE SET
+                            last_trend_update = NOW(), -- Dummy update to trigger RETURNING
+                            expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
+                        RETURNING id
+                    ''',
+                    article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
+                    llm_res["categories"], subcategory, subcategories,
+                    embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code,
+                    scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"))
+                    
+                    article_id = result["id"] if result else None
+
+            if concurrent_dup_skipped:
+                return None
 
             await log_ingestion_event(
                 conn,

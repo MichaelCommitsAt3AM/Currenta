@@ -77,9 +77,31 @@ _TOKEN_NORMALIZATION_MAP = {
     "lawsuit": "legal",
     "jury": "legal",
     "damages": "damage",
-    "acquisition": "acquire",
+    "acquires": "acquire",
     "acquired": "acquire",
     "acquiring": "acquire",
+    "acquisition": "acquire",
+    "announces": "announce",
+    "announced": "announce",
+    "announcement": "announce",
+    "agrees": "agree",
+    "agreed": "agree",
+    "agreement": "agree",
+    "launches": "launch",
+    "launched": "launch",
+    "launching": "launch",
+    "unveils": "unveil",
+    "unveiled": "unveil",
+    "unveiling": "unveil",
+    "reveals": "reveal",
+    "revealed": "reveal",
+    "revealing": "reveal",
+    "confirms": "confirm",
+    "confirmed": "confirm",
+    "confirming": "confirm",
+    "reports": "report",
+    "reported": "report",
+    "reporting": "report",
 }
 
 
@@ -108,6 +130,16 @@ def _extract_url_slug(url: Optional[str]) -> str:
         return ""
 
 
+def _title_tokens(title: str) -> Set[str]:
+    raw_tokens = _WORD_RE.findall((title or "").lower())
+    cleaned = set()
+    for token in raw_tokens:
+        if len(token) < 2 or token in _TEXT_STOPWORDS:
+            continue
+        cleaned.add(_normalize_token(token))
+    return cleaned
+
+
 def _article_tokens(article: dict) -> Set[str]:
     parts = [
         article.get("title") or "",
@@ -132,35 +164,58 @@ def _token_jaccard_similarity(tokens_a: Set[str], tokens_b: Set[str]) -> float:
     return len(tokens_a & tokens_b) / len(union)
 
 
+def _is_near_duplicate_article(
+    cand_title_tokens: Set[str],
+    cand_tokens: Set[str],
+    exist_title_tokens: Set[str],
+    exist_tokens: Set[str],
+) -> bool:
+    # 1. Title-Priority check: catches breaking news covered across publishers with differing summaries
+    shared_title = cand_title_tokens & exist_title_tokens
+    if len(shared_title) >= _NEAR_DUP_MIN_SHARED_TOKENS:
+        min_len = min(len(cand_title_tokens), len(exist_title_tokens))
+        title_containment = len(shared_title) / min_len if min_len > 0 else 0.0
+        title_jaccard = len(shared_title) / len(cand_title_tokens | exist_title_tokens) if (cand_title_tokens | exist_title_tokens) else 0.0
+        if title_containment >= 0.75 or title_jaccard >= 0.50:
+            return True
+
+    # 2. Combined title + summary Jaccard check
+    if len(cand_tokens & exist_tokens) >= _NEAR_DUP_MIN_SHARED_TOKENS:
+        if _token_jaccard_similarity(cand_tokens, exist_tokens) >= _NEAR_DUP_JACCARD_THRESHOLD:
+            return True
+
+    return False
+
+
 def _collapse_near_duplicate_articles(articles: List[dict]) -> List[dict]:
     """
     Keeps higher-ranked articles and suppresses near-duplicate headlines
     from other sources in the same feed response.
-    Updated: removed subcategory grouping to ensure stories are deduplicated globally.
+    Uses title-priority matching followed by combined summary Jaccard.
     O(N^2) for N=150 is negligible (< 10ms).
     """
     kept: List[dict] = []
-    # List of token sets for articles we decided to keep
-    kept_token_sets: List[Set[str]] = []
+    kept_title_tokens: List[Set[str]] = []
+    kept_tokens: List[Set[str]] = []
 
     for article in articles:
-        candidate_tokens = _article_tokens(article)
+        if article.get("item_type") == "exhaustion_marker":
+            kept.append(article)
+            continue
+
+        cand_title_tokens = _title_tokens(article.get("title") or "")
+        cand_tokens = _article_tokens(article)
         is_near_duplicate = False
-        
-        # We compare against all already-kept articles to ensure global uniqueness.
-        for existing_tokens in kept_token_sets:
-            # Quick overlap check to avoid full Jaccard calculation
-            if len(candidate_tokens & existing_tokens) < _NEAR_DUP_MIN_SHARED_TOKENS:
-                continue
-                
-            similarity = _token_jaccard_similarity(candidate_tokens, existing_tokens)
-            if similarity >= _NEAR_DUP_JACCARD_THRESHOLD:
+
+        for exist_title_tokens, exist_tokens in zip(kept_title_tokens, kept_tokens):
+            if _is_near_duplicate_article(cand_title_tokens, cand_tokens, exist_title_tokens, exist_tokens):
                 is_near_duplicate = True
                 break
 
         if not is_near_duplicate:
             kept.append(article)
-            kept_token_sets.append(candidate_tokens)
+            kept_title_tokens.append(cand_title_tokens)
+            kept_tokens.append(cand_tokens)
 
     return kept
 
@@ -1049,8 +1104,8 @@ async def get_feed(
         elif not secondary_results:
             session_articles = primary_results
 
-        # 5. Global Deduplication (just in case)
-        # (Already handled by the dedupe function above)
+        # 5. Global Deduplication: collapse near-duplicate headlines across sources
+        session_articles = _collapse_near_duplicate_articles(session_articles)
 
         # 6. Session Creation
         new_session_id = str(uuid4())

@@ -116,3 +116,80 @@ def test_collapse_near_duplicate_articles_works_even_with_different_headlines_an
     kept = feed._collapse_near_duplicate_articles([canonical, variant])
     kept_ids = [article["id"] for article in kept]
     assert kept_ids == ["lead"]
+
+
+def test_collapse_near_duplicate_articles_collapses_breaking_news_across_different_publishers():
+    verge_article = {
+        "id": "verge",
+        "title": "Nvidia to Acquire Hugging Face for $12.93 Billion",
+        "summary": "Nvidia has agreed to acquire Hugging Face, a popular open-source AI model hosting platform, for $12.93 billion. This acquisition brings a key AI community hub under the control of the world's largest AI chipmaker. Hugging Face, valued at $4.5 billion in 2023, serves as a 'GitHub for AI.' Nvidia aims to scale the platform and expand AI access for developers globally.",
+        "original_url": "https://www.theverge.com/news/nvidia-acquires-hugging-face",
+        "source_name": "The Verge",
+        "ranking_score": 10.0,
+    }
+    techcrunch_article = {
+        "id": "techcrunch",
+        "title": "Nvidia Acquires Hugging Face for $12.93 Billion to Expand AI Ecosystem",
+        "summary": "Nvidia has acquired Hugging Face for $12.93 billion, integrating its extensive platform of models, applications, and datasets. Hugging Face will remain open-source, supporting various AI frameworks and computing platforms. This acquisition aims to enhance developer access and leverage Nvidia's compute power within the growing AI ecosystem. The deal is expected to benefit Nvidia by strengthening its hardware dominance and enabling new enterprise offerings.",
+        "original_url": "https://techcrunch.com/2026/09/07/nvidia-acquires-hugging-face-12-billion",
+        "source_name": "TechCrunch",
+        "ranking_score": 8.5,
+    }
+    engadget_article = {
+        "id": "engadget",
+        "title": "NVIDIA Acquires Hugging Face for $12.93 Billion to Dominate AI Hardware and Software Market",
+        "summary": "NVIDIA announced its acquisition of Hugging Face for $12.93 billion, aiming to integrate AI hardware and open-source software. CEO Jensen Huang stated NVIDIA will enhance Hugging Face's platform and infrastructure, expanding AI accessibility. This strategic move positions NVIDIA for market dominance if regulatory approval is secured. Hugging Face, a key hub for AI developers, hosts millions of models and serves numerous companies globally.",
+        "original_url": "https://www.engadget.com/nvidia-hugging-face-acquisition-deal",
+        "source_name": "Engadget",
+        "ranking_score": 7.0,
+    }
+
+    kept = feed._collapse_near_duplicate_articles([verge_article, techcrunch_article, engadget_article])
+    kept_ids = [a["id"] for a in kept]
+    assert kept_ids == ["verge"], f"Expected only highest-ranked article, got: {kept_ids}"
+
+
+def test_collapse_near_duplicate_articles_preserves_distinct_stories_sharing_company():
+    article_a = {
+        "id": "chip",
+        "title": "Nvidia Releases New Blackwell AI Chips with 2x Performance",
+        "summary": "Nvidia introduced its next generation of Blackwell GPUs offering double the performance for generative AI workloads.",
+        "original_url": "https://example.com/nvidia-blackwell",
+        "source_name": "TechNews",
+        "ranking_score": 9.0,
+    }
+    article_b = {
+        "id": "earnings",
+        "title": "Nvidia Reports Record Quarterly Revenue Driven by AI Demand",
+        "summary": "Nvidia posted record quarterly earnings beating Wall Street expectations as data center demand surged.",
+        "original_url": "https://example.com/nvidia-record-quarter",
+        "source_name": "FinanceDaily",
+        "ranking_score": 8.0,
+    }
+
+    kept = feed._collapse_near_duplicate_articles([article_a, article_b])
+    kept_ids = [a["id"] for a in kept]
+    assert "chip" in kept_ids
+    assert "earnings" in kept_ids
+    assert len(kept_ids) == 2
+
+
+def test_exhaustion_marker_is_preserved():
+    marker = {
+        "id": "00000000-0000-0000-0000-000000000000",
+        "title": "You're all caught up!",
+        "summary": "You've seen all the latest stories.",
+        "item_type": "exhaustion_marker",
+    }
+    article = {
+        "id": "a1",
+        "title": "NASA Launches New Deep Space Probe",
+        "summary": "NASA launched a new probe to explore the outer reaches of the solar system.",
+        "original_url": "https://nasa.gov/probe",
+        "ranking_score": 5.0,
+    }
+
+    kept = feed._collapse_near_duplicate_articles([article, marker])
+    assert len(kept) == 2
+    assert kept[1]["item_type"] == "exhaustion_marker"
+
