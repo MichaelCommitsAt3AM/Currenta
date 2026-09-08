@@ -130,13 +130,23 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       final controllerPage =
           _pageController.hasClients ? _pageController.page?.round() : null;
 
-      if (nextIndex != prevIndex && nextIndex != controllerPage) {
+      if ((nextIndex != prevIndex && nextIndex != controllerPage) ||
+          nextIndex != _currentIndex) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
           if (_pageController.hasClients) {
-            _pageController.jumpToPage(nextIndex);
+            if (_pageController.page?.round() != nextIndex) {
+              _pageController.jumpToPage(nextIndex);
+            }
             if (_currentIndex != nextIndex) {
               setState(() => _currentIndex = nextIndex);
             }
+          } else if (_currentIndex != nextIndex) {
+            // PageView not mounted yet (e.g. still covered by the restoration
+            // shimmer). Converge the local index anyway so the Restoration
+            // Guard can clear on the next build instead of waiting on a
+            // controller that can't get clients while unmounted.
+            setState(() => _currentIndex = nextIndex);
           }
         });
       }
@@ -680,8 +690,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     debugPrint(
         '[FeedScreen] Building with _selectedCategory: ${_selectedCategory?.name}');
     final feedAsync = ref.watch(newsFeedNotifierProvider);
-    // Only used by the disabled _RefreshBadge below.
-    // ignore: unused_local_variable
     final feed = feedAsync.hasValue ? feedAsync.value : null;
 
     return PopScope(
@@ -725,11 +733,27 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                         return const ShimmerFeed();
                       }
 
-                      // Restoration Guard: If the controller hasn't jumped to the restored index yet,
-                      // keep shimmering to avoid showing the wrong article (index 0) briefly.
-                      if (feed.currentIndex != _currentIndex &&
-                          feed.currentIndex != 0) {
-                        return const ShimmerFeed();
+                      // Restoration Guard: until the PageController has jumped to
+                      // the target index (state restoration, or the reset-to-top
+                      // on refresh), cover the feed with a shimmer so the user
+                      // doesn't glimpse the wrong article for a frame. We keep
+                      // the PageView MOUNTED underneath rather than returning
+                      // ShimmerFeed() here — an unmounted PageView leaves
+                      // _pageController.hasClients false, which stops the index
+                      // sync in _feedSubscription from ever running and would
+                      // deadlock the guard on the shimmer permanently. The sync
+                      // callback always converges _currentIndex, so this clears
+                      // on the next frame.
+                      final isRestoringIndex =
+                          feed.currentIndex != _currentIndex;
+
+                      if (isRestoringIndex) {
+                        return Stack(
+                          children: [
+                            _buildFeedContent(feed),
+                            const ShimmerFeed(),
+                          ],
+                        );
                       }
 
                       return _buildFeedContent(feed);
@@ -743,8 +767,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               onCategoryChanged: (cat) {
                 debugPrint('[FeedScreen] onCategoryChanged: ${cat?.name}');
                 if (_selectedCategory == cat) {
+                  // Re-tapping the chip for the feed you're already on refreshes
+                  // it (top spinner + fresh page). refresh() no-ops if one is
+                  // already running and recovers a feed that never resolved.
                   debugPrint(
-                      '[FeedScreen] Category already selected: ${cat?.name}');
+                      '[FeedScreen] Re-tap on active category ${cat?.name} -> refresh');
+                  ref.read(newsFeedNotifierProvider.notifier).refresh();
                   return;
                 }
 
@@ -756,18 +784,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
               },
             ),
 
-            // ── Refresh Badge (Twitter Style) ──────────────────────────
-            // Disabled for now: the feed always does a fresh cold-boot sync
-            // under the shimmer screen instead, so there's no more "stale
-            // feed + tap to refresh" spinner/button prompt to show.
-            // _RefreshBadge(
-            //   isVisible: !_isManualShimmering &&
-            //       (feed?.articles.isNotEmpty ?? false) &&
-            //       ((feed?.isStale ?? false) || (feed?.isRefreshing ?? false)),
-            //   isRefreshing: feed?.isRefreshing ?? false,
-            //   onTap: () =>
-            //       ref.read(newsFeedNotifierProvider.notifier).refresh(),
-            // ),
+            // ── Top refresh spinner ───────────────────────────────────
+            // Shown while a full-feed refresh is in flight (e.g. after
+            // re-tapping the active category chip). Stale content stays
+            // visible underneath.
+            _TopRefreshSpinner(
+              isVisible: !_isManualShimmering &&
+                  (feed?.articles.isNotEmpty ?? false) &&
+                  (feed?.isRefreshing ?? false),
+            ),
 
             if (ref.watch(onboardingNotifierProvider) != OnboardingStep.none)
               FeedOnboardingOverlay(
@@ -1027,6 +1052,64 @@ class _RefreshBadgeState extends State<_RefreshBadge> {
                           ),
                         ],
                       ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Top refresh spinner ──────────────────────────────────────────────────────
+
+/// A small pill spinner that slides in just below the category bar while a
+/// full-feed refresh is running. Keeps the current feed visible underneath.
+class _TopRefreshSpinner extends StatelessWidget {
+  const _TopRefreshSpinner({required this.isVisible});
+
+  final bool isVisible;
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top + 64;
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutBack,
+      top: isVisible ? topPadding : topPadding - 72,
+      left: 0,
+      right: 0,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 250),
+        opacity: isVisible ? 1.0 : 0.0,
+        child: const Center(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF161B2E), Color(0xFF1E2643)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black45,
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(10),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
+                ),
               ),
             ),
           ),

@@ -719,12 +719,10 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       final newArticles = _interleaveAds(response.articles);
 
-      // Keep the user's scroll position where it is — refresh swaps in fresh
-      // content at the currently-viewed slot instead of scrolling back to top.
-      // Clamp in case the new (shorter) page has fewer articles than the old index.
-      final preservedIndex = newArticles.isEmpty
-          ? 0
-          : (startState?.currentIndex ?? 0).clamp(0, newArticles.length - 1);
+      // Refresh brings a brand-new ranked page, so the articles above the old
+      // slot are no longer the ones the user had scrolled past — jump back to
+      // the top instead of stranding them mid-list against unfamiliar content.
+      const int resetIndex = 0;
 
       final newState = FeedState(
         articles: newArticles,
@@ -735,7 +733,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
         expiresAt: response.expiresAt,
         isServerExhausted: !response.hasMore,
         isStale: false,
-        currentIndex: preservedIndex,
+        currentIndex: resetIndex,
       );
 
       _persistence.saveLastRefreshTime(DateTime.now().toUtc());
@@ -743,8 +741,7 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       _updateCache(currentCategory, newState);
 
       if (newState.articles.isNotEmpty) {
-        _persistence.saveCurrentArticleId(
-            newState.articles[preservedIndex].id);
+        _persistence.saveCurrentArticleId(newState.articles.first.id);
       }
     } catch (e, st) {
       _log('[Feed] Refresh failed: $e');
@@ -944,11 +941,19 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
 
       if (_isDisposed) return;
       final current = (state.hasValue ? state.value : null);
-      final isCategoryActive =
+      final isLiveStateForCategory =
           current != null && current.selectedCategory == category;
 
-      // Use the existing cache as base if the category is not active
-      final base = isCategoryActive
+      // `current` can be null here even while the user is still waiting on this
+      // category: filterByCategory() publishes a value-less AsyncLoading for the
+      // "For You" feed and hands off to this method to resolve it. Without the
+      // _lastRequestedCategory fallback that hand-off never completes and the
+      // shimmer screen stays up until the app is restarted.
+      final isCategoryActive = isLiveStateForCategory ||
+          _lastRequestedCategory == category;
+
+      // Use the existing cache as base if the live state isn't this category.
+      final base = isLiveStateForCategory
           ? current
           : (_getFromCache(category) ?? FeedState(selectedCategory: category));
 
@@ -998,6 +1003,14 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
       final current = (state.hasValue ? state.value : null);
       if (current != null && current.selectedCategory == category) {
         state = AsyncData(current.copyWith(isRefreshing: false));
+      } else if (!state.hasValue && _lastRequestedCategory == category) {
+        // The value-less shimmer for this category is still on screen and the
+        // background sync failed — surface whatever we cached locally so the UI
+        // can leave the shimmer instead of hanging until an app restart.
+        final fallback = _getFromCache(category);
+        if (fallback != null) {
+          state = AsyncData(fallback.copyWith(isRefreshing: false));
+        }
       }
     }
   }
