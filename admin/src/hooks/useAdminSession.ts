@@ -49,6 +49,12 @@ export function useAdminSession(): AdminSession {
   const sessionStartTimeRef = useRef<number | null>(null)
   const checkIntervalRef = useRef<number | null>(null)
   const sessionRef = useRef<Session | null>(null)
+  const phaseRef = useRef<AuthPhase>('signedOut')
+  const verifiedUserIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    phaseRef.current = phase
+  }, [phase])
 
   const setAuthError = useCallback((message: string | null, showRetry = false) => {
     setAuthErrorState(message)
@@ -99,6 +105,7 @@ export function useAdminSession(): AdminSession {
     isCheckingAdminRef.current = false
 
     if (isAdmin === true) {
+      verifiedUserIdRef.current = activeSession.user.id
       const savedStart = sessionStorage.getItem(ADMIN_SESSION_START_KEY)
       const startTime = savedStart ? parseInt(savedStart, 10) : Date.now()
       sessionStartTimeRef.current = startTime
@@ -128,10 +135,22 @@ export function useAdminSession(): AdminSession {
 
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
         if (changedSession && !isCheckingAdminRef.current) {
-          void performAdminVerification(changedSession)
+          // supabase-js re-emits SIGNED_IN / INITIAL_SESSION every time the
+          // browser tab regains focus (not an actual new sign-in). Re-running
+          // verification there flips phase back to 'verifying', which unmounts
+          // AppShell in App.tsx and wipes every screen's in-memory state. Only
+          // verify when this is genuinely a new/changed session.
+          const alreadyVerified =
+            event !== 'USER_UPDATED' &&
+            phaseRef.current === 'authenticated' &&
+            verifiedUserIdRef.current === changedSession.user.id
+          if (!alreadyVerified) {
+            void performAdminVerification(changedSession)
+          }
         }
       } else if (event === 'SIGNED_OUT') {
         sessionStartTimeRef.current = null
+        verifiedUserIdRef.current = null
         sessionStorage.removeItem(ADMIN_SESSION_START_KEY)
         stopSessionTimer()
         setPhase('signedOut')
