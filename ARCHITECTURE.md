@@ -63,7 +63,8 @@ The ingestion engine is a multi-stage pipeline designed for **high precision** a
 5.  **Deduplication**:
     *   *Ingest-time (semantic)*: `find_cluster_match` compares `dedup_embedding` cosine similarity against articles published in the last `DUPLICATE_LOOKBACK_DAYS` (7); at/above `DUPLICATE_SIMILARITY_THRESHOLD` (0.75) the new article is dropped (logged `DUPLICATE_EMBEDDING`). Using the framing-free event key rather than the full summary keeps genuine same-event coverage above threshold without merging merely-related stories.
     *   *Feed-time (lexical)*: Jaccard similarity on title/summary tokens collapses any near-duplicate headlines that still slip through, per feed page.
-6.  **Ranking**: Calculates an initial `ranking_score` using time-decay and trend signals.
+6.  **Ranking**: The `articles_feed` view computes `ranking_score` live per query as `(1 + trend_score) * exp(-0.05 * hours_since_published)`.
+7.  **Trend scoring** (`backend/services/trending.py`, worker, ~hourly): Google Trends (US/KE/GB) drive an additive, capped-at-12 `trend_score` on semantically-matched articles (and their dedup cluster). Each run first **decays** every recent article's `trend_score` by `TREND_SCORE_DECAY_FACTOR` (0.75, half-life ≈ 2.4h) and snaps sub-`0.5` residuals to 0, *then* applies fresh boosts — so a story still trending stays near the cap while one that fell off Google Trends leaves the trending tier within an evening. A Redis co-fire guard (`trending:decay:last_run_at`) prevents a double-decay when the hourly and 3-hourly jobs align.
 
 ---
 
