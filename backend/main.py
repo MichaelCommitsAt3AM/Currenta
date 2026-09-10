@@ -40,7 +40,7 @@ from .version import VERSION
 setup_logging()
 
 from .core.security import limiter, get_client_ip
-from .api import feed, ingest, chat, trending, admin, auth, taxonomy
+from .api import feed, ingest, chat, trending, admin, auth, taxonomy, waitlist
 from .version import VERSION
 from .services.scheduler import start_scheduler, stop_scheduler
 
@@ -85,7 +85,7 @@ app = FastAPI(title="Currenta Backend", version=VERSION, lifespan=lifespan)
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.add_middleware(SecurityHeadersMiddleware)
 
-ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,https://hidden-paper-0d93.michaelnjonge905.workers.dev,https://admin.currenta.tech")
+ALLOWED_ORIGINS_RAW = os.environ.get("ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500,http://localhost:3000,http://127.0.0.1:3000,http://localhost:4174,http://localhost:5174,https://hidden-paper-0d93.michaelnjonge905.workers.dev,https://admin.currenta.tech,https://currenta.tech,https://www.currenta.tech")
 ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS_RAW.split(",") if o.strip()]
 
 app.add_middleware(
@@ -118,6 +118,7 @@ app.include_router(trending.router, prefix="/api/trending", tags=["trending"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(taxonomy.router, prefix="/api/taxonomy", tags=["taxonomy"])
+app.include_router(waitlist.router, prefix="/api/waitlist", tags=["waitlist"])
 
 
 @app.get("/")
