@@ -77,10 +77,21 @@ VALID_SUBCATEGORY_SLUGS = TAXONOMY.all_slugs
 # left optional here rather than required.
 SUMMARIZATION_RESPONSE_SCHEMA = genai_types.Schema(
     type="OBJECT",
-    required=["title", "summary", "categories", "subcategories", "type"],
+    required=["title", "summary", "event_key", "categories", "subcategories", "type"],
     properties={
         "title": genai_types.Schema(type="STRING"),
         "summary": genai_types.Schema(type="STRING"),
+        # Framing-free one-liner used only to build the dedup vector
+        # (dedup_embedding). A plain STRING adds no branching to the schema —
+        # the "constraint has too much branching" incident below was about an
+        # 88-value enum, not scalar fields. key_entities is captured now but
+        # not yet consumed (reserved for a gray-zone lexical dedup check).
+        "event_key": genai_types.Schema(type="STRING"),
+        "key_entities": genai_types.Schema(
+            type="ARRAY",
+            items=genai_types.Schema(type="STRING"),
+            max_items=6,
+        ),
         "categories": genai_types.Schema(
             type="ARRAY",
             items=genai_types.Schema(type="STRING", enum=VALID_CATEGORIES),
@@ -234,11 +245,14 @@ SUMMARIZATION_PROMPT = """You are a factual news summarizer and multi-label clas
 3. Identify ALL applicable categories for this article (an article can belong to more than one).
 4. Determine the content "type" (hard_news, analysis, opinion, review, listicle, sponsored, irrelevant).
 5. Extract/calculate article expiration date if it is an announcement of a future event.
+6. Write an "event_key": a single framing-free sentence identifying the underlying news event.
 
 Return the result as a raw JSON object only (no preamble):
 {
   "title": "...",
   "summary": "...",
+  "event_key": "...",
+  "key_entities": ["...", "..."],
   "categories": ["primary_category", "secondary_category"],
   "subcategories": ["primary_subcategory"],
   "type": "...",
@@ -248,6 +262,8 @@ Return the result as a raw JSON object only (no preamble):
 Rules:
 1. "summary" MUST be EXACTLY 65 words (tolerance: 60-70 words), written in exactly 3-4 sentences, each roughly 15-20 words. Use the example below as a guide for length.
 2. "title" must be factual and non-clickbait.
+2b. "event_key" MUST be ONE sentence stating WHO did WHAT, WHERE, and the core OUTCOME, naming the primary entities explicitly (people, organizations, places, product/model names). It is used to detect that two articles cover the SAME event, so it MUST contain only the core facts — NO analysis, NO consequences, NO background, and NONE of this article's particular angle or emphasis. Two reporters covering the same event from different outlets must produce almost the same event_key. Example: "An Amazon Boeing 767 cargo plane overran the runway while landing at Miami International Airport, striking vehicles and killing multiple people."
+2c. "key_entities" MUST be a JSON array of up to 6 of the most important proper nouns in the event (people, organizations, places, products). Shortest recognizable form, e.g. "Miami International Airport", "Amazon", "Boeing 767".
 3. "categories" MUST be a JSON array containing only values from: "politics", "tech", "science", "business", "sports", "entertainment", "health", "world", "environment". List the MOST relevant category first. Include all categories that genuinely apply (e.g., an AI regulation bill -> ["tech", "politics"]).
 4. "subcategories" MUST be a JSON array of 1-2 slugs from the CANONICAL SUBCATEGORY LIST below (given after this rule block), chosen from any of the rows whose category matches one of the values you picked for "categories". List exactly ONE slug unless the article is genuinely and substantially about two distinct subtopics (e.g. an AI regulation bill is both "artificial_intelligence.ai_policy_regulation" and "government_policy") — do not pad to 2 just to fill the array. Prefer the more specific child slug (formatted "parent_slug.child_slug") over its parent when the article clearly fits that child; otherwise use the parent slug alone. If truly nothing fits, use the closest available slug rather than inventing a new one.
    *CRITICAL FORMAT NOTE*: the list below groups slugs by category using "- category: slug_a, slug_b" purely for YOUR reference — that leading "category:" label is NOT part of any slug. Output the slug exactly as it appears after the colon, with NO category prefix. Correct: "government_policy". WRONG: "politics.government_policy". The only place a "." ever belongs in a slug is between an already-dotted parent and child pair exactly as listed (e.g. "artificial_intelligence.ai_research") — never between a category name and a slug.
@@ -1217,6 +1233,8 @@ def parse_llm_response(raw_str: str) -> dict:
         return {
             "title": "News Update",
             "summary": str(raw_str)[:300],
+            "event_key": "News Update",
+            "key_entities": [],
             "categories": ["world"],
             "type": "irrelevant",
             "subcategories": [],
@@ -1227,6 +1245,22 @@ def parse_llm_response(raw_str: str) -> dict:
         title = parsed.get("title", "News Update").replace("**", "").strip('"')
         summary = parsed.get("summary", raw_str).replace("**", "").strip('"')
         summary = _trim_to_word_limit(summary, 68)
+
+        # event_key backs the dedup vector (dedup_embedding). Non-schema-enforced
+        # providers (Groq/Ollama) may omit it — fall back to the title so the
+        # dedup path always has something meaningful to embed.
+        event_key = str(parsed.get("event_key") or "").replace("**", "").strip('"').strip()
+        if not event_key:
+            event_key = title
+        raw_entities = parsed.get("key_entities")
+        if isinstance(raw_entities, str):
+            raw_entities = [raw_entities]
+        key_entities = []
+        for ent in (raw_entities or []):
+            ent_clean = str(ent).replace("**", "").strip('"').strip()
+            if ent_clean and ent_clean not in key_entities:
+                key_entities.append(ent_clean)
+        key_entities = key_entities[:6]
         
         raw_categories = parsed.get("categories", [])
         if not raw_categories and isinstance(parsed.get("category"), str):
@@ -1285,6 +1319,8 @@ def parse_llm_response(raw_str: str) -> dict:
         return {
             "title": title,
             "summary": summary,
+            "event_key": event_key,
+            "key_entities": key_entities,
             "categories": categories,
             "type": type_str,
             "subcategories": subcategories,
@@ -1298,6 +1334,8 @@ def parse_llm_response(raw_str: str) -> dict:
         return {
             "title": "News Update",
             "summary": raw_str[:300],
+            "event_key": "News Update",
+            "key_entities": [],
             "categories": ["world"],
             "type": "irrelevant",
             "subcategories": [],
@@ -1468,6 +1506,32 @@ async def embed_texts(texts: list[str], http_client: Optional[httpx.AsyncClient]
     finally:
         if client_ctx:
             await client_ctx.aclose()
+
+
+async def embed_content_and_dedup(
+    llm_res: dict,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> tuple[list[float], list[float]]:
+    """Returns (content_embedding, dedup_embedding) for an article.
+
+    content_embedding = embed(title + " " + summary) — unchanged; still backs
+    personalized ranking, the like-derived interest vector, trend<->article
+    matching and related-articles.
+
+    dedup_embedding = embed(event_key) — framing-free, so two outlets covering
+    the same event land well above the duplicate threshold without dragging
+    merely-related stories up with them. This is the ONLY vector
+    find_cluster_match reads.
+    """
+    content_text = f"{llm_res['title']} {llm_res['summary']}".strip()
+    dedup_text = (llm_res.get("event_key") or llm_res["title"]).strip()
+
+    if dedup_text == content_text:
+        vec = await embed_text(content_text, http_client=http_client)
+        return vec, vec
+
+    content_emb, dedup_emb = await embed_texts([content_text, dedup_text], http_client=http_client)
+    return content_emb, dedup_emb
 
 
 async def upload_image_sync(image_bytes: bytes, file_name: str) -> str | None:
@@ -1705,11 +1769,16 @@ async def parse_rss(feed_url: str) -> list[dict]:
         
     return parsed_items
 
-async def find_cluster_match(conn, embedding: list[float]) -> tuple[Optional[UUID], Optional[float], Optional[UUID]]:
+async def find_cluster_match(conn, dedup_embedding: list[float]) -> tuple[Optional[UUID], Optional[float], Optional[UUID]]:
     """
     Finds the best recent semantic candidate and applies the configured threshold.
     Returns (matched_cluster_id, best_similarity, best_match_article_id).
     matched_cluster_id is None when best_similarity is below threshold.
+
+    Compares against articles.dedup_embedding (embed(event_key)) — NOT
+    articles.embedding. Rows older than DUPLICATE_LOOKBACK_DAYS are never
+    considered, so only recent rows need dedup_embedding populated; rows with
+    a NULL dedup_embedding (older history, or a backfill gap) are skipped.
     """
     try:
         records = await conn.fetch(
@@ -1717,13 +1786,14 @@ async def find_cluster_match(conn, embedding: list[float]) -> tuple[Optional[UUI
             SELECT
                 id,
                 cluster_id,
-                1 - (embedding <=> $1::float8[]::vector) AS similarity
+                1 - (dedup_embedding <=> $1::float8[]::vector) AS similarity
             FROM articles
-            WHERE published_at > (now() - make_interval(days => $2::int))
-            ORDER BY embedding <=> $1::float8[]::vector
+            WHERE dedup_embedding IS NOT NULL
+              AND published_at > (now() - make_interval(days => $2::int))
+            ORDER BY dedup_embedding <=> $1::float8[]::vector
             LIMIT 1
             """,
-            embedding, DUPLICATE_LOOKBACK_DAYS
+            dedup_embedding, DUPLICATE_LOOKBACK_DAYS
         )
         if records:
             best_match_id = records[0]["id"]
@@ -2040,11 +2110,11 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     results["skipped"] += 1
                     continue
 
-                embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"], http_client=http_client)
-                
+                embedding, dedup_embedding = await embed_content_and_dedup(llm_res, http_client=http_client)
+
                 # Check for semantic duplicate using the same connection
                 # --- Clustering & Deduplication ---
-                matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, embedding)
+                matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, dedup_embedding)
                 if matched_cluster_id:
                     # In this robust implementation, we skip duplicates to keep the primary feed high-signal.
                     # We also upgrade the matched article's major source flag if applicable.
@@ -2141,7 +2211,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                     async with conn.transaction():
                         await conn.execute("SELECT pg_advisory_xact_lock($1)", INGESTION_ADVISORY_LOCK_ID)
                         # Re-verify find_cluster_match under advisory lock in case a concurrent feed committed this story
-                        post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, embedding)
+                        post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, dedup_embedding)
                         if post_lock_cluster_id:
                             concurrent_dup_skipped = True
                             if is_major and post_lock_match_id:
@@ -2190,9 +2260,9 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                                     id, title, summary, original_url, image_url, source_name, source_favicon_url,
                                     published_at, categories, subcategory, subcategories, embedding, content_hash,
                                     summary_model, country_code, is_paywalled, ingestion_method, cluster_id, is_major_source,
-                                    expires_at
+                                    expires_at, event_key, key_entities, dedup_embedding
                                 )
-                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19, $20)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8[]::vector, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23::float8[]::vector)
                                 ON CONFLICT (original_url) DO UPDATE SET
                                     is_major_source = CASE WHEN articles.is_major_source = FALSE THEN EXCLUDED.is_major_source ELSE articles.is_major_source END,
                                     expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
@@ -2200,7 +2270,7 @@ async def process_feed(feed_url: str, category: str, category_bias: str = "neutr
                                 article_id, llm_res["title"], llm_res["summary"], link, image, source_name, favicon_url,
                                 item_pub_date, categories, subcategory, subcategories, embedding, content_hash,
                                 get_model_name(LLM_PROVIDER), db_country_code, is_paywalled, ingestion_method, target_cluster_id, is_major,
-                                llm_res.get("expires_at")
+                                llm_res.get("expires_at"), llm_res.get("event_key"), llm_res.get("key_entities"), dedup_embedding
                             )
 
                     if concurrent_dup_skipped:
@@ -2597,8 +2667,8 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             return None
 
         # Embed
-        embedding = await embed_text(llm_res["title"] + " " + llm_res["summary"])
-        matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, embedding)
+        embedding, dedup_embedding = await embed_content_and_dedup(llm_res)
+        matched_cluster_id, best_similarity, best_match_id = await find_cluster_match(conn, dedup_embedding)
         if matched_cluster_id:
             await log_ingestion_event(
                 conn,
@@ -2664,7 +2734,7 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
             concurrent_dup_skipped = False
             async with conn.transaction():
                 await conn.execute("SELECT pg_advisory_xact_lock($1)", INGESTION_ADVISORY_LOCK_ID)
-                post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, embedding)
+                post_lock_cluster_id, post_lock_similarity, post_lock_match_id = await find_cluster_match(conn, dedup_embedding)
                 if post_lock_cluster_id:
                     concurrent_dup_skipped = True
                     await log_ingestion_event(
@@ -2696,8 +2766,8 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                             id, title, summary, original_url, image_url, source_name,
                             published_at, categories, subcategory, subcategories, embedding, content_hash,
                             summary_model, country_code, is_paywalled, ingestion_method, created_at,
-                            ranking_score, cluster_id, expires_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10::float8[]::vector, $11, $12, $13, $14, $15, NOW(), $16, $17, $18)
+                            ranking_score, cluster_id, expires_at, event_key, key_entities, dedup_embedding
+                        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10::float8[]::vector, $11, $12, $13, $14, $15, NOW(), $16, $17, $18, $19, $20, $21::float8[]::vector)
                         ON CONFLICT (original_url) DO UPDATE SET
                             last_trend_update = NOW(), -- Dummy update to trigger RETURNING
                             expires_at = COALESCE(articles.expires_at, EXCLUDED.expires_at)
@@ -2706,7 +2776,8 @@ async def ingest_from_url(url: str, db_pool, country_code: Optional[str] = None)
                     article_id, llm_res["title"], llm_res["summary"], url, article_image_url, source_name,
                     llm_res["categories"], subcategory, subcategories,
                     embedding, content_hash, get_model_name(LLM_PROVIDER), db_country_code,
-                    scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"))
+                    scraper_result.get("is_paywalled", False), "scraper", ranking_score, target_cluster_id, llm_res.get("expires_at"),
+                    llm_res.get("event_key"), llm_res.get("key_entities"), dedup_embedding)
                     
                     article_id = result["id"] if result else None
 

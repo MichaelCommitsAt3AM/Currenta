@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS articles (
     locality_score    DOUBLE PRECISION,
     locality_method   TEXT,
     locality_evidence TEXT,
-    is_major_source   BOOLEAN NOT NULL DEFAULT false
+    is_major_source   BOOLEAN NOT NULL DEFAULT false,
+    event_key         TEXT,          -- framing-free "who did what where" line from the summarizer; see 20260910073500_add_dedup_embedding.sql
+    key_entities      TEXT[],        -- primary named entities from the summarizer (reserved for a gray-zone lexical dedup check)
+    dedup_embedding   vector(1024)   -- embed(event_key); the ONLY vector find_cluster_match reads
 );
 
 -- 2.2 Feed Jobs table
@@ -187,6 +190,7 @@ CREATE TABLE IF NOT EXISTS app_logs (
 
 -- Articles
 CREATE INDEX IF NOT EXISTS articles_embedding_hnsw_idx ON articles USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX IF NOT EXISTS articles_dedup_embedding_hnsw_idx ON articles USING hnsw (dedup_embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 CREATE INDEX IF NOT EXISTS articles_published_at_idx ON articles (published_at DESC);
 CREATE INDEX IF NOT EXISTS articles_created_at_idx ON articles (created_at DESC);
 CREATE INDEX IF NOT EXISTS articles_trend_score_idx ON articles (trend_score DESC);

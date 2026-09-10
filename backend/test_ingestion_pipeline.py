@@ -54,6 +54,18 @@ class FakeConn:
         self.log_rows.append((query, args))
         return "INSERT 0 1"
 
+    def transaction(self):
+        conn = self
+
+        class _Txn:
+            async def __aenter__(self):
+                return conn
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        return _Txn()
+
 
 class _AcquireCtx:
     def __init__(self, conn: FakeConn):
@@ -130,6 +142,8 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
                 "Kenya introduced new rules requiring AI startups to run safety checks, "
                 "publish model limitations, and implement accountability controls before deployment."
             ),
+            "event_key": "Kenya's technology regulator issued a safety and accountability framework for AI startups.",
+            "key_entities": ["Kenya"],
             "categories": ["tech", "business"],
             "subcategories": ["artificial_intelligence.ai_policy_regulation"],
             "type": "hard_news",
@@ -138,14 +152,20 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
             "local_reason": "Policy and institutions are in Kenya.",
         }
 
-    async def fake_embed(text: str):
+    async def fake_embed(text: str, http_client=None):
         stage_flags["embedded"] = True
         assert "Kenya" in text
         return [0.01, 0.11, 0.21, 0.31]
 
+    async def fake_embed_texts(texts, http_client=None):
+        stage_flags["embedded"] = True
+        assert any("Kenya" in t for t in texts)
+        return [[0.01, 0.11, 0.21, 0.31] for _ in texts]
+
     monkeypatch.setattr(ingestion, "scrape_article_sync", fake_scrape)
     monkeypatch.setattr(ingestion, "summarize_article", fake_summarize)
     monkeypatch.setattr(ingestion, "embed_text", fake_embed)
+    monkeypatch.setattr(ingestion, "embed_texts", fake_embed_texts)
 
     conn = FakeConn()
     pool = FakePool(conn)
@@ -164,7 +184,9 @@ def test_ingest_single_google_news_article_pipeline(monkeypatch):
     assert insert_args[6] == ["tech", "business"]
     assert insert_args[7] == "artificial_intelligence.ai_policy_regulation"
     assert insert_args[8] == ["artificial_intelligence.ai_policy_regulation"]
-    assert insert_args[9] == [0.01, 0.11, 0.21, 0.31]
+    assert insert_args[9] == [0.01, 0.11, 0.21, 0.31]  # embedding (content)
+    assert insert_args[18] == "Kenya's technology regulator issued a safety and accountability framework for AI startups."  # event_key
+    assert insert_args[20] == [0.01, 0.11, 0.21, 0.31]  # dedup_embedding
 
     success_logs = [row for row in conn.log_rows if "ingestion_logs" in row[0] and row[1][1] == "SUCCESS"]
     assert len(success_logs) >= 1
@@ -268,6 +290,8 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
         return {
             "title": "Standard title",
             "summary": "Standard summary",
+            "event_key": "Standard event key sentence.",
+            "key_entities": ["Standard"],
             "categories": ["tech"],
             "subcategories": ["artificial_intelligence"],
             "type": "hard_news",
@@ -276,12 +300,16 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
             "local_reason": "Low confidence non-local",
         }
 
-    async def fake_embed(text: str):
+    async def fake_embed(text: str, http_client=None):
         return [0.01, 0.11, 0.21, 0.31]
+
+    async def fake_embed_texts(texts, http_client=None):
+        return [[0.01, 0.11, 0.21, 0.31] for _ in texts]
 
     monkeypatch.setattr(ingestion, "scrape_article_sync", fake_scrape)
     monkeypatch.setattr(ingestion, "summarize_article", fake_summarize)
     monkeypatch.setattr(ingestion, "embed_text", fake_embed)
+    monkeypatch.setattr(ingestion, "embed_texts", fake_embed_texts)
 
     conn = FakeConn()
     pool = FakePool(conn)
@@ -292,6 +320,7 @@ def test_ingest_non_local_but_low_confidence_sets_country_code_to_none(monkeypat
     assert len(conn.inserted_rows) == 1
     insert_query, insert_args = conn.inserted_rows[0]
     assert insert_args[12] is None  # Should be set to None because it's non-local!
+    assert insert_args[20] == [0.01, 0.11, 0.21, 0.31]  # dedup_embedding populated
 
 
 def test_summarize_article_locality_context(monkeypatch):
@@ -399,6 +428,99 @@ def test_parse_llm_response_accepts_legacy_singular_subcategory_field():
     )
     result = ingestion.parse_llm_response(raw)
     assert result["subcategories"] == ["artificial_intelligence"]
+
+
+def test_parse_llm_response_extracts_event_key_and_entities():
+    raw = (
+        '{"title": "T", "summary": "S", '
+        '"event_key": "An Amazon Boeing 767 cargo plane overran the runway at Miami International Airport.", '
+        '"key_entities": ["Amazon", "Boeing 767", "Miami International Airport", "Amazon", ""], '
+        '"categories": ["world"], "type": "hard_news", "subcategories": ["air_travel"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["event_key"].startswith("An Amazon Boeing 767 cargo plane overran")
+    # blanks dropped, duplicates collapsed, order preserved
+    assert result["key_entities"] == ["Amazon", "Boeing 767", "Miami International Airport"]
+
+
+def test_parse_llm_response_event_key_falls_back_to_title():
+    """A non-schema-enforced provider (Groq/Ollama) may omit event_key entirely;
+    the dedup path must still get something meaningful to embed."""
+    raw = (
+        '{"title": "Kenya issues AI safety policy", "summary": "S", '
+        '"categories": ["tech"], "type": "hard_news", "subcategories": ["artificial_intelligence"]}'
+    )
+    result = ingestion.parse_llm_response(raw)
+    assert result["event_key"] == "Kenya issues AI safety policy"
+    assert result["key_entities"] == []
+
+
+def test_parse_llm_response_unparseable_still_has_event_key():
+    result = ingestion.parse_llm_response("not json at all")
+    assert result["event_key"] == "News Update"
+    assert result["key_entities"] == []
+
+
+def test_embed_content_and_dedup_uses_event_key_for_dedup_vector(monkeypatch):
+    """The dedup vector must be built from event_key, the content vector from
+    title+summary — and they must be different calls when the texts differ."""
+    seen = {}
+
+    async def fake_embed_texts(texts, http_client=None):
+        seen["texts"] = list(texts)
+        return [[float(i)] for i in range(len(texts))]
+
+    monkeypatch.setattr(ingestion, "embed_texts", fake_embed_texts)
+
+    llm_res = {
+        "title": "Amazon cargo plane crashes near Tesla Cybercab lot in Miami",
+        "summary": "A long framing-heavy summary about Cybercabs piling up unused ...",
+        "event_key": "An Amazon Boeing 767 cargo plane overran the runway at Miami International Airport, killing several people.",
+    }
+    content_emb, dedup_emb = asyncio.run(ingestion.embed_content_and_dedup(llm_res))
+
+    assert seen["texts"][0] == f"{llm_res['title']} {llm_res['summary']}"
+    assert seen["texts"][1] == llm_res["event_key"]
+    assert content_emb == [0.0]
+    assert dedup_emb == [1.0]
+
+
+def test_find_cluster_match_reads_dedup_embedding_column():
+    """find_cluster_match must query dedup_embedding, not embedding, and honour
+    the threshold."""
+    captured = {}
+
+    class ClusterConn:
+        async def fetch(self, query, *args):
+            captured["query"] = query
+            return [{
+                "id": "older-article",
+                "cluster_id": None,
+                "similarity": 0.91,
+            }]
+
+    cid, sim, match_id = asyncio.run(
+        ingestion.find_cluster_match(ClusterConn(), [0.1, 0.2, 0.3])
+    )
+    assert "dedup_embedding <=> " in captured["query"]
+    assert "dedup_embedding IS NOT NULL" in captured["query"]
+    assert "embedding <=>" not in captured["query"].replace("dedup_embedding <=>", "")
+    assert cid == "older-article"   # no cluster_id on match -> match id becomes root
+    assert match_id == "older-article"
+    assert sim == 0.91
+
+
+def test_find_cluster_match_below_threshold_returns_no_cluster():
+    class ClusterConn:
+        async def fetch(self, query, *args):
+            return [{"id": "x", "cluster_id": "cx", "similarity": 0.62}]
+
+    cid, sim, match_id = asyncio.run(
+        ingestion.find_cluster_match(ClusterConn(), [0.1, 0.2, 0.3])
+    )
+    assert cid is None
+    assert sim == 0.62
+    assert match_id == "x"
 
 
 

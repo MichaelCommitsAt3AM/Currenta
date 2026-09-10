@@ -58,8 +58,11 @@ The ingestion engine is a multi-stage pipeline designed for **high precision** a
     *   **Summarization**: Generates a strict 65-word summary (5Ws) and extracts metadata.
     *   **Classification**: Assigns multiple categories and identifies content "type" (Analysis, Hard News, etc.).
     *   **Locality Detection**: Determines if an article is locally relevant to specific regions (e.g., Kenya).
-4.  **Embedding**: Generates a 1024-dimensional vector representation of the content.
-5.  **Deduplication**: Uses Jaccard similarity to collapse near-duplicate headlines across sources.
+    *   **Event key**: A framing-free one-sentence statement of the underlying news event (`articles.event_key`), used only for dedup — two outlets covering the same event produce near-identical keys.
+4.  **Embedding**: Two 1024-dim vectors — `articles.embedding` = embed(title + summary), used for personalization/trending/related; `articles.dedup_embedding` = embed(event_key), used only by dedup.
+5.  **Deduplication**:
+    *   *Ingest-time (semantic)*: `find_cluster_match` compares `dedup_embedding` cosine similarity against articles published in the last `DUPLICATE_LOOKBACK_DAYS` (7); at/above `DUPLICATE_SIMILARITY_THRESHOLD` (0.75) the new article is dropped (logged `DUPLICATE_EMBEDDING`). Using the framing-free event key rather than the full summary keeps genuine same-event coverage above threshold without merging merely-related stories.
+    *   *Feed-time (lexical)*: Jaccard similarity on title/summary tokens collapses any near-duplicate headlines that still slip through, per feed page.
 6.  **Ranking**: Calculates an initial `ranking_score` using time-decay and trend signals.
 
 ---

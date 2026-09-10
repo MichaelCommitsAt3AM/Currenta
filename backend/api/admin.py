@@ -368,9 +368,12 @@ async def publish_manual_news(
                 )
                 raise HTTPException(status_code=409, detail="Article already exists (URL or content hash match)")
             
-            # Generate Embedding
+            # Generate Embedding. The manual-publish flow has no LLM step and so
+            # no event_key; use the title as the dedup signal so the article can
+            # still act as a match target for ingested duplicates.
             embedding = await embed_text(f"{publish_req.title}\n\n{publish_req.summary}")
-            
+            dedup_embedding = await embed_text(publish_req.title)
+
             # Calculate ranking score
             published_at = datetime.now(timezone.utc)
             ranking_score = calculate_ranking_score(published_at, trend_score=0.0)
@@ -391,8 +394,9 @@ async def publish_manual_news(
                     published_at, categories, subcategory, subcategories,
                     country_code, image_url, content_hash,
                     embedding, ranking_score, ingestion_method,
-                    is_paywalled, cluster_id, is_major_source, summary_model, expires_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::float8[]::vector, $14, $15, $16, $17, $18, $19, $20)
+                    is_paywalled, cluster_id, is_major_source, summary_model, expires_at,
+                    event_key, dedup_embedding
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::float8[]::vector, $14, $15, $16, $17, $18, $19, $20, $21, $22::float8[]::vector)
                 RETURNING id
                 """,
                 article_id_uuid,
@@ -414,7 +418,9 @@ async def publish_manual_news(
                 cluster_id,
                 False, # is_major_source
                 "manual_admin", # summary_model
-                publish_req.expires_at
+                publish_req.expires_at,
+                publish_req.title,
+                dedup_embedding
             )
             
             await log_ingestion_event(
