@@ -55,8 +55,12 @@ EVENT_KEY_PROMPT = (
     "Two articles about the same event must produce almost the same event_key.\n"
     '"key_entities": up to 6 of the most important proper nouns (people, orgs, '
     "places, products), shortest recognizable form.\n\n"
-    "Headline: {title}\nSummary: {summary}"
+    "Headline: [[TITLE]]\nSummary: [[SUMMARY]]"
 )
+
+# Bounded concurrency for the LLM pass — sequential is ~1s/row (an hour for a
+# typical 10-day window on the home server).
+EVENT_KEY_CONCURRENCY = int(os.environ.get("BACKFILL_EVENT_KEY_CONCURRENCY", "8"))
 
 
 def _load_cache() -> dict:
@@ -86,7 +90,7 @@ async def _generate_event_key(title: str, summary: str) -> tuple[str, list[str]]
         return title, []
     from google.genai import types as genai_types
 
-    prompt = EVENT_KEY_PROMPT.format(title=title, summary=summary)
+    prompt = EVENT_KEY_PROMPT.replace("[[TITLE]]", title).replace("[[SUMMARY]]", summary)
     try:
         resp = await client.aio.models.generate_content(
             model="gemini-2.5-flash-lite",
@@ -121,14 +125,26 @@ async def run(commit: bool, days: int) -> None:
         print(f"{len(rows)} article(s) in the last {days} days need dedup_embedding.")
 
         to_process = [r for r in rows if str(r["id"]) not in cache]
-        print(f"{len(rows) - len(to_process)} already in cache; generating {len(to_process)} event keys...")
+        print(f"{len(rows) - len(to_process)} already in cache; generating {len(to_process)} event keys "
+              f"({EVENT_KEY_CONCURRENCY}-way concurrent)...")
 
-        for i, row in enumerate(to_process):
-            if i and i % 25 == 0:
-                print(f"  ...{i}/{len(to_process)}")
+        sem = asyncio.Semaphore(EVENT_KEY_CONCURRENCY)
+        done = 0
+
+        async def _one(row):
+            nonlocal done
+            async with sem:
+                ek, ents = await _generate_event_key(row["title"], row["summary"] or "")
+            cache[str(row["id"])] = {"event_key": ek, "key_entities": ents}
+            done += 1
+            if done % 100 == 0:
+                print(f"  ...{done}/{len(to_process)}")
                 _save_cache(cache)
-            event_key, entities = await _generate_event_key(row["title"], row["summary"] or "")
-            cache[str(row["id"])] = {"event_key": event_key, "key_entities": entities}
+
+        for chunk_start in range(0, len(to_process), 500):
+            chunk = to_process[chunk_start : chunk_start + 500]
+            await asyncio.gather(*(_one(r) for r in chunk))
+            _save_cache(cache)  # checkpoint every 500 rows
         _save_cache(cache)
 
         # Embed all keys (batched) for rows we're about to write.
