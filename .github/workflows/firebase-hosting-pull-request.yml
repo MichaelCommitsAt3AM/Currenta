@@ -4,6 +4,12 @@ jobs:
   build_and_preview:
     if: '${{ github.event.pull_request.head.repo.full_name == github.repository }}'
     runs-on: ubuntu-latest
+    # The repo default workflow token is read-only; action-hosting-deploy needs
+    # to create the "Deploy Preview" check run and comment the preview URL.
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: FirebaseExtended/action-hosting-deploy@v0
