@@ -77,10 +77,12 @@ User interactions (likes, views) are used to compute an "Interest Vector." When 
 
 ### 2. Portfolio Interleave
 The `Diversifier` engine interleaves articles from four distinct buckets:
--   **Personalized (70%)**: Vector-matched stories.
+-   **Personalized (70%)**: Vector-matched stories. Candidates are the 150 nearest by embedding; on the **For You** feed they're then re-ranked by a per-request-normalized blend of similarity and `ranking_score` (`PERSONALIZED_SIMILARITY_WEIGHT` / `PERSONALIZED_RECENCY_WEIGHT`, default 0.6 / 0.4) so a much fresher story can overtake a marginally-better match. Category pages skip the blend and keep a trending-first float instead.
 -   **Trending (20%)**: High-momentum stories within the user's enabled categories.
 -   **Discovery (10%)**: Random high-quality stories for serendipity within the user's enabled categories.
 -   **Global Trending (Fallback)**: Top-tier global news used during cold starts.
+
+All buckets draw from a `FEED_WINDOW_HOURS` (48h) candidate window (`common_where`); thin feeds fall back to Phase-2 secondary buckets and the "caught up" marker rather than a wider window.
 
 For a user with interests set, **every** bucket is constrained to their enabled
 categories — disabling a category in the Personalization screen is a hard

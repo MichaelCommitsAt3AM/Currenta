@@ -369,3 +369,72 @@ def test_get_user_state_includes_muted_subcategories_and_disliked_ids():
     assert '"disliked_article_ids"' in source
     assert "user_muted_subcategories" in source
     assert "article_dislikes" in source
+
+
+# ── Personalized bucket: similarity × recency blend ──────────────────────────
+
+
+def _cand(article_id, sim, ranking_score):
+    return {"id": article_id, "_sim": sim, "ranking_score": ranking_score}
+
+
+def test_blend_prefers_higher_similarity_when_ranking_equal():
+    articles = [_cand("a", 0.60, 1.0), _cand("b", 0.90, 1.0)]
+    out = feed._blend_similarity_recency(articles, 0.6, 0.4)
+    assert [a["id"] for a in out] == ["b", "a"]
+
+
+def test_blend_prefers_fresher_when_similarity_equal():
+    articles = [_cand("stale", 0.80, 0.05), _cand("fresh", 0.80, 9.0)]
+    out = feed._blend_similarity_recency(articles, 0.6, 0.4)
+    assert [a["id"] for a in out] == ["fresh", "stale"]
+
+
+def test_blend_weights_are_a_working_knob():
+    # Two articles at opposite extremes: 'stale' wins similarity, 'fresh' wins
+    # recency. Whichever weight is larger decides the winner.
+    def pair():
+        return [_cand("stale", 0.82, 0.02), _cand("fresh", 0.78, 10.0)]
+
+    assert feed._blend_similarity_recency(pair(), 0.6, 0.4)[0]["id"] == "stale"
+    assert feed._blend_similarity_recency(pair(), 0.4, 0.6)[0]["id"] == "fresh"
+
+
+def test_blend_dominant_match_not_dethroned_by_freshness():
+    articles = [
+        _cand("perfect", 0.95, 0.01),
+        _cand("ok1", 0.40, 8.0),
+        _cand("ok2", 0.38, 9.0),
+    ]
+    out = feed._blend_similarity_recency(articles, 0.6, 0.4)
+    assert out[0]["id"] == "perfect"
+
+
+def test_blend_strips_transient_keys_and_handles_small_inputs():
+    one = [_cand("solo", 0.5, 1.0)]
+    out = feed._blend_similarity_recency(one, 0.6, 0.4)
+    assert out == [{"id": "solo", "ranking_score": 1.0}]
+    assert feed._blend_similarity_recency([], 0.6, 0.4) == []
+
+    many = [_cand("a", 0.6, 1.0), _cand("b", 0.9, 2.0)]
+    feed._blend_similarity_recency(many, 0.6, 0.4)
+    for a in many:
+        assert "_sim" not in a and "_blend" not in a
+
+
+def test_feed_window_hours_is_reasonable_and_below_viewed_lookback():
+    # The seen-filter Postgres fallback window must stay strictly larger than
+    # the feed candidate window or it could under-exclude.
+    assert 12 <= feed.FEED_WINDOW_HOURS <= 72
+    assert feed.VIEWED_LOOKBACK_DAYS * 24 > feed.FEED_WINDOW_HOURS
+
+
+def test_personalized_bucket_blends_recency_only_for_for_you():
+    """The For You personalized bucket must use blend_recency; category pages
+    keep trending_first. Guards the caller wiring in get_feed."""
+    import inspect
+
+    source = inspect.getsource(feed.get_feed)
+    assert "blend_recency=not is_category_page" in source
+    assert "trending_first=is_category_page" in source
+    assert "similarity_vector_param=emb_idx" in source

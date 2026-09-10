@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -39,6 +40,22 @@ ARTICLE_COLUMNS = """
 # the user has scrolled past roughly the first screen.
 DISCOVERY_START_POSITION = 12
 
+# Age ceiling for feed candidates (common_where). A news feed rarely wants
+# 3-day-old stories near the top; thin feeds degrade gracefully via the
+# Phase-2 secondary buckets / "caught up" marker / client local-secondary
+# fallback, so there's no hard-coded window expansion here.
+FEED_WINDOW_HOURS = 48
+
+# Personalized-bucket re-rank (For You feed only — category pages keep the
+# trending-first ordering). Candidates are still selected purely by embedding
+# similarity; these weight the final ordering of that 150-article set between
+# similarity and ranking_score (which already folds in recency + trend as
+# (1 + trend_score) * exp(-0.05 * hours_old)). Both are min-max normalized
+# per request, so the weights are a straight split — no scale tuning. Env
+# overrides let prod tuning skip a redeploy.
+PERSONALIZED_SIMILARITY_WEIGHT = float(os.getenv("PERSONALIZED_SIMILARITY_WEIGHT", "0.6"))
+PERSONALIZED_RECENCY_WEIGHT = float(os.getenv("PERSONALIZED_RECENCY_WEIGHT", "0.4"))
+
 # Feed session TTL (Redis cache + the expires_at sent to the client). Must be >=
 # the Flutter app's AppConfig.hardTtlHours (lib/core/config/app_config.dart) —
 # otherwise a session can expire mid-scroll (loadNextPage's expiry check) before
@@ -50,8 +67,9 @@ FEED_SESSION_TTL_HOURS = 6
 SEEN_SET_TTL_SECONDS = 259200  # 3 days
 
 # How far back to look in article_views when Redis has nothing for a user —
-# comfortably longer than common_where's 72h article window below, so the
-# fallback can never under-exclude relative to the normal Redis-fed path.
+# comfortably longer than common_where's FEED_WINDOW_HOURS article window
+# below, so the fallback can never under-exclude relative to the normal
+# Redis-fed path.
 VIEWED_LOOKBACK_DAYS = 7
 
 # Sentinel TTL marking "we already checked Postgres and this user truly has no
@@ -349,6 +367,40 @@ def _get_rank_tuple(article: dict, preferred_country: Optional[str], interest_ca
     """
     rank_score = article.get("ranking_score") or 0.0
     return (-rank_score,)
+
+
+def _blend_similarity_recency(articles: List[dict], w_sim: float, w_rank: float) -> List[dict]:
+    """Re-rank a similarity-ordered candidate list by a weighted blend of
+    per-request-normalized embedding similarity (transient `_sim` key) and
+    `ranking_score` (which already encodes recency + trend decay).
+
+    Min-max normalization is over this candidate set only, so the two terms
+    are directly comparable regardless of their raw scales. Sorts in place,
+    strips the transient keys, returns the list. No-op on <2 items.
+    """
+    if len(articles) < 2:
+        for a in articles:
+            a.pop("_sim", None)
+        return articles
+
+    sims = [a.get("_sim") or 0.0 for a in articles]
+    ranks = [a.get("ranking_score") or 0.0 for a in articles]
+    s_lo, s_hi = min(sims), max(sims)
+    r_lo, r_hi = min(ranks), max(ranks)
+
+    def _nrm(v: float, lo: float, hi: float) -> float:
+        return (v - lo) / (hi - lo) if hi > lo else 0.0
+
+    for a in articles:
+        a["_blend"] = (
+            w_sim * _nrm(a.get("_sim") or 0.0, s_lo, s_hi)
+            + w_rank * _nrm(a.get("ranking_score") or 0.0, r_lo, r_hi)
+        )
+    articles.sort(key=lambda a: a["_blend"], reverse=True)
+    for a in articles:
+        a.pop("_sim", None)
+        a.pop("_blend", None)
+    return articles
 
 
 def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -709,8 +761,14 @@ async def get_feed(
         disliked_article_ids = user_state.get("disliked_article_ids", []) if user_state else []
 
         # 4. Bucketized Fetching (Portfolio Interleave Architecture)
-        async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None, subcategory_boost: Optional[List[str]] = None, trending_first: bool = False):
+        async def fetch_bucket(conn, where_clause, params, label, order_by=None, category_boost: Optional[str] = None, subcategory_boost: Optional[List[str]] = None, trending_first: bool = False, blend_recency: bool = False, similarity_vector_param: Optional[int] = None):
             params = list(params)  # local copy — subcategory_boost below appends to it
+            # trending_first (category pages) and blend_recency (For You) are two
+            # mutually exclusive post-fetch re-rank strategies for the same
+            # candidate set; blend_recency wins if a caller sets both.
+            if trending_first and blend_recency:
+                logger.warning("fetch_bucket '%s': both re-rank modes set; using blend_recency", label)
+                trending_first = False
             if not order_by:
                 if strict_primary_category:
                     # Category page behavior: Trending first, then Major Sources, then Ranking Score.
@@ -734,9 +792,14 @@ async def get_feed(
                 params.append(subcategory_boost)
                 order_by = f"(subcategories && ${len(params)}::text[]) DESC, {order_by}"
 
-            # trend_score is only needed to re-rank in Python; it is stripped before
-            # the articles leave this function so the response shape is unchanged.
-            extra_columns = ", trend_score AS _trend_score" if trending_first else ""
+            # Transient columns for the Python re-rank below; both are stripped
+            # before the articles leave this function so the response shape is
+            # unchanged.
+            extra_columns = ""
+            if trending_first:
+                extra_columns += ", trend_score AS _trend_score"
+            if blend_recency and similarity_vector_param is not None:
+                extra_columns += f", 1 - (embedding <=> ${similarity_vector_param}::vector) AS _sim"
 
             query = f"""
                 SELECT {ARTICLE_COLUMNS}{extra_columns}
@@ -772,6 +835,13 @@ async def get_feed(
                 for a in articles:
                     a.pop('_trend_score', None)
 
+            if blend_recency:
+                # Candidate set is still the 150 nearest by embedding; this only
+                # re-orders them, trading a little similarity for freshness.
+                _blend_similarity_recency(
+                    articles, PERSONALIZED_SIMILARITY_WEIGHT, PERSONALIZED_RECENCY_WEIGHT
+                )
+
             logger.info(f"Bucket '{label}' fetched: {len(articles)} items")
             return articles
 
@@ -797,7 +867,7 @@ async def get_feed(
         # unchanged when there is no dot, so (2) subsumes (1) for L2 mutes; (1)
         # is still needed for the exact-L3-mute case.
         common_where = (
-            "published_at > NOW() - INTERVAL '72 hours' "
+            f"published_at > NOW() - INTERVAL '{FEED_WINDOW_HOURS} hours' "
             "AND (expires_at IS NULL OR expires_at > NOW()) "
             "AND id <> ALL($1::uuid[]) "
             "AND id <> ALL($2::uuid[]) "
@@ -856,7 +926,12 @@ async def get_feed(
                     order_by=f"embedding <=> ${emb_idx}::vector",
                     category_boost=category_boost,
                     subcategory_boost=sub_interests,
-                    trending_first=True
+                    # For You: blend similarity with recency (ranking_score).
+                    # Category pages: keep the trending-first float instead —
+                    # a category tab is an explicit "show me this topic now" ask.
+                    trending_first=is_category_page,
+                    blend_recency=not is_category_page,
+                    similarity_vector_param=emb_idx,
                 )
             else:
                 # Cold start: rely on category matches
