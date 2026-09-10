@@ -17,6 +17,75 @@ TRENDS_RSS_URLS = {
     "GB": "https://trends.google.com/trending/rss?geo=GB",
 }
 
+# ── trend_score decay ─────────────────────────────────────────────────────────
+# trend_score is additive and capped (see the UPDATE in update_trending_scores),
+# so without decay a story that briefly went viral keeps a high score for its
+# entire 72h feed life and dominates ranking long after it stopped trending.
+# update_trending_scores() multiplicatively decays every run: stories still
+# trending are re-boosted in the same pass and stay near the cap; the rest fade.
+TREND_SCORE_DECAY_FACTOR = 0.75            # applied once per update_trending_scores run (~hourly → half-life ≈ 2.4h)
+TREND_SCORE_FLOOR = 0.5                    # post-decay values below this snap to 0 so the row leaves the "trending" tier
+TREND_SCORE_DECAY_MIN_INTERVAL_SECONDS = 1800  # skip decay if it already ran this recently (jobs occasionally co-fire)
+TREND_SCORE_DECAY_MAX_AGE_DAYS = 10        # bound the UPDATE scan; comfortably past /trending's 168h max window
+_TREND_DECAY_LAST_RUN_KEY = "trending:decay:last_run_at"
+
+
+def _decayed_trend_score(current: float) -> float:
+    """Pure form of the SQL decay in _decay_trend_scores — one run's decay,
+    with a floor that snaps small residuals to zero. Kept in Python so the
+    behaviour is unit-testable without a database."""
+    decayed = (current or 0.0) * TREND_SCORE_DECAY_FACTOR
+    return 0.0 if decayed < TREND_SCORE_FLOOR else decayed
+
+
+async def _decay_trend_scores(db_pool, redis_client=None) -> None:
+    """Multiplicatively decay trend_score across recent articles once, so the
+    score tracks *current* momentum. Best-effort: never raise into the caller —
+    a failed decay must not block the boost pass that follows it."""
+    now = datetime.now(timezone.utc)
+
+    if redis_client:
+        try:
+            last_raw = await redis_client.get(_TREND_DECAY_LAST_RUN_KEY)
+            if last_raw:
+                last_run = datetime.fromisoformat(
+                    last_raw.decode() if isinstance(last_raw, bytes) else last_raw
+                )
+                elapsed = (now - last_run).total_seconds()
+                if elapsed < TREND_SCORE_DECAY_MIN_INTERVAL_SECONDS:
+                    logger.info(
+                        "Trend score decay skipped: ran %.0fs ago (< %ds)",
+                        elapsed, TREND_SCORE_DECAY_MIN_INTERVAL_SECONDS,
+                    )
+                    return
+        except Exception as e:
+            logger.warning("Trend score decay: Redis interval check failed, proceeding: %s", e)
+
+    try:
+        async with db_pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE articles
+                SET trend_score = CASE
+                        WHEN trend_score * $1 < $2 THEN 0
+                        ELSE trend_score * $1
+                    END
+                WHERE trend_score > 0
+                  AND published_at > NOW() - ($3 * INTERVAL '1 day')
+                """,
+                TREND_SCORE_DECAY_FACTOR, TREND_SCORE_FLOOR, TREND_SCORE_DECAY_MAX_AGE_DAYS,
+            )
+        logger.info("Trend score decay applied (factor=%.2f): %s", TREND_SCORE_DECAY_FACTOR, result)
+    except Exception as e:
+        logger.error("Trend score decay failed: %s", e)
+        return
+
+    if redis_client:
+        try:
+            await redis_client.set(_TREND_DECAY_LAST_RUN_KEY, now.isoformat(), ex=86400)
+        except Exception as e:
+            logger.warning("Trend score decay: failed to record last-run timestamp: %s", e)
+
 async def fetch_google_trends(region: str = "US") -> List[Dict]:
     """
     Fetches and parses Google Trends RSS for a specific region.
@@ -100,8 +169,13 @@ async def update_trending_scores(db_pool, redis_client=None):
     Orchestrates the trending score updates across all regions in parallel.
     """
     logger.info("Starting trending score update...")
+
+    # Decay first: age out stale momentum before this run's fresh boosts land.
+    # Stories still trending are re-boosted below and stay near the cap.
+    await _decay_trend_scores(db_pool, redis_client)
+
     all_regions = ["US", "KE", "GB"]
-    
+
     # Track traffic for normalization stats
     regional_traffic_stats = {} 
     
