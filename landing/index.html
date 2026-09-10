@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en" class="scroll-pt-24">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Currenta — News without the noise</title>
+    <meta
+      name="description"
+      content="Currenta is an AI-first news app. Every story is scanned from the wire, distilled to a factual 65-word brief, deduplicated across outlets, and ranked for what you actually read."
+    />
+    <link rel="canonical" href="https://currenta.tech/" />
+    <meta name="theme-color" content="#2E4036" />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Currenta" />
+    <meta property="og:title" content="Currenta — News without the noise" />
+    <meta
+      property="og:description"
+      content="AI-first news. Factual 65-word briefs, one story per event, ranked for what you actually read."
+    />
+    <meta property="og:url" content="https://currenta.tech/" />
+    <meta property="og:image" content="https://currenta.tech/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Currenta",
+        "applicationCategory": "NewsApplication",
+        "operatingSystem": "Android, iOS",
+        "url": "https://currenta.tech/",
+        "description": "AI-first news app delivering factual 65-word briefs, deduplicated across outlets and personalised by semantic matching."
+      }
+    </script>
+
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body class="min-h-screen">
+    <div class="grain-layer" aria-hidden="true"></div>
+
+    <a
+      href="#hero"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-2xl focus:bg-moss focus:px-4 focus:py-2 focus:text-cream"
+      >Skip to content</a
+    >
+
+    <!-- ================= NAVBAR ================= -->
+    <header class="fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4 sm:pt-6" data-navbar>
+      <nav
+        class="island flex w-full max-w-shell items-center justify-between gap-4 rounded-3xl border border-transparent px-5 py-3 transition-colors duration-500 sm:px-7"
+        aria-label="Primary"
+      >
+        <a href="/" class="flex items-center gap-2.5" data-nav-brand>
+          <img
+            src="./src/assets/brand/logo-96.png"
+            srcset="./src/assets/brand/logo-96.png 96w, ./src/assets/brand/logo-192.png 192w"
+            sizes="28px"
+            width="28"
+            height="28"
+            alt=""
+            class="h-7 w-7 rounded-lg"
+          />
+          <span class="font-display text-lg font-bold tracking-tighter2" data-nav-label>Currenta</span>
+        </a>
+
+        <div class="hidden items-center gap-8 md:flex" data-nav-links>
+          <a href="/#philosophy" class="font-display text-sm tracking-tight transition-opacity hover:opacity-60">Manifesto</a>
+          <a href="/#pipeline" class="font-display text-sm tracking-tight transition-opacity hover:opacity-60">How it works</a>
+          <a href="/#reading-modes" class="font-display text-sm tracking-tight transition-opacity hover:opacity-60">Ways to read</a>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <a href="#waitlist" class="btn btn-solid hidden !px-5 !py-2.5 text-[0.82rem] sm:inline-flex" data-magnetic>
+            <span>Join the waitlist</span>
+          </a>
+          <button
+            type="button"
+            class="grid h-10 w-10 place-items-center rounded-xl border border-current/20 md:hidden"
+            data-nav-toggle
+            aria-expanded="false"
+            aria-controls="mobile-menu"
+            aria-label="Open menu"
+          >
+            <i data-nav-icon="menu" data-icon="menu" data-icon-size="20"></i>
+            <i data-nav-icon="close" data-icon="x" data-icon-size="20" hidden></i>
+          </button>
+        </div>
+      </nav>
+
+      <div
+        id="mobile-menu"
+        class="absolute inset-x-4 top-[calc(100%+0.5rem)] origin-top rounded-3xl border border-charcoal/10 bg-cream p-4 shadow-xl shadow-charcoal/5 md:hidden"
+        data-nav-panel
+        hidden
+      >
+        <a href="/#philosophy" class="block rounded-2xl px-4 py-3 font-display text-base hover:bg-cream-dark">Manifesto</a>
+        <a href="/#pipeline" class="block rounded-2xl px-4 py-3 font-display text-base hover:bg-cream-dark">How it works</a>
+        <a href="/#reading-modes" class="block rounded-2xl px-4 py-3 font-display text-base hover:bg-cream-dark">Ways to read</a>
+        <a href="#waitlist" class="btn btn-solid mt-2 w-full">
+          <span>Join the waitlist</span>
+        </a>
+      </div>
+    </header>
+
+    <main>
+      <!-- ================= HERO ================= -->
+      <section id="hero" class="relative flex min-h-[100svh] items-end overflow-hidden bg-moss-deep">
+        <picture>
+          <source
+            type="image/webp"
+            srcset="
+              ./src/assets/images/hero-city-640.webp   640w,
+              ./src/assets/images/hero-city-1024.webp 1024w,
+              ./src/assets/images/hero-city-1600.webp 1600w,
+              ./src/assets/images/hero-city-2000.webp 2000w,
+              ./src/assets/images/hero-city-2400.webp 2400w
+            "
+            sizes="100vw"
+          />
+          <img
+            src="./src/assets/images/hero-city-1600.jpg"
+            alt=""
+            fetchpriority="high"
+            decoding="async"
+            class="absolute inset-0 h-[115%] w-full object-cover"
+            data-hero-img
+          />
+        </picture>
+        <div
+          class="absolute inset-0"
+          style="background: linear-gradient(175deg, rgba(30,43,36,0.72) 0%, rgba(26,26,26,0.55) 34%, rgba(26,26,26,0.78) 62%, rgba(12,14,12,0.96) 100%);"
+          aria-hidden="true"
+        ></div>
+
+        <div class="shell relative z-10 pb-16 pt-40 sm:pb-24">
+          <div class="max-w-3xl text-cream">
+            <p class="eyebrow text-clay-light" data-reveal>AI-first news, minus the clickbait</p>
+            <h1 class="mt-6 font-display text-[clamp(2.75rem,9vw,7rem)] font-extrabold leading-[0.94] tracking-tightest">
+              <span class="block" data-reveal>News without the</span>
+              <span class="block font-serif text-[1.12em] font-medium italic text-clay-light" data-reveal>Noise.</span>
+            </h1>
+            <p class="mt-8 max-w-xl text-pretty text-base leading-relaxed text-cream/80 sm:text-lg" data-reveal>
+              Every story scanned from the wire, distilled to a factual 65-word brief, deduplicated across
+              outlets, and ranked for what you actually read.
+            </p>
+
+            <div class="mt-10 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6" data-reveal>
+              <a href="#waitlist" class="btn btn-cream" data-magnetic><span>Join the waitlist</span></a>
+              <p class="eyebrow text-cream/50">Coming soon to iOS &amp; Android</p>
+            </div>
+
+            <dl class="mt-14 flex flex-wrap gap-x-8 gap-y-3 font-mono text-[0.72rem] uppercase tracking-[0.18em] text-cream/55" data-reveal>
+              <div><dt class="inline">180+</dt><dd class="inline"> sources</dd></div>
+              <div><dt class="inline">65-word</dt><dd class="inline"> briefs</dd></div>
+              <div><dt class="inline">1024-dim</dt><dd class="inline"> matching</dd></div>
+              <div><dt class="inline">ranked</dt><dd class="inline"> for you</dd></div>
+            </dl>
+          </div>
+        </div>
+
+        <div class="absolute bottom-6 left-1/2 z-10 -translate-x-1/2 text-cream/40" data-hero-cue aria-hidden="true">
+          <span class="block h-10 w-[1px] bg-current"></span>
+        </div>
+      </section>
+
+      <!-- ================= FEATURES ================= -->
+      <section id="features" class="shell scroll-mt-24 py-24 sm:py-32">
+        <header class="max-w-2xl">
+          <p class="eyebrow text-clay" data-reveal>The instrument</p>
+          <h2 class="mt-4 text-4xl font-bold sm:text-5xl" data-reveal>A newsroom that runs while you sleep</h2>
+          <p class="mt-5 text-lg text-charcoal/65" data-reveal>Not a feed of headlines — a working pipeline you can watch.</p>
+        </header>
+
+        <div class="mt-14 grid gap-5 lg:grid-cols-3">
+          <article class="card-organic overflow-hidden p-6 sm:p-7" data-reveal>
+            <p class="eyebrow text-charcoal/45">Distilled intelligence</p>
+            <div
+              class="mt-5 h-[17rem]"
+              data-widget="summary-shuffler"
+              role="img"
+              aria-label="A stack of article cards cycling between a factual 65-word summary, a deduplication cluster merging six outlets into one story, and a locality match."
+            ></div>
+          </article>
+
+          <article class="card-organic overflow-hidden p-6 sm:p-7" data-reveal>
+            <div class="flex items-center justify-between">
+              <p class="eyebrow text-charcoal/45">Live ingestion</p>
+              <span class="flex items-center gap-2 font-mono text-[0.65rem] uppercase tracking-[0.2em] text-clay">
+                <span class="live-dot"></span> Live feed
+              </span>
+            </div>
+            <div
+              class="mt-5 h-[17rem]"
+              data-widget="pipeline-typewriter"
+              role="img"
+              aria-label="A live console printing the ingestion pipeline stages: scanning feeds, blocking junk, summarising with Gemini, embedding a 1024-dimension vector, and collapsing duplicate coverage."
+            ></div>
+          </article>
+
+          <article class="card-organic overflow-hidden p-6 sm:p-7" data-reveal>
+            <p class="eyebrow text-charcoal/45">Your interests, enforced</p>
+            <div
+              class="mt-5 h-[17rem]"
+              data-widget="interest-tuner"
+              role="img"
+              aria-label="A category chip grid where an automated cursor de-selects a category and saves, and the feed preview beside it re-orders to drop that category entirely."
+            ></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ================= PHILOSOPHY ================= -->
+      <section id="philosophy" class="relative scroll-mt-24 overflow-hidden bg-charcoal py-28 text-cream sm:py-40">
+        <img
+          src="./src/assets/images/texture-newsprint-1600.webp"
+          srcset="
+            ./src/assets/images/texture-newsprint-1024.webp 1024w,
+            ./src/assets/images/texture-newsprint-1600.webp 1600w,
+            ./src/assets/images/texture-newsprint-2000.webp 2000w
+          "
+          sizes="100vw"
+          alt=""
+          loading="lazy"
+          decoding="async"
+          class="pointer-events-none absolute inset-0 h-[130%] w-full object-cover opacity-[0.12]"
+          data-philosophy-img
+        />
+        <div class="shell relative">
+          <p class="eyebrow text-clay-light" data-reveal>The manifesto</p>
+          <div class="mt-10 max-w-4xl space-y-8 text-[clamp(1.75rem,4.4vw,3.25rem)] font-display font-semibold leading-[1.12] tracking-tighter2">
+            <p data-split>
+              Old media asks:
+              <span class="font-serif font-normal italic text-cream/55">What will make you click?</span>
+            </p>
+            <p data-split>
+              Currenta asks:
+              <span class="font-serif font-normal italic text-clay-light">What do you actually need to know?</span>
+            </p>
+          </div>
+          <p class="mt-12 max-w-xl text-pretty text-base leading-relaxed text-cream/60" data-reveal>
+            Attention is not the product. The pipeline is tuned for signal — factual summaries, one story per
+            event, and a feed that ages momentum out within an evening instead of chasing it.
+          </p>
+        </div>
+      </section>
+
+      <!-- ================= PIPELINE (sticky stack) ================= -->
+      <section id="pipeline" class="scroll-mt-24 bg-cream py-24 sm:py-32">
+        <header class="shell max-w-2xl">
+          <p class="eyebrow text-clay" data-reveal>How it works</p>
+          <h2 class="mt-4 text-4xl font-bold sm:text-5xl" data-reveal>Three stages, one clean feed</h2>
+        </header>
+
+        <div class="mt-6" data-pipeline-stack>
+          <div class="pipeline-card" data-pipeline-card>
+            <div class="shell grid h-full items-center gap-10 lg:grid-cols-2">
+              <div>
+                <span class="font-mono text-sm text-clay">01</span>
+                <p class="eyebrow mt-3 text-charcoal/45">Discovery</p>
+                <h3 class="mt-3 text-3xl font-bold sm:text-4xl">Track the whole wire</h3>
+                <p class="mt-5 max-w-md text-charcoal/65">
+                  180+ RSS feeds and custom scrapers, polled continuously. A deterministic gate blocks betting
+                  lines, sports previews and live-blogs before a single token reaches the model.
+                </p>
+                <p class="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-charcoal/45">180+ sources · regex junk-gate</p>
+              </div>
+              <div class="artifact" data-artifact="hub" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="pipeline-card" data-pipeline-card>
+            <div class="shell grid h-full items-center gap-10 lg:grid-cols-2">
+              <div>
+                <span class="font-mono text-sm text-clay">02</span>
+                <p class="eyebrow mt-3 text-charcoal/45">Distillation</p>
+                <h3 class="mt-3 text-3xl font-bold sm:text-4xl">Strip the framing, keep the facts</h3>
+                <p class="mt-5 max-w-md text-charcoal/65">
+                  Each article becomes a strict 65-word five-Ws brief plus a framing-free event key. Near-duplicate
+                  coverage is merged above 0.75 cosine similarity, so the same event never fills your feed twice.
+                </p>
+                <p class="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-charcoal/45">65 words · dedup ≥ 0.75</p>
+              </div>
+              <div class="artifact" data-artifact="laser" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="pipeline-card" data-pipeline-card>
+            <div class="shell grid h-full items-center gap-10 lg:grid-cols-2">
+              <div>
+                <span class="font-mono text-sm text-clay">03</span>
+                <p class="eyebrow mt-3 text-charcoal/45">Personalisation</p>
+                <h3 class="mt-3 text-3xl font-bold sm:text-4xl">Match what you actually read</h3>
+                <p class="mt-5 max-w-md text-charcoal/65">
+                  Your interactions build an interest vector. The For You feed pulls the 150 nearest stories by
+                  embedding, then re-ranks them on a blend of similarity and freshness so a fresher story can
+                  overtake a marginally better match.
+                </p>
+                <p class="mt-6 font-mono text-xs uppercase tracking-[0.18em] text-charcoal/45">similarity × recency · 0.6 / 0.4</p>
+              </div>
+              <div class="artifact" data-artifact="pulse" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= READING MODES ================= -->
+      <section id="reading-modes" class="shell scroll-mt-24 py-24 sm:py-32">
+        <header class="max-w-2xl">
+          <p class="eyebrow text-clay" data-reveal>Ways to read</p>
+          <h2 class="mt-4 text-4xl font-bold sm:text-5xl" data-reveal>Three ways in</h2>
+          <p class="mt-5 text-lg text-charcoal/65" data-reveal>
+            Every mode draws from the same 48-hour candidate window. No paywalls, no tiers.
+          </p>
+        </header>
+
+        <div class="mt-14 grid gap-5 md:grid-cols-3">
+          <article class="rounded-3xl border border-charcoal/12 p-8" data-reveal>
+            <i data-icon="trending-up" data-icon-size="24" class="text-clay"></i>
+            <h3 class="mt-5 text-2xl font-bold">Trending</h3>
+            <p class="mt-3 text-charcoal/65">High-momentum stories inside the categories you keep — and only those.</p>
+            <p class="mt-6 font-mono text-[0.7rem] uppercase leading-relaxed tracking-[0.16em] text-charcoal/45">
+              20% of your feed · Google-Trends matched · decays hourly
+            </p>
+          </article>
+
+          <article class="rounded-3xl bg-moss p-8 text-cream shadow-2xl shadow-moss/20 md:-translate-y-4" data-reveal>
+            <i data-icon="sparkles" data-icon-size="24" class="text-clay-light"></i>
+            <h3 class="mt-5 text-2xl font-bold">For You</h3>
+            <p class="mt-3 text-cream/75">
+              Semantically matched to what you actually read, then re-ranked so the freshest strong match wins.
+            </p>
+            <p class="mt-6 font-mono text-[0.7rem] uppercase leading-relaxed tracking-[0.16em] text-cream/55">
+              70% of your feed · similarity × recency, 0.6 / 0.4
+            </p>
+            <a href="#waitlist" class="btn btn-cream mt-7 w-full" data-magnetic><span>Get the app</span></a>
+          </article>
+
+          <article class="rounded-3xl border border-charcoal/12 p-8" data-reveal>
+            <i data-icon="map-pin" data-icon-size="24" class="text-clay"></i>
+            <h3 class="mt-5 text-2xl font-bold">Local</h3>
+            <p class="mt-3 text-charcoal/65">
+              Your region’s news, detected on first open, with ingestion dedicated to regional outlets.
+            </p>
+            <p class="mt-6 font-mono text-[0.7rem] uppercase leading-relaxed tracking-[0.16em] text-charcoal/45">
+              Geo-IP · dedicated local pipeline
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ================= WAITLIST ================= -->
+      <section id="waitlist" class="shell scroll-mt-24 pb-28 pt-4 sm:pb-36">
+        <div class="rounded-4xl bg-moss px-6 py-16 text-cream sm:px-16 sm:py-24">
+          <div class="mx-auto max-w-xl text-center">
+            <p class="eyebrow text-clay-light" data-reveal>Early access</p>
+            <h2 class="mt-4 text-4xl font-bold sm:text-5xl" data-reveal>Be first on the feed</h2>
+            <p class="mt-5 text-cream/70" data-reveal>
+              We’re finishing the iOS and Android builds. Leave an email and we’ll send a build link — nothing else.
+            </p>
+
+            <form class="mt-9" data-waitlist novalidate>
+              <div class="flex flex-col gap-3 sm:flex-row">
+                <label for="waitlist-email" class="sr-only">Email address</label>
+                <input
+                  id="waitlist-email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  placeholder="you@example.com"
+                  class="w-full rounded-3xl border border-cream/20 bg-cream/5 px-6 py-3.5 text-cream placeholder:text-cream/40 focus:border-cream/50 focus:outline-none"
+                />
+                <!-- honeypot -->
+                <input type="text" name="company" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
+                <button type="submit" class="btn btn-cream shrink-0"><span>Request access</span></button>
+              </div>
+              <p class="mt-4 min-h-[1.25rem] text-sm text-cream/70" data-waitlist-message role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ================= FOOTER ================= -->
+    <footer class="rounded-t-4xl bg-charcoal px-6 pb-10 pt-16 text-cream sm:px-0 sm:pt-20">
+      <div class="shell">
+        <div class="flex flex-col gap-10 border-b border-cream/10 pb-12 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <img src="./src/assets/brand/logo-96.png" width="26" height="26" alt="" class="h-6 w-6 rounded-lg" />
+              <span class="font-display text-lg font-bold tracking-tighter2">Currenta</span>
+            </div>
+            <p class="mt-4 max-w-xs text-sm text-cream/50">News without the noise. AI-first, factual, and tuned for signal.</p>
+            <p class="mt-6 flex items-center gap-2 font-mono text-[0.7rem] uppercase tracking-[0.18em] text-cream/55">
+              <span class="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse-dot"></span>
+              All systems operational
+            </p>
+          </div>
+
+          <nav class="grid grid-cols-2 gap-x-12 gap-y-8 sm:grid-cols-3" aria-label="Footer">
+            <div>
+              <h3 class="font-mono text-[0.65rem] uppercase tracking-[0.2em] text-cream/40">Currenta</h3>
+              <ul class="mt-4 space-y-2.5 text-sm text-cream/70">
+                <li><a href="/#philosophy" class="hover:text-cream">Manifesto</a></li>
+                <li><a href="/#pipeline" class="hover:text-cream">How it works</a></li>
+                <li><a href="/#reading-modes" class="hover:text-cream">Ways to read</a></li>
+              </ul>
+            </div>
+            <div>
+              <h3 class="font-mono text-[0.65rem] uppercase tracking-[0.2em] text-cream/40">Legal</h3>
+              <ul class="mt-4 space-y-2.5 text-sm text-cream/70">
+                <li><a href="/privacy.html" class="hover:text-cream">Privacy policy</a></li>
+                <li><a href="/terms.html" class="hover:text-cream">Terms of service</a></li>
+                <li><a href="/delete-account.html" class="hover:text-cream">Delete account data</a></li>
+              </ul>
+            </div>
+            <div>
+              <h3 class="font-mono text-[0.65rem] uppercase tracking-[0.2em] text-cream/40">Contact</h3>
+              <ul class="mt-4 space-y-2.5 text-sm text-cream/70">
+                <li><a href="mailto:support@currenta.tech" class="hover:text-cream">support@currenta.tech</a></li>
+              </ul>
+            </div>
+          </nav>
+        </div>
+        <p class="pt-8 font-mono text-xs text-cream/40">© 2026 Currenta. All rights reserved.</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+/* ------------------------------------------------------------------ *
+ *  Currenta landing — design system
+ *  "High-End Editorial Tech / Newsroom Boutique"
+ * ------------------------------------------------------------------ */
+
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource/cormorant-garamond/400.css';
+@import '@fontsource/cormorant-garamond/400-italic.css';
+@import '@fontsource/cormorant-garamond/500-italic.css';
+@import '@fontsource/cormorant-garamond/600-italic.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Paper-grain overlay — SVG turbulence, no external asset. */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-cream text-charcoal font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: theme('colors.clay.DEFAULT');
+    color: theme('colors.cream.DEFAULT');
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.clay.DEFAULT');
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tighter2;
+    text-wrap: balance;
+  }
+
+  /* Reduced-motion: kill every transition/animation, freeze scroll behaviour. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .shell {
+    @apply mx-auto w-full max-w-shell px-6 sm:px-8 lg:px-12;
+  }
+
+  .eyebrow {
+    @apply font-mono text-[0.66rem] uppercase tracking-[0.2em] sm:text-[0.7rem] sm:tracking-[0.26em];
+  }
+
+  /* Global paper grain — fixed, above backgrounds, below content, inert. */
+  .grain-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    background-image: var(--grain);
+    background-size: 200px 200px;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+  }
+
+  /* Magnetic button: clay panel slides up from below on hover. */
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-3xl
+           px-7 py-3.5 font-display text-sm font-semibold tracking-tight
+           transition-transform duration-300 ease-spring will-change-transform;
+  }
+  .btn > * { @apply relative z-10; }
+  .btn::after {
+    content: '';
+    @apply absolute inset-0 z-0 translate-y-full bg-clay transition-transform duration-[450ms] ease-spring;
+  }
+  .btn:hover { transform: scale(1.03); }
+  .btn:hover::after { transform: translateY(0); }
+  .btn:active { transform: scale(0.99); }
+
+  .btn-solid { @apply bg-moss text-cream; }
+  .btn-solid:hover { @apply text-cream; }
+
+  .btn-outline { @apply border border-charcoal/25 text-charcoal; }
+  .btn-outline:hover { @apply text-cream; }
+
+  .btn-cream { @apply bg-cream text-moss; }
+  .btn-cream::after { @apply bg-clay; }
+  .btn-cream:hover { @apply text-cream; }
+
+  .card-organic {
+    @apply rounded-3xl border border-charcoal/10 bg-cream-dark/60 backdrop-blur-sm;
+  }
+
+  /* Live-feed indicator dot. */
+  .live-dot {
+    @apply inline-block h-2 w-2 rounded-full bg-clay animate-pulse-dot;
+  }
+
+  /* Pipeline sticky-stack */
+  .pipeline-card {
+    position: sticky;
+    top: 0;
+    display: flex;
+    align-items: center;
+    min-height: 100svh;
+    padding-block: 4rem;
+    background: theme('colors.cream.DEFAULT');
+    border-top: 1px solid rgb(26 26 26 / 0.08);
+  }
+  .pipeline-card > * {
+    width: 100%;
+    will-change: transform, filter;
+  }
+
+  .artifact {
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: 22rem;
+    margin-inline: auto;
+    border-radius: 2rem;
+    background: radial-gradient(circle at 50% 45%, rgb(46 64 54 / 0.05), transparent 70%);
+  }
+
+  .helix-caret {
+    @apply inline-block w-[0.5ch] -translate-y-[0.05em] bg-clay align-middle animate-blink;
+    height: 1.05em;
+  }
+
+  /* Legal pages */
+  .prose-legal {
+    @apply text-[0.95rem] leading-relaxed text-charcoal/75;
+  }
+  .prose-legal .legal-header { @apply mb-12 border-b border-charcoal/10 pb-8; }
+  .prose-legal .legal-header h1 { @apply text-4xl font-bold text-charcoal sm:text-5xl; }
+  .prose-legal .last-updated { @apply mt-3 font-mono text-xs uppercase tracking-[0.16em] text-charcoal/45; }
+  .prose-legal .legal-section { @apply mt-10; }
+  .prose-legal h2 { @apply text-xl font-semibold text-charcoal; }
+  .prose-legal h3 { @apply mt-6 text-base font-semibold text-charcoal/90; }
+  .prose-legal p { @apply mt-3; }
+  .prose-legal ul { @apply mt-3 list-disc space-y-2 pl-5 marker:text-clay; }
+  .prose-legal a { @apply text-clay underline underline-offset-2 hover:text-clay-dark; }
+  .prose-legal strong { @apply font-semibold text-charcoal; }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
+
+  /* Reveal targets start hidden only when JS + motion are on; see motion.js.
+     GSAP takes ownership and removes .motion-safe-hidden on mount. */
+  .motion-safe-hidden [data-reveal],
+  .motion-safe-hidden [data-split] {
+    opacity: 0;
+  }
+
+  .mask-fade-y {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+  }
+}
