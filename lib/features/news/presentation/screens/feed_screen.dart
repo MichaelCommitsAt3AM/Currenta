@@ -11,8 +11,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../application/news_feed_notifier.dart';
+import '../../application/daily_digest_notifier.dart';
 import '../../domain/entities/news_category.dart';
 import '../widgets/news_card.dart';
+import '../widgets/daily_digest_bar.dart';
 import '../widgets/native_ad_card.dart';
 import '../../application/ad_manager.dart';
 import '../widgets/shimmer_feed.dart';
@@ -66,8 +68,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
   void initState() {
     super.initState();
     final initialState = ref.read(newsFeedNotifierProvider);
-    final initialIndex =
-        (initialState.hasValue ? initialState.value : null)?.currentIndex ?? 0;
+    // On a true cold start, newsFeedNotifierProvider is still AsyncLoading
+    // here — its cold-start build() always resets currentIndex to 0 anyway
+    // (see news_feed_notifier.dart). If a digest resume is pending, use its
+    // synchronous (no network) resume-index check instead, so the
+    // PageController opens on the right page from its very first mount
+    // rather than depending on a post-hoc jump once the notifier resolves.
+    final initialIndex = (initialState.hasValue ? initialState.value : null)
+            ?.currentIndex ??
+        digestResumeIndexOrZero(ref.read(localPersistenceRepositoryProvider));
     _pageController = PageController(initialPage: initialIndex);
     _currentIndex = initialIndex;
     _selectedCategory =
@@ -91,8 +100,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     // Eagerly trigger ad preloading pool
     ref.read(adManagerProvider.notifier);
 
-    _feedSubscription = ref.listenManual(newsFeedNotifierProvider, (previous, next) {
-      final prevFeed = (previous != null && previous.hasValue) ? previous.value : null;
+    _feedSubscription =
+        ref.listenManual(newsFeedNotifierProvider, (previous, next) {
+      final prevFeed =
+          (previous != null && previous.hasValue) ? previous.value : null;
       final nextFeed = next.hasValue ? next.value : null;
       if (nextFeed == null) return;
 
@@ -100,12 +111,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
       // Reset pagination trigger when the underlying feed content is rebuilt
       // (e.g. after personalization changes/invalidation) even if category is unchanged.
-      final prevHeadId = (prevFeed?.articles != null && prevFeed!.articles.isNotEmpty)
-          ? prevFeed.articles.first.id
-          : null;
-      final nextHeadId = nextFeed.articles.isNotEmpty
-          ? nextFeed.articles.first.id
-          : null;
+      final prevHeadId =
+          (prevFeed?.articles != null && prevFeed!.articles.isNotEmpty)
+              ? prevFeed.articles.first.id
+              : null;
+      final nextHeadId =
+          nextFeed.articles.isNotEmpty ? nextFeed.articles.first.id : null;
       final didFeedReset = prevFeed == null ||
           nextFeed.currentIndex == 0 ||
           nextFeed.articles.length < (prevFeed.articles.length) ||
@@ -125,7 +136,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       }
 
       // 2. Sync PageController if state changed index independently (e.g., restoration or refresh)
-      final prevIndex = (previous != null && previous.hasValue) ? previous.value.currentIndex : null;
+      final prevIndex = (previous != null && previous.hasValue)
+          ? previous.value.currentIndex
+          : null;
       final nextIndex = nextFeed.currentIndex;
       final controllerPage =
           _pageController.hasClients ? _pageController.page?.round() : null;
@@ -154,8 +167,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       // 2. Handle AI Chat sheet
       if (nextFeed.showChatForArticleId != null) {
         final articleId = nextFeed.showChatForArticleId!;
-        final matchedArticles = nextFeed.articles.where((a) => a.id == articleId);
-        final article = matchedArticles.isNotEmpty ? matchedArticles.first : null;
+        final matchedArticles =
+            nextFeed.articles.where((a) => a.id == articleId);
+        final article =
+            matchedArticles.isNotEmpty ? matchedArticles.first : null;
 
         // Clear immediately so it doesn't re-open on next rebuild
         ref.read(newsFeedNotifierProvider.notifier).clearPendingChat();
@@ -192,13 +207,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
       });
     });
 
-    _refreshSubscription = ref.listenManual<bool>(needsFeedRefreshProvider, (previous, next) {
+    _refreshSubscription =
+        ref.listenManual<bool>(needsFeedRefreshProvider, (previous, next) {
       if (!next) return;
       _maybeShowPendingRefreshAck();
     });
 
     // ── Listen for Location Update Popup ──
-    _authSubscription = ref.listenManual(authNotifierProvider, (previous, next) {
+    _authSubscription =
+        ref.listenManual(authNotifierProvider, (previous, next) {
       if (next.showLocationUpdatePopup &&
           !(previous?.showLocationUpdatePopup ?? false)) {
         final detected = next.detectedCountry;
@@ -323,11 +340,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       ref.read(newsRepositoryProvider).flushPendingLikes();
     } else if (state == AppLifecycleState.resumed) {
       // Check for staleness and refresh if needed when app comes back to foreground
       ref.read(newsFeedNotifierProvider.notifier).refreshIfStale();
+      // Re-show the digest if the app was only backgrounded (not cold-restarted)
+      // across a midnight rollover.
+      ref.read(dailyDigestNotifierProvider.notifier).refreshIfNewCalendarDay();
       _maybeShowPendingRefreshAck();
     }
   }
@@ -464,6 +485,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     setState(() {
       _currentIndex = index;
     });
+
+    final digestArticleCount =
+        ref.read(dailyDigestNotifierProvider).valueOrNull?.articles.length ?? 0;
+    if (index < digestArticleCount) {
+      ref.read(dailyDigestNotifierProvider.notifier).recordViewedIndex(index);
+    }
 
     final notifierState = ref.read(newsFeedNotifierProvider);
     final feed = notifierState.hasValue ? notifierState.value : null;
@@ -692,6 +719,40 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
     final feedAsync = ref.watch(newsFeedNotifierProvider);
     final feed = feedAsync.hasValue ? feedAsync.value : null;
 
+    // Synchronous (no network) check so we know on the very first frame
+    // whether the digest is going to be part of "For You" at all — waiting
+    // on the async digest fetch here would flash the normal category bar
+    // before swapping to the digest bar once it resolves.
+    final digestEligible =
+        isDigestEligibleNow(ref.watch(localPersistenceRepositoryProvider));
+    final digestAsync = ref.watch(dailyDigestNotifierProvider);
+    final digestState = digestAsync.valueOrNull;
+    final digestCount = digestState?.articles.length ?? 0;
+
+    // While eligible but not yet resolved, the digest merge (see
+    // DailyDigestNotifier._computeState) hasn't landed in "For You" yet.
+    // Hold the shimmer rather than briefly showing the unmerged feed and
+    // then having 8 articles pop in at the top underneath the user.
+    final contentBlockedOnDigest = digestEligible && !digestAsync.hasValue;
+
+    // The header (and only the header) tracks scroll position directly:
+    // once the user scrolls past the digest's leading articles, it flips
+    // back to the normal category bar on its own. The toggle
+    // (DailyDigestNotifier.dismiss) is a manual shortcut for the same flip.
+    final isDigestActive = _selectedCategory == null &&
+        digestCount > 0 &&
+        !(digestState?.dismissedEarly ?? false) &&
+        _currentIndex < digestCount;
+
+    // Show the digest header from the very first frame whenever we're
+    // holding the content shimmer for it too — otherwise the header would
+    // fall through to the normal category bar for that brief window (since
+    // isDigestActive needs digestCount, which isn't known until the fetch
+    // resolves) and then visibly swap once loading finishes. DailyDigestBar
+    // already renders an indeterminate progress bar for totalCount == 0, so
+    // this is just its normal loading state, not a special case to build.
+    final showDigestHeader = contentBlockedOnDigest || isDigestActive;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -709,7 +770,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
         body: Stack(
           children: [
             // ── Main content ─────────────────────────────────────────
-            _isManualShimmering
+            (contentBlockedOnDigest || _isManualShimmering)
                 ? const ShimmerFeed()
                 : feedAsync.when(
                     // Skip loading on reload so we can see stale data while fetching fresh content
@@ -760,36 +821,66 @@ class _FeedScreenState extends ConsumerState<FeedScreen>
                     },
                   ),
 
-            // ── Category filter bar ──────────────────────────────────
-            _ThemedCategoryBar(
-              onboardingCategoryKey: _onboardingCategoryKey,
-              onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
-              onCategoryChanged: (cat) {
-                debugPrint('[FeedScreen] onCategoryChanged: ${cat?.name}');
-                if (_selectedCategory == cat) {
-                  // Re-tapping the chip for the feed you're already on refreshes
-                  // it (top spinner + fresh page). refresh() no-ops if one is
-                  // already running and recovers a feed that never resolved.
-                  debugPrint(
-                      '[FeedScreen] Re-tap on active category ${cat?.name} -> refresh');
-                  ref.read(newsFeedNotifierProvider.notifier).refresh();
-                  return;
-                }
+            // ── Category filter bar (or the daily digest bar) ─────────
+            // Slides the outgoing bar up and out while the incoming one
+            // slides down into place.
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 320),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => ClipRect(
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, -1),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: showDigestHeader
+                  ? DailyDigestBar(
+                      key: const ValueKey('digest-bar'),
+                      onOpenDrawer: () =>
+                          _scaffoldKey.currentState?.openDrawer(),
+                      currentIndex: _currentIndex,
+                      totalCount: digestCount,
+                    )
+                  : _ThemedCategoryBar(
+                      key: const ValueKey('category-bar'),
+                      onboardingCategoryKey: _onboardingCategoryKey,
+                      onOpenDrawer: () =>
+                          _scaffoldKey.currentState?.openDrawer(),
+                      onCategoryChanged: (cat) {
+                        debugPrint(
+                            '[FeedScreen] onCategoryChanged: ${cat?.name}');
+                        if (_selectedCategory == cat) {
+                          // Re-tapping the chip for the feed you're already on refreshes
+                          // it (top spinner + fresh page). refresh() no-ops if one is
+                          // already running and recovers a feed that never resolved.
+                          debugPrint(
+                              '[FeedScreen] Re-tap on active category ${cat?.name} -> refresh');
+                          ref.read(newsFeedNotifierProvider.notifier).refresh();
+                          return;
+                        }
 
-                // Trigger feed loading immediately. The Notifier will update its state
-                // synchronously to reflect the new category, which will update our UI.
-                ref
-                    .read(newsFeedNotifierProvider.notifier)
-                    .filterByCategory(cat);
-              },
+                        // Trigger feed loading immediately. The Notifier will update its state
+                        // synchronously to reflect the new category, which will update our UI.
+                        ref
+                            .read(newsFeedNotifierProvider.notifier)
+                            .filterByCategory(cat);
+                      },
+                    ),
             ),
 
             // ── Top refresh spinner ───────────────────────────────────
             // Shown while a full-feed refresh is in flight (e.g. after
             // re-tapping the active category chip). Stale content stays
-            // visible underneath.
+            // visible underneath. Suppressed while the digest bar is
+            // showing — it refers to the underlying "For You" feed, which
+            // isn't what's on screen during the digest.
             _TopRefreshSpinner(
-              isVisible: !_isManualShimmering &&
+              isVisible: !showDigestHeader &&
+                  !_isManualShimmering &&
                   (feed?.articles.isNotEmpty ?? false) &&
                   (feed?.isRefreshing ?? false),
             ),
@@ -894,7 +985,8 @@ class _ThemedSidebar extends ConsumerWidget {
       final feed = s.hasValue ? s.value : null;
       if (feed == null) return const Color(0xFF6C63FF);
       final idx = feed.currentIndex;
-      if (idx < 0 || idx >= feed.articles.length) return const Color(0xFF6C63FF);
+      if (idx < 0 || idx >= feed.articles.length)
+        return const Color(0xFF6C63FF);
       final article = feed.articles[idx];
       final primaryCategory = article.categories.isNotEmpty == true
           ? article.categories.first
@@ -912,6 +1004,7 @@ class _ThemedCategoryBar extends ConsumerWidget {
   final VoidCallback onOpenDrawer;
 
   const _ThemedCategoryBar({
+    super.key,
     required this.onboardingCategoryKey,
     required this.onCategoryChanged,
     required this.onOpenDrawer,
@@ -1107,8 +1200,7 @@ class _TopRefreshSpinner extends StatelessWidget {
                 height: 18,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  valueColor:
-                      AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6C63FF)),
                 ),
               ),
             ),
@@ -1222,12 +1314,14 @@ class _CategoryBarState extends ConsumerState<_CategoryBar> {
       _itemKeys.putIfAbsent(cat, () => GlobalKey());
     }
 
-    final (:interests, :country) = ref.watch(authNotifierProvider.select((s) => (
-          interests: s.selectedInterests,
-          country: s.preferredCountry,
-        )));
+    final (:interests, :country) =
+        ref.watch(authNotifierProvider.select((s) => (
+              interests: s.selectedInterests,
+              country: s.preferredCountry,
+            )));
 
-    final deviceCountry = country ?? View.of(context).platformDispatcher.locale.countryCode;
+    final deviceCountry =
+        country ?? View.of(context).platformDispatcher.locale.countryCode;
 
     final sortedCats = _getSortedCategories(interests)
         .where((cat) => cat.isSupported(deviceCountry))

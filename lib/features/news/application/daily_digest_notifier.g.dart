@@ -1,26 +1,27 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'news_feed_notifier.dart';
+part of 'daily_digest_notifier.dart';
 
 // **************************************************************************
 // RiverpodGenerator
 // **************************************************************************
 
-String _$newsFeedNotifierHash() => r'240d83c0ba51b71571524124fafc88d1638f5dbe';
+String _$dailyDigestNotifierHash() =>
+    r'67d7552052dd6dc45cd9e09ef2cdf77055c01c97';
 
-/// See also [NewsFeedNotifier].
-@ProviderFor(NewsFeedNotifier)
-final newsFeedNotifierProvider =
-    AsyncNotifierProvider<NewsFeedNotifier, FeedState>.internal(
-  NewsFeedNotifier.new,
-  name: r'newsFeedNotifierProvider',
+/// See also [DailyDigestNotifier].
+@ProviderFor(DailyDigestNotifier)
+final dailyDigestNotifierProvider =
+    AsyncNotifierProvider<DailyDigestNotifier, DailyDigestState>.internal(
+  DailyDigestNotifier.new,
+  name: r'dailyDigestNotifierProvider',
   debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
       ? null
-      : _$newsFeedNotifierHash,
+      : _$dailyDigestNotifierHash,
   dependencies: null,
   allTransitiveDependencies: null,
 );
 
-typedef _$NewsFeedNotifier = AsyncNotifier<FeedState>;
+typedef _$DailyDigestNotifier = AsyncNotifier<DailyDigestState>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package
