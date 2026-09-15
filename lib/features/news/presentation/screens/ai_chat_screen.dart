@@ -26,7 +26,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   bool _pendingAnchorRequested = false;
   bool _hasAnchoredPendingMessage = false;
-  bool _userScrolledAway = false;
   int? _pendingUserIndex;
 
   static const List<String> _suggestedPrompts = [
@@ -39,7 +38,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   @override
   void initState() {
     super.initState();
-    _scrollController.addListener(_handleScrollPosition);
     if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _sendMessage(widget.initialMessage);
@@ -49,7 +47,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   @override
   void dispose() {
-    _scrollController.removeListener(_handleScrollPosition);
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -58,10 +55,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   bool _isNearBottom() {
     if (!_scrollController.hasClients) return true;
     return _scrollController.position.extentAfter < 80;
-  }
-
-  void _handleScrollPosition() {
-    _userScrolledAway = !_isNearBottom();
   }
 
   bool _hasNonEmptyModelAfter(List<ChatMessage> messages, int userIndex) {
@@ -92,9 +85,9 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   }
 
   void _tryAutoFollowBottom() {
-    if (!mounted || !_scrollController.hasClients || _userScrolledAway) return;
+    if (!mounted || !_scrollController.hasClients || !_isNearBottom()) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients || _userScrolledAway) {
+      if (!mounted || !_scrollController.hasClients || !_isNearBottom()) {
         return;
       }
       _scrollController.animateTo(
@@ -119,7 +112,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     _pendingAnchorRequested = true;
     _hasAnchoredPendingMessage = false;
     _pendingUserIndex = currentMessages.length;
-    _userScrolledAway = false;
 
     ref.read(provider.notifier).sendMessage(message);
     _controller.clear();
@@ -139,7 +131,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     _pendingAnchorRequested = false;
     _hasAnchoredPendingMessage = false;
     _pendingUserIndex = null;
-    _userScrolledAway = false;
   }
 
   @override
@@ -196,7 +187,11 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
       // the user's sent message is already anchored near the top via
       // _anchorPendingMessageNearTop, and forcing the view down on every
       // growing chunk fights any manual scrolling the user does to read
-      // along. Only auto-follow for changes once generation has finished.
+      // along. Only consider auto-following once generation has finished,
+      // and even then _tryAutoFollowBottom only snaps down if the user is
+      // still near the bottom already — a growing response scrolls someone
+      // reading from the top away from the bottom passively (no drag
+      // gesture), and that should not later be treated as "following".
       if (changed && !_pendingAnchorRequested && !next.isLoading) {
         _tryAutoFollowBottom();
       }

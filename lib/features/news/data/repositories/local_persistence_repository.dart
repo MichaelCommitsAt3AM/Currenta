@@ -17,6 +17,7 @@ class LocalPersistenceRepository {
   static const _kNeedsFeedRefresh = 'needs_feed_refresh';
   static const _kLastRefreshAt = 'last_refresh_at';
   static const _kTrendingFilters = 'trending_filters';
+  static const _kHasPrioritizedFirstFeedImage = 'has_prioritized_first_feed_image';
 
   Future<void> saveCurrentArticleId(String? articleId) async {
     if (articleId == null) {
@@ -93,6 +94,12 @@ class LocalPersistenceRepository {
 
   Future<void> setNeedsFeedRefresh(bool value) =>
       _prefs.setBool(_kNeedsFeedRefresh, value);
+
+  bool hasPrioritizedFirstFeedImage() =>
+      _prefs.getBool(_kHasPrioritizedFirstFeedImage) ?? false;
+
+  Future<void> setHasPrioritizedFirstFeedImage(bool value) =>
+      _prefs.setBool(_kHasPrioritizedFirstFeedImage, value);
 
   Future<void> saveTrendingFilters(TrendingFilters filters) async {
     await _prefs.setString(_kTrendingFilters, jsonEncode(filters.toJson()));

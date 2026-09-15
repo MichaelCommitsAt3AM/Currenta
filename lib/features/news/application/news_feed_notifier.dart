@@ -297,6 +297,25 @@ class NewsFeedNotifier extends _$NewsFeedNotifier {
     // 6. Position restoration (Always start at top for fresh feed)
     const int initialIndex = 0;
 
+    // 6.1 First-ever feed on this device: prefer opening on an article that
+    // has an image, since the very first screen a new/guest user sees looks
+    // better with one. One-shot local reorder only — never touches ranking,
+    // never re-runs once it's had a chance to apply.
+    if (!_persistence.hasPrioritizedFirstFeedImage() && articles.isNotEmpty) {
+      final imageIndex = articles.indexWhere(
+          (a) => a.imageUrl != null && a.imageUrl!.isNotEmpty);
+      if (imageIndex > 0) {
+        articles = [
+          articles[imageIndex],
+          ...articles.sublist(0, imageIndex),
+          ...articles.sublist(imageIndex + 1),
+        ];
+      }
+      if (imageIndex >= 0) {
+        unawaited(_persistence.setHasPrioritizedFirstFeedImage(true));
+      }
+    }
+
     final finalState = FeedState(
       articles: _interleaveAds(articles),
       hasMore: hasMore,
