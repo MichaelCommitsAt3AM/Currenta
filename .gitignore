@@ -78,6 +78,9 @@ backend/core/*.mmdb
 backend/core/*.mmdb.gz
 android/key.properties
 
+# GCP service account keys (e.g. for the Billing Export BigQuery reader)
+secrets/
+
 
 # Screenshot testing
 /screenshots

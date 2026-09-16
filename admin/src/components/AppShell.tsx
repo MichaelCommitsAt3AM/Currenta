@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import type { AdminSession } from '../hooks/useAdminSession'
 import { ToastProvider } from '../hooks/useToast'
 import { AnalyticsPage } from '../routes/AnalyticsPage'
+import { BillingPage } from '../routes/BillingPage'
 import { IngestionPage } from '../routes/IngestionPage'
 import { LogsPage } from '../routes/LogsPage'
 import { QueryExplorerPage } from '../routes/QueryExplorerPage'
@@ -42,6 +43,7 @@ export function AppShell({ auth }: Props) {
               <Route path="/analytics" element={<AnalyticsPage token={token} />} />
               <Route path="/trending" element={<TrendingPage token={token} />} />
               <Route path="/logs" element={<LogsPage token={token} />} />
+              <Route path="/billing" element={<BillingPage token={token} />} />
               <Route path="*" element={<Navigate to="/ingest" replace />} />
             </Routes>
           </main>

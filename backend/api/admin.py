@@ -20,6 +20,7 @@ from ..services.ingestion import (
     VALID_CATEGORIES
 )
 from ..services.taxonomy import get_taxonomy
+from ..services.gcp_billing import get_billing_cost_rows
 import asyncio
 from datetime import date, timedelta
 
@@ -129,6 +130,23 @@ class LogFacets(BaseModel):
     loggers: List[str]
     components: List[str]
     level_counts: dict
+
+
+class BillingDailyCost(BaseModel):
+    date: date
+    cost: float
+
+
+class BillingServiceCost(BaseModel):
+    service: str
+    cost: float
+
+
+class BillingTrendsResponse(BaseModel):
+    currency: str
+    total_cost: float
+    daily: List[BillingDailyCost]
+    by_service: List[BillingServiceCost]
 
 
 @router.get("/session/check")
@@ -869,4 +887,47 @@ async def get_log_facets(
         "loggers": loggers,
         "components": components,
         "level_counts": level_counts,
+    }
+
+
+@router.get("/billing/trends", response_model=BillingTrendsResponse)
+async def get_billing_trends(
+    days: int = Query(30, ge=1, le=90),
+    user: User = Depends(verify_is_admin)
+):
+    """
+    Cost trends from the GCP Billing Export BigQuery table. Requires
+    BIGQUERY_BILLING_TABLE / GOOGLE_APPLICATION_CREDENTIALS — see CLAUDE.md.
+    """
+    try:
+        rows = await get_billing_cost_rows(days)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        logger.exception("Failed to query GCP billing export")
+        raise HTTPException(status_code=502, detail="Failed to query GCP billing data")
+
+    daily_totals: dict = {}
+    service_totals: dict = {}
+    currency = "USD"
+    for row in rows:
+        net_cost = float(row["cost"] or 0) + float(row["credits"] or 0)
+        usage_date = row["usage_date"]
+        service = row["service_name"] or "Other"
+        currency = row["currency"] or currency
+        daily_totals[usage_date] = daily_totals.get(usage_date, 0.0) + net_cost
+        service_totals[service] = service_totals.get(service, 0.0) + net_cost
+
+    daily = [{"date": d, "cost": round(c, 4)} for d, c in sorted(daily_totals.items())]
+    by_service = sorted(
+        ({"service": s, "cost": round(c, 4)} for s, c in service_totals.items()),
+        key=lambda row: row["cost"],
+        reverse=True,
+    )
+
+    return {
+        "currency": currency,
+        "total_cost": round(sum(daily_totals.values()), 4),
+        "daily": daily,
+        "by_service": by_service,
     }

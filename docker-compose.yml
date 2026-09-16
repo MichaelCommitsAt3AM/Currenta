@@ -23,6 +23,12 @@ services:
       - TRUST_PROXY_HEADERS=true
       - TRUSTED_PROXY_IPS=*
       - APP_LOG_DB_LEVEL=${APP_LOG_DB_LEVEL:-WARNING}
+      # GCP Billing Export -> BigQuery, read by /api/admin/billing/trends.
+      # GOOGLE_APPLICATION_CREDENTIALS should point at a key file under the
+      # repo (e.g. secrets/gcp-billing-key.json, gitignored) since the whole
+      # repo is already bind-mounted into /app below.
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
+      - BIGQUERY_BILLING_TABLE=${BIGQUERY_BILLING_TABLE:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

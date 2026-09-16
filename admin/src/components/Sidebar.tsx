@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { BarChartIcon, FileTextIcon, InboxIcon, SearchIcon, TrendingUpIcon } from './icons'
+import { BarChartIcon, DollarSignIcon, FileTextIcon, InboxIcon, SearchIcon, TrendingUpIcon } from './icons'
 import styles from './Sidebar.module.css'
 
 const NAV_ITEMS = [
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/analytics', icon: BarChartIcon, label: 'Analytics' },
   { to: '/trending', icon: TrendingUpIcon, label: 'Trending' },
   { to: '/logs', icon: FileTextIcon, label: 'Backend Logs' },
+  { to: '/billing', icon: DollarSignIcon, label: 'GCP Billing' },
 ]
 
 interface Props {
